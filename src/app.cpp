@@ -224,7 +224,7 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 
     // ── A/B swap / 1:1 zoom ───────────────────────────────────────────────────
     case SDL_SCANCODE_SPACE:
-        if (shift) {
+        if (shift && state.images[0].loaded && state.images[1].loaded) {
             state.swap_images = !state.swap_images;
         } else {
             viewport_set_zoom(vA, 1.0f);
