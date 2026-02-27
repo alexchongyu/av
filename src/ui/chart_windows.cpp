@@ -111,8 +111,22 @@ void render_histogram_window(AppState& state) {
     }
     float avail_w = ImGui::GetContentRegionAvail().x;
     float avail_h = ImGui::GetContentRegionAvail().y;
-    // Y-axis label: 40px left margin
-    float chart_w = std::max(avail_w - 16.0f - 40.0f, 200.0f);
+    // Compute y-margin dynamically based on max possible histogram count
+    float y_margin = 40.0f;
+    {
+        int64_t max_possible = 0;
+        for (int ii = 0; ii < 2; ++ii) {
+            if (state.images[ii].loaded) {
+                int64_t np = (int64_t)state.images[ii].width * state.images[ii].height;
+                if (np > max_possible) max_possible = np;
+            }
+        }
+        if (max_possible > 0) {
+            std::string s = fmt_comma(max_possible);
+            y_margin = std::max(ImGui::CalcTextSize(s.c_str()).x + 8.0f, 40.0f);
+        }
+    }
+    float chart_w = std::max(avail_w - 16.0f - y_margin, 200.0f);
     int total_charts = num_sections_h * 3;
     // overhead: 104px per section (labels/spacing) + 16px per channel x 3 for X-axis labels
     float overhead = (float)num_sections_h * 152.0f;
@@ -143,6 +157,8 @@ void render_histogram_window(AppState& state) {
         ImGui::Text("%s", label);
         const uint32_t* ch_data[3] = { hist_r, hist_g, hist_b };
         ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImVec2 ch_origins[3];
+        float  ch_heights[3];
         for (int c = 0; c < 3; ++c) {
             // Per-channel max log normalisation (each channel self-contained)
             float max_log = 1.0f;
@@ -153,10 +169,12 @@ void render_histogram_window(AppState& state) {
                 if (ch_data[c][b] > max_count) max_count = ch_data[c][b];
             }
             ImGui::Text("  %s", ch_names[c]);
-            // Offset cursor 40px right for Y-axis label space
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 40.0f);
+            // Offset cursor right for Y-axis label space
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + y_margin);
             ImVec2 origin = ImGui::GetCursorScreenPos();
             ImGui::Dummy(ImVec2(cw, chh));
+            ch_origins[c] = origin;
+            ch_heights[c] = chh;
             draw_chart_bg(dl, origin, cw, chh);
             float bar_w = cw / 256.0f;
             for (int b = 0; b < 256; ++b) {
@@ -191,6 +209,36 @@ void render_histogram_window(AppState& state) {
             }
             // Reserve space for X-axis label (replaces Spacing)
             ImGui::Dummy(ImVec2(0.0f, 16.0f));
+        }
+        // ── Hover crosshair & tooltip ──
+        {
+            static const ImVec4 tip_cols[3] = {
+                ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+                ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
+                ImVec4(0.3f, 0.3f, 1.0f, 1.0f)
+            };
+            const uint32_t* tip_data[3] = { hist_r, hist_g, hist_b };
+            ImVec2 mouse = ImGui::GetMousePos();
+            for (int c = 0; c < 3; ++c) {
+                ImVec2 org = ch_origins[c];
+                float  h   = ch_heights[c];
+                if (!ImGui::IsMouseHoveringRect(org, ImVec2(org.x + cw, org.y + h))) continue;
+                int bin = std::clamp((int)((mouse.x - org.x) / cw * 256.0f), 0, 255);
+                float bx = org.x + (bin + 0.5f) / 256.0f * cw;
+                for (int cc = 0; cc < 3; ++cc)
+                    dl->AddLine(ImVec2(bx, ch_origins[cc].y),
+                                ImVec2(bx, ch_origins[cc].y + ch_heights[cc]),
+                                IM_COL32(255, 255, 255, 120), 1.0f);
+                ImGui::BeginTooltip();
+                ImGui::Text("Bin: %d", bin);
+                ImGui::Separator();
+                for (int cc = 0; cc < 3; ++cc) {
+                    std::string s = fmt_comma((int64_t)tip_data[cc][bin]);
+                    ImGui::TextColored(tip_cols[cc], "%s: %s", ch_names[cc], s.c_str());
+                }
+                ImGui::EndTooltip();
+                break;
+            }
         }
     };
 
@@ -344,6 +392,8 @@ void render_hline_cut_window(AppState& state) {
         const float* ch_data[3] = { rv, gv, bv };
         ImDrawList* dl = ImGui::GetWindowDrawList();
         int num_pts = std::min(n, (int)cw);
+        ImVec2 ch_origins[3];
+        float  ch_heights[3];
 
         // X-axis nice ticks for pixel coordinates
         std::vector<int> x_ticks;
@@ -355,6 +405,8 @@ void render_hline_cut_window(AppState& state) {
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 40.0f);
             ImVec2 origin = ImGui::GetCursorScreenPos();
             ImGui::Dummy(ImVec2(cw, chh));
+            ch_origins[c] = origin;
+            ch_heights[c] = chh;
             draw_chart_bg(dl, origin, cw, chh);
             if (num_pts >= 2) {
                 draw_channel_line(dl, ch_data[c], n, num_pts, origin, cw, chh, ch_colors[c]);
@@ -385,6 +437,39 @@ void render_hline_cut_window(AppState& state) {
             }
             // Reserve space for X-axis label
             ImGui::Dummy(ImVec2(0.0f, 16.0f));
+        }
+        // ── Hover crosshair & tooltip ──
+        if (n >= 1) {
+            static const ImVec4 tip_cols[3] = {
+                ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+                ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
+                ImVec4(0.3f, 0.3f, 1.0f, 1.0f)
+            };
+            const float* tip_data[3] = { rv, gv, bv };
+            ImVec2 mouse = ImGui::GetMousePos();
+            for (int c = 0; c < 3; ++c) {
+                ImVec2 org = ch_origins[c];
+                float  h   = ch_heights[c];
+                if (!ImGui::IsMouseHoveringRect(org, ImVec2(org.x + cw, org.y + h))) continue;
+                int idx = std::clamp((int)std::round((mouse.x - org.x) / cw * (n - 1)), 0, n - 1);
+                float px = org.x + (n > 1 ? (float)idx / (float)(n - 1) : 0.5f) * cw;
+                for (int cc = 0; cc < 3; ++cc)
+                    dl->AddLine(ImVec2(px, ch_origins[cc].y),
+                                ImVec2(px, ch_origins[cc].y + ch_heights[cc]),
+                                IM_COL32(255, 255, 255, 120), 1.0f);
+                ImGui::BeginTooltip();
+                ImGui::Text("X: %d", idx);
+                ImGui::Separator();
+                for (int cc = 0; cc < 3; ++cc) {
+                    float val = tip_data[cc][idx] * max_val;
+                    if (is_hdr_fmt)
+                        ImGui::TextColored(tip_cols[cc], "%s: %.4f", ch_names[cc], val);
+                    else
+                        ImGui::TextColored(tip_cols[cc], "%s: %d", ch_names[cc], (int)std::roundf(val));
+                }
+                ImGui::EndTooltip();
+                break;
+            }
         }
     };
 
@@ -559,6 +644,8 @@ void render_vline_cut_window(AppState& state) {
         const float* ch_data[3] = { rv, gv, bv };
         ImDrawList* dl = ImGui::GetWindowDrawList();
         int num_pts = std::min(n, (int)cw);
+        ImVec2 ch_origins[3];
+        float  ch_heights[3];
 
         // X-axis nice ticks for pixel coordinates
         std::vector<int> x_ticks;
@@ -570,6 +657,8 @@ void render_vline_cut_window(AppState& state) {
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 40.0f);
             ImVec2 origin = ImGui::GetCursorScreenPos();
             ImGui::Dummy(ImVec2(cw, chh));
+            ch_origins[c] = origin;
+            ch_heights[c] = chh;
             draw_chart_bg(dl, origin, cw, chh);
             if (num_pts >= 2) {
                 draw_channel_line(dl, ch_data[c], n, num_pts, origin, cw, chh, ch_colors[c]);
@@ -600,6 +689,39 @@ void render_vline_cut_window(AppState& state) {
             }
             // Reserve space for X-axis label
             ImGui::Dummy(ImVec2(0.0f, 16.0f));
+        }
+        // ── Hover crosshair & tooltip ──
+        if (n >= 1) {
+            static const ImVec4 tip_cols[3] = {
+                ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+                ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
+                ImVec4(0.3f, 0.3f, 1.0f, 1.0f)
+            };
+            const float* tip_data[3] = { rv, gv, bv };
+            ImVec2 mouse = ImGui::GetMousePos();
+            for (int c = 0; c < 3; ++c) {
+                ImVec2 org = ch_origins[c];
+                float  h   = ch_heights[c];
+                if (!ImGui::IsMouseHoveringRect(org, ImVec2(org.x + cw, org.y + h))) continue;
+                int idx = std::clamp((int)std::round((mouse.x - org.x) / cw * (n - 1)), 0, n - 1);
+                float px = org.x + (n > 1 ? (float)idx / (float)(n - 1) : 0.5f) * cw;
+                for (int cc = 0; cc < 3; ++cc)
+                    dl->AddLine(ImVec2(px, ch_origins[cc].y),
+                                ImVec2(px, ch_origins[cc].y + ch_heights[cc]),
+                                IM_COL32(255, 255, 255, 120), 1.0f);
+                ImGui::BeginTooltip();
+                ImGui::Text("Y: %d", idx);
+                ImGui::Separator();
+                for (int cc = 0; cc < 3; ++cc) {
+                    float val = tip_data[cc][idx] * max_val;
+                    if (is_hdr_fmt)
+                        ImGui::TextColored(tip_cols[cc], "%s: %.4f", ch_names[cc], val);
+                    else
+                        ImGui::TextColored(tip_cols[cc], "%s: %d", ch_names[cc], (int)std::roundf(val));
+                }
+                ImGui::EndTooltip();
+                break;
+            }
         }
     };
 
