@@ -7,6 +7,7 @@
 #include <iostream>
 #include <cstring>
 #include <cstdlib>
+#include <cmath>
 #include <string>
 
 // ─── parse_cli ────────────────────────────────────────────────────────────────
@@ -117,8 +118,6 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 
     auto& vA = state.views[0];
     auto& vB = state.views[1];
-    auto& imgA = state.images[0];
-    auto& imgB = state.images[1];
 
     // Pan step in image-pixels (zoom-independent)
     float step = shift ? static_cast<float>(state.pan_step) : 1.0f;
@@ -140,27 +139,33 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         viewport_zoom_out(vA);
         if (state.sync_viewports) { vB.zoom = vA.zoom; vB.fit = false; }
         break;
-    case SDL_SCANCODE_0:
-    case SDL_SCANCODE_KP_0:
-        if (imgA.loaded) viewport_fit(vA, imgA.width, imgA.height, 0, 0);
-        if (imgB.loaded) viewport_fit(vB, imgB.width, imgB.height, 0, 0);
-        vA.fit = vB.fit = true;
+    case SDL_SCANCODE_Z:
+        if (shift) {
+            viewport_zoom_out(vA);
+            if (state.sync_viewports) { vB.zoom = vA.zoom; vB.fit = false; }
+        } else {
+            viewport_zoom_in(vA);
+            if (state.sync_viewports) { vB.zoom = vA.zoom; vB.fit = false; }
+        }
         break;
-    case SDL_SCANCODE_1:
-        viewport_set_zoom(vA, 1.0f);
+    case SDL_SCANCODE_0: case SDL_SCANCODE_1: case SDL_SCANCODE_2:
+    case SDL_SCANCODE_3: case SDL_SCANCODE_4: case SDL_SCANCODE_5:
+    case SDL_SCANCODE_6: case SDL_SCANCODE_7: case SDL_SCANCODE_8: {
+        if (ctrl) {
+            // ctrl+number: diff mode shortcuts
+            int key_num = (scancode == SDL_SCANCODE_0) ? 0 : (scancode - SDL_SCANCODE_1 + 1);
+            if      (key_num == 3) state.diff.mode = DiffState::Mode::PixelAbsolute;
+            else if (key_num == 5) state.diff.mode = DiffState::Mode::FalseColor;
+            else if (key_num == 6) state.diff.mode = DiffState::Mode::SSIM;
+            break;
+        }
+        int key_num = (scancode == SDL_SCANCODE_0) ? 0 : (scancode - SDL_SCANCODE_1 + 1);
+        float zoom = std::pow(2.0f, static_cast<float>(key_num));
+        viewport_set_zoom(vA, zoom);
         viewport_center(vA);
-        if (state.sync_viewports) { viewport_set_zoom(vB, 1.0f); viewport_center(vB); }
+        if (state.sync_viewports) { viewport_set_zoom(vB, zoom); viewport_center(vB); }
         break;
-    case SDL_SCANCODE_2:
-        viewport_set_zoom(vA, 2.0f);
-        viewport_center(vA);
-        if (state.sync_viewports) { viewport_set_zoom(vB, 2.0f); viewport_center(vB); }
-        break;
-    case SDL_SCANCODE_4:
-        viewport_set_zoom(vA, 4.0f);
-        viewport_center(vA);
-        if (state.sync_viewports) { viewport_set_zoom(vB, 4.0f); viewport_center(vB); }
-        break;
+    }
     case SDL_SCANCODE_F:
         vA.fit = !vA.fit;
         if (state.sync_viewports) vB.fit = vA.fit;
@@ -197,15 +202,6 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         break;
 
     // ── Diff mode ─────────────────────────────────────────────────────────────
-    case SDL_SCANCODE_3:
-        if (ctrl) state.diff.mode = DiffState::Mode::PixelAbsolute;
-        break;
-    case SDL_SCANCODE_5:
-        if (ctrl) state.diff.mode = DiffState::Mode::FalseColor;
-        break;
-    case SDL_SCANCODE_6:
-        if (ctrl) state.diff.mode = DiffState::Mode::SSIM;
-        break;
     case SDL_SCANCODE_D:
         if (ctrl) state.diff.mode = DiffState::Mode::None;
         break;
@@ -226,9 +222,15 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         if (!ctrl) state.sync_viewports = !state.sync_viewports;
         break;
 
-    // ── A/B swap ──────────────────────────────────────────────────────────────
+    // ── A/B swap / 1:1 zoom ───────────────────────────────────────────────────
     case SDL_SCANCODE_SPACE:
-        state.swap_images = !state.swap_images;
+        if (shift) {
+            state.swap_images = !state.swap_images;
+        } else {
+            viewport_set_zoom(vA, 1.0f);
+            viewport_center(vA);
+            if (state.sync_viewports) { viewport_set_zoom(vB, 1.0f); viewport_center(vB); }
+        }
         break;
 
     // ── Panel focus ───────────────────────────────────────────────────────────

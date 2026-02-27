@@ -148,18 +148,18 @@ void ImagePanel::render_pixel_values(const AppState& state, int panel_idx,
 
     float zoom = vp.zoom;
 
-    // Shader transform: img_px = (screen_px - view_size*0.5 - u_pan) / zoom + image_size*0.5
-    // Inverse:          screen_px = (img_px - image_size*0.5) * zoom + view_size*0.5 + u_pan
+    // Shader transform: img_px = (screen_px - view_size*0.5) / zoom - u_pan + image_size*0.5
+    // Inverse:          screen_px = (img_px + u_pan - image_size*0.5) * zoom + view_size*0.5
     float half_vw = view_w * 0.5f;
     float half_vh = view_h * 0.5f;
     float half_iw = img.width * 0.5f;
     float half_ih = img.height * 0.5f;
 
     // screen_px = 0 -> img_px, screen_px = view_w -> img_px
-    float img_x0 = (0.0f - half_vw - vp.pan_x) / zoom + half_iw;
-    float img_y0 = (0.0f - half_vh - vp.pan_y) / zoom + half_ih;
-    float img_x1 = (view_w - half_vw - vp.pan_x) / zoom + half_iw;
-    float img_y1 = (view_h - half_vh - vp.pan_y) / zoom + half_ih;
+    float img_x0 = (0.0f - half_vw) / zoom - vp.pan_x + half_iw;
+    float img_y0 = (0.0f - half_vh) / zoom - vp.pan_y + half_ih;
+    float img_x1 = (view_w - half_vw) / zoom - vp.pan_x + half_iw;
+    float img_y1 = (view_h - half_vh) / zoom - vp.pan_y + half_ih;
 
     int px_start_x = std::max(0, (int)std::floor(img_x0));
     int px_start_y = std::max(0, (int)std::floor(img_y0));
@@ -177,14 +177,14 @@ void ImagePanel::render_pixel_values(const AppState& state, int panel_idx,
     float clip_x1 = widget_pos.x + view_w;
     float clip_y1 = widget_pos.y + view_h;
 
-    // Inverse transform: screen_px = (img_px - half_iw) * zoom + half_vw + pan
+    // Inverse transform: screen_px = (img_px + pan - half_iw) * zoom + half_vw
     for (int px = px_start_x; px <= px_end_x; ++px) {
-        float sx = (px - half_iw) * zoom + half_vw + vp.pan_x + widget_pos.x;
+        float sx = (px + vp.pan_x - half_iw) * zoom + half_vw + widget_pos.x;
         if (sx >= clip_x0 && sx <= clip_x1)
             dl->AddLine(ImVec2(sx, clip_y0), ImVec2(sx, clip_y1), grid_col);
     }
     for (int py = px_start_y; py <= px_end_y; ++py) {
-        float sy = (py - half_ih) * zoom + half_vh + vp.pan_y + widget_pos.y;
+        float sy = (py + vp.pan_y - half_ih) * zoom + half_vh + widget_pos.y;
         if (sy >= clip_y0 && sy <= clip_y1)
             dl->AddLine(ImVec2(clip_x0, sy), ImVec2(clip_x1, sy), grid_col);
     }
@@ -202,8 +202,8 @@ void ImagePanel::render_pixel_values(const AppState& state, int panel_idx,
     for (int py = px_start_y; py < px_end_y; ++py) {
         for (int px = px_start_x; px < px_end_x; ++px) {
             // Pixel center (px+0.5, py+0.5) -> screen position
-            float scr_x = (px + 0.5f - half_iw) * zoom + half_vw + vp.pan_x;
-            float scr_y = (py + 0.5f - half_ih) * zoom + half_vh + vp.pan_y;
+            float scr_x = (px + 0.5f + vp.pan_x - half_iw) * zoom + half_vw;
+            float scr_y = (py + 0.5f + vp.pan_y - half_ih) * zoom + half_vh;
             float abs_x = widget_pos.x + scr_x;
             float abs_y = widget_pos.y + scr_y;
 
@@ -222,34 +222,47 @@ void ImagePanel::render_pixel_values(const AppState& state, int panel_idx,
                 continue;
             }
 
-            ImVec2 szr = ImGui::CalcTextSize(sr);
-            ImVec2 szg = ImGui::CalcTextSize(sg);
-            ImVec2 szb = ImGui::CalcTextSize(sb);
-            szr.x *= scale; szr.y *= scale;
-            szg.x *= scale; szg.y *= scale;
-            szb.x *= scale; szb.y *= scale;
+            if (state.channel_mode == ChannelMode::RGB) {
+                ImVec2 szr = ImGui::CalcTextSize(sr);
+                ImVec2 szg = ImGui::CalcTextSize(sg);
+                ImVec2 szb = ImGui::CalcTextSize(sb);
+                szr.x *= scale; szr.y *= scale;
+                szg.x *= scale; szg.y *= scale;
+                szb.x *= scale; szb.y *= scale;
 
-            float gap = 1.0f * scale;
-            float total_h = szr.y + szg.y + szb.y + 2.0f * gap;
-            float ry = abs_y - total_h * 0.5f;
-            float gy = ry + szr.y + gap;
-            float by = gy + szg.y + gap;
+                float gap = 1.0f * scale;
+                float total_h = szr.y + szg.y + szb.y + 2.0f * gap;
+                float ry = abs_y - total_h * 0.5f;
+                float gy = ry + szr.y + gap;
+                float by = gy + szg.y + gap;
 
-            // Shadow + colored text for each channel
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szr.x * 0.5f + 1, ry + 1), shadow, sr);
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szr.x * 0.5f, ry), col_r, sr);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szr.x * 0.5f + 1, ry + 1), shadow, sr);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szr.x * 0.5f, ry), col_r, sr);
 
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szg.x * 0.5f + 1, gy + 1), shadow, sg);
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szg.x * 0.5f, gy), col_g, sg);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szg.x * 0.5f + 1, gy + 1), shadow, sg);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szg.x * 0.5f, gy), col_g, sg);
 
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szb.x * 0.5f + 1, by + 1), shadow, sb);
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szb.x * 0.5f, by), col_b, sb);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szb.x * 0.5f + 1, by + 1), shadow, sb);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szb.x * 0.5f, by), col_b, sb);
+            } else {
+                const char* s_ch  = (state.channel_mode == ChannelMode::Red)   ? sr :
+                                    (state.channel_mode == ChannelMode::Green)  ? sg : sb;
+                ImU32       col_ch = (state.channel_mode == ChannelMode::Red)   ? col_r :
+                                    (state.channel_mode == ChannelMode::Green)  ? col_g : col_b;
+                ImVec2 sz = ImGui::CalcTextSize(s_ch);
+                sz.x *= scale; sz.y *= scale;
+                float ty = abs_y - sz.y * 0.5f;
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - sz.x * 0.5f + 1, ty + 1), shadow, s_ch);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - sz.x * 0.5f, ty), col_ch, s_ch);
+            }
         }
     }
 }
@@ -318,10 +331,10 @@ void ImagePanel::render_diff_pixel_values(const AppState& state,
     float half_iw = imgA.width * 0.5f;
     float half_ih = imgA.height * 0.5f;
 
-    float img_x0 = (0.0f - half_vw - vp.pan_x) / zoom + half_iw;
-    float img_y0 = (0.0f - half_vh - vp.pan_y) / zoom + half_ih;
-    float img_x1 = (view_w - half_vw - vp.pan_x) / zoom + half_iw;
-    float img_y1 = (view_h - half_vh - vp.pan_y) / zoom + half_ih;
+    float img_x0 = (0.0f - half_vw) / zoom - vp.pan_x + half_iw;
+    float img_y0 = (0.0f - half_vh) / zoom - vp.pan_y + half_ih;
+    float img_x1 = (view_w - half_vw) / zoom - vp.pan_x + half_iw;
+    float img_y1 = (view_h - half_vh) / zoom - vp.pan_y + half_ih;
 
     int px_start_x = std::max(0, (int)std::floor(img_x0));
     int px_start_y = std::max(0, (int)std::floor(img_y0));
@@ -340,12 +353,12 @@ void ImagePanel::render_diff_pixel_values(const AppState& state,
     float clip_y1 = widget_pos.y + view_h;
 
     for (int px = px_start_x; px <= px_end_x; ++px) {
-        float sx = (px - half_iw) * zoom + half_vw + vp.pan_x + widget_pos.x;
+        float sx = (px + vp.pan_x - half_iw) * zoom + half_vw + widget_pos.x;
         if (sx >= clip_x0 && sx <= clip_x1)
             dl->AddLine(ImVec2(sx, clip_y0), ImVec2(sx, clip_y1), grid_col);
     }
     for (int py = px_start_y; py <= px_end_y; ++py) {
-        float sy = (py - half_ih) * zoom + half_vh + vp.pan_y + widget_pos.y;
+        float sy = (py + vp.pan_y - half_ih) * zoom + half_vh + widget_pos.y;
         if (sy >= clip_y0 && sy <= clip_y1)
             dl->AddLine(ImVec2(clip_x0, sy), ImVec2(clip_x1, sy), grid_col);
     }
@@ -366,8 +379,8 @@ void ImagePanel::render_diff_pixel_values(const AppState& state,
 
     for (int py = px_start_y; py < px_end_y; ++py) {
         for (int px = px_start_x; px < px_end_x; ++px) {
-            float scr_x = (px + 0.5f - half_iw) * zoom + half_vw + vp.pan_x;
-            float scr_y = (py + 0.5f - half_ih) * zoom + half_vh + vp.pan_y;
+            float scr_x = (px + 0.5f + vp.pan_x - half_iw) * zoom + half_vw;
+            float scr_y = (py + 0.5f + vp.pan_y - half_ih) * zoom + half_vh;
             float abs_x = widget_pos.x + scr_x;
             float abs_y = widget_pos.y + scr_y;
 
@@ -393,33 +406,47 @@ void ImagePanel::render_diff_pixel_values(const AppState& state,
                 continue;
             }
 
-            ImVec2 szr = ImGui::CalcTextSize(sr);
-            ImVec2 szg = ImGui::CalcTextSize(sg);
-            ImVec2 szb = ImGui::CalcTextSize(sb);
-            szr.x *= scale; szr.y *= scale;
-            szg.x *= scale; szg.y *= scale;
-            szb.x *= scale; szb.y *= scale;
+            if (state.channel_mode == ChannelMode::RGB) {
+                ImVec2 szr = ImGui::CalcTextSize(sr);
+                ImVec2 szg = ImGui::CalcTextSize(sg);
+                ImVec2 szb = ImGui::CalcTextSize(sb);
+                szr.x *= scale; szr.y *= scale;
+                szg.x *= scale; szg.y *= scale;
+                szb.x *= scale; szb.y *= scale;
 
-            float gap = 1.0f * scale;
-            float total_h = szr.y + szg.y + szb.y + 2.0f * gap;
-            float ry = abs_y - total_h * 0.5f;
-            float gy = ry + szr.y + gap;
-            float by = gy + szg.y + gap;
+                float gap = 1.0f * scale;
+                float total_h = szr.y + szg.y + szb.y + 2.0f * gap;
+                float ry = abs_y - total_h * 0.5f;
+                float gy = ry + szr.y + gap;
+                float by = gy + szg.y + gap;
 
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szr.x * 0.5f + 1, ry + 1), shadow, sr);
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szr.x * 0.5f, ry), col_r, sr);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szr.x * 0.5f + 1, ry + 1), shadow, sr);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szr.x * 0.5f, ry), col_r, sr);
 
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szg.x * 0.5f + 1, gy + 1), shadow, sg);
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szg.x * 0.5f, gy), col_g, sg);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szg.x * 0.5f + 1, gy + 1), shadow, sg);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szg.x * 0.5f, gy), col_g, sg);
 
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szb.x * 0.5f + 1, by + 1), shadow, sb);
-            dl->AddText(ImGui::GetFont(), font_size,
-                        ImVec2(abs_x - szb.x * 0.5f, by), col_b, sb);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szb.x * 0.5f + 1, by + 1), shadow, sb);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - szb.x * 0.5f, by), col_b, sb);
+            } else {
+                const char* s_ch  = (state.channel_mode == ChannelMode::Red)   ? sr :
+                                    (state.channel_mode == ChannelMode::Green)  ? sg : sb;
+                ImU32       col_ch = (state.channel_mode == ChannelMode::Red)   ? col_r :
+                                    (state.channel_mode == ChannelMode::Green)  ? col_g : col_b;
+                ImVec2 sz = ImGui::CalcTextSize(s_ch);
+                sz.x *= scale; sz.y *= scale;
+                float ty = abs_y - sz.y * 0.5f;
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - sz.x * 0.5f + 1, ty + 1), shadow, s_ch);
+                dl->AddText(ImGui::GetFont(), font_size,
+                            ImVec2(abs_x - sz.x * 0.5f, ty), col_ch, s_ch);
+            }
         }
     }
 }

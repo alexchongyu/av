@@ -7,9 +7,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0")
-    # Apple Silicon: arm64, or universal
+    # Apple Silicon: arm64 only
     if(NOT CMAKE_OSX_ARCHITECTURES)
-        set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
+        set(CMAKE_OSX_ARCHITECTURES "arm64")
     endif()
 endif()
 
@@ -152,5 +152,8 @@ endif()
 set_target_properties(av PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
 )
+
+# Install: cmake --install build  →  ~/.local/bin/av
+install(TARGETS av RUNTIME DESTINATION $ENV{HOME}/.local/bin)
 
 message(STATUS "av build configured — C++20, OpenGL 3.3 Core")

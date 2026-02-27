@@ -67,7 +67,8 @@ int main(int argc, char* argv[]) {
     SDL_WindowFlags win_flags = SDL_WINDOW_OPENGL |
                                 SDL_WINDOW_RESIZABLE |
                                 SDL_WINDOW_BORDERLESS |
-                                SDL_WINDOW_HIGH_PIXEL_DENSITY;
+                                SDL_WINDOW_HIGH_PIXEL_DENSITY |
+                                SDL_WINDOW_MAXIMIZED;
     if (cli.fullscreen) {
         win_flags |= SDL_WINDOW_FULLSCREEN;
     }

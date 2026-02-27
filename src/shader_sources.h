@@ -40,8 +40,8 @@ out vec4 out_color;
 void main() {
     // Map viewport UV → image UV with pan/zoom
     vec2 screen_px = v_uv * u_view_size;
-    vec2 img_px    = (screen_px - u_view_size * 0.5 - u_pan) / u_zoom
-                     + u_image_size * 0.5;
+    vec2 img_px    = (screen_px - u_view_size * 0.5) / u_zoom
+                     - u_pan + u_image_size * 0.5;
     vec2 uv = img_px / u_image_size;
 
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
@@ -98,8 +98,8 @@ vec3 falsecolor(float t) {
 
 void main() {
     vec2 screen_px = v_uv * u_view_size;
-    vec2 img_px    = (screen_px - u_view_size * 0.5 - u_pan) / u_zoom
-                     + u_image_size * 0.5;
+    vec2 img_px    = (screen_px - u_view_size * 0.5) / u_zoom
+                     - u_pan + u_image_size * 0.5;
     vec2 uv = img_px / u_image_size;
 
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
@@ -171,8 +171,8 @@ vec3 falsecolor(float t) {
 
 void main() {
     vec2 screen_px = v_uv * u_view_size;
-    vec2 img_px    = (screen_px - u_view_size * 0.5 - u_pan) / u_zoom
-                     + u_image_size * 0.5;
+    vec2 img_px    = (screen_px - u_view_size * 0.5) / u_zoom
+                     - u_pan + u_image_size * 0.5;
     vec2 uv = img_px / u_image_size;
 
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
