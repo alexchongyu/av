@@ -66,6 +66,31 @@ void ImagePanel::handle_mouse_pan(AppState& state, int panel_idx) {
     }
 }
 
+// ─── draw_image_border ────────────────────────────────────────────────────────
+// Draws a thick border rect around the image extent in screen space.
+// Transform (matches shader): screen_px = (img_px + pan - half_img) * zoom + half_view
+
+static void draw_image_border(ImDrawList* dl, ImVec2 widget_pos,
+                               float view_w, float view_h,
+                               float img_w,  float img_h,
+                               float pan_x,  float pan_y, float zoom) {
+    float half_vw = view_w * 0.5f;
+    float half_vh = view_h * 0.5f;
+    float half_iw = img_w  * 0.5f;
+    float half_ih = img_h  * 0.5f;
+
+    float x0 = widget_pos.x + (pan_x - half_iw) * zoom + half_vw;
+    float y0 = widget_pos.y + (pan_y - half_ih) * zoom + half_vh;
+    float x1 = widget_pos.x + (img_w + pan_x - half_iw) * zoom + half_vw;
+    float y1 = widget_pos.y + (img_h + pan_y - half_ih) * zoom + half_vh;
+
+    // Shadow rect (1px offset, dark) then bright white border
+    dl->AddRect(ImVec2(x0 + 1, y0 + 1), ImVec2(x1 + 1, y1 + 1),
+                IM_COL32(0, 0, 0, 160), 0.0f, 0, 3.0f);
+    dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1),
+                IM_COL32(220, 220, 220, 230), 0.0f, 0, 2.0f);
+}
+
 // ─── render_single ────────────────────────────────────────────────────────────
 
 void ImagePanel::render_single(AppState& state, int panel_idx) {
@@ -130,6 +155,11 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
 
     ImVec2 widget_pos = ImGui::GetItemRectMin();
     handle_mouse_pan(state, panel_idx);
+
+    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                      static_cast<float>(pw), static_cast<float>(ph),
+                      static_cast<float>(img.width), static_cast<float>(img.height),
+                      vp.pan_x, vp.pan_y, vp.zoom);
 
     if (vp.zoom >= 32.0f && img.loaded) {
         render_pixel_values(state, panel_idx, widget_pos, pw, ph);
@@ -306,6 +336,11 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
 
     ImVec2 widget_pos = ImGui::GetItemRectMin();
     handle_mouse_pan(state, 0);
+
+    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                      static_cast<float>(pw), static_cast<float>(ph),
+                      static_cast<float>(imgA.width), static_cast<float>(imgA.height),
+                      vp.pan_x, vp.pan_y, vp.zoom);
 
     if (vp.zoom >= 32.0f && imgA.loaded && imgB.loaded) {
         render_diff_pixel_values(state, widget_pos, pw, ph);
