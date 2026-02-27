@@ -100,6 +100,112 @@ void free_image(ImageEntry& entry) {
     entry.loaded    = false;
 }
 
+// ─── Rotation helpers ─────────────────────────────────────────────────────────
+
+void rotate_image_cw(ImageEntry& entry) {
+    if (!entry.loaded) return;
+
+    const int old_w = entry.width;
+    const int old_h = entry.height;
+    const int new_w = old_h;
+    const int new_h = old_w;
+
+    if (!entry.pixels.empty()) {
+        std::vector<uint8_t> dst(static_cast<size_t>(new_w) * new_h * 4);
+        const uint8_t* src = entry.pixels.data();
+        for (int y = 0; y < old_h; ++y) {
+            for (int x = 0; x < old_w; ++x) {
+                // CW: new[x][old_h-1-y] = old[y][x]
+                int dst_row = x;
+                int dst_col = old_h - 1 - y;
+                const uint8_t* sp = src + (y * old_w + x) * 4;
+                uint8_t*       dp = dst.data() + (dst_row * new_w + dst_col) * 4;
+                dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2]; dp[3] = sp[3];
+            }
+        }
+        entry.pixels = std::move(dst);
+    }
+
+    if (!entry.pixels_f32.empty()) {
+        std::vector<float> dst(static_cast<size_t>(new_w) * new_h * 4);
+        const float* src = entry.pixels_f32.data();
+        for (int y = 0; y < old_h; ++y) {
+            for (int x = 0; x < old_w; ++x) {
+                int dst_row = x;
+                int dst_col = old_h - 1 - y;
+                const float* sp = src + (y * old_w + x) * 4;
+                float*       dp = dst.data() + (dst_row * new_w + dst_col) * 4;
+                dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2]; dp[3] = sp[3];
+            }
+        }
+        entry.pixels_f32 = std::move(dst);
+    }
+
+    entry.width  = new_w;
+    entry.height = new_h;
+
+    if (entry.texture_id) {
+        glDeleteTextures(1, &entry.texture_id);
+        entry.texture_id = 0;
+    }
+    if (!entry.pixels.empty())
+        entry.texture_id = upload_rgba8(entry.pixels.data(), new_w, new_h);
+    else if (!entry.pixels_f32.empty())
+        entry.texture_id = upload_rgba_f32(entry.pixels_f32.data(), new_w, new_h);
+}
+
+void rotate_image_ccw(ImageEntry& entry) {
+    if (!entry.loaded) return;
+
+    const int old_w = entry.width;
+    const int old_h = entry.height;
+    const int new_w = old_h;
+    const int new_h = old_w;
+
+    if (!entry.pixels.empty()) {
+        std::vector<uint8_t> dst(static_cast<size_t>(new_w) * new_h * 4);
+        const uint8_t* src = entry.pixels.data();
+        for (int y = 0; y < old_h; ++y) {
+            for (int x = 0; x < old_w; ++x) {
+                // CCW: new[old_w-1-x][y] = old[y][x]
+                int dst_row = old_w - 1 - x;
+                int dst_col = y;
+                const uint8_t* sp = src + (y * old_w + x) * 4;
+                uint8_t*       dp = dst.data() + (dst_row * new_w + dst_col) * 4;
+                dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2]; dp[3] = sp[3];
+            }
+        }
+        entry.pixels = std::move(dst);
+    }
+
+    if (!entry.pixels_f32.empty()) {
+        std::vector<float> dst(static_cast<size_t>(new_w) * new_h * 4);
+        const float* src = entry.pixels_f32.data();
+        for (int y = 0; y < old_h; ++y) {
+            for (int x = 0; x < old_w; ++x) {
+                int dst_row = old_w - 1 - x;
+                int dst_col = y;
+                const float* sp = src + (y * old_w + x) * 4;
+                float*       dp = dst.data() + (dst_row * new_w + dst_col) * 4;
+                dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2]; dp[3] = sp[3];
+            }
+        }
+        entry.pixels_f32 = std::move(dst);
+    }
+
+    entry.width  = new_w;
+    entry.height = new_h;
+
+    if (entry.texture_id) {
+        glDeleteTextures(1, &entry.texture_id);
+        entry.texture_id = 0;
+    }
+    if (!entry.pixels.empty())
+        entry.texture_id = upload_rgba8(entry.pixels.data(), new_w, new_h);
+    else if (!entry.pixels_f32.empty())
+        entry.texture_id = upload_rgba_f32(entry.pixels_f32.data(), new_w, new_h);
+}
+
 // ─── ImageCache ───────────────────────────────────────────────────────────────
 
 ImageEntry* ImageCache::get(const std::string& path) {

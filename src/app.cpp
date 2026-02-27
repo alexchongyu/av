@@ -266,9 +266,17 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         state.active_panel = 1 - state.active_panel;
         break;
 
-    // ── Channel display ─────────────────────────────────────────────────────
+    // ── Channel display / Image rotation ──────────────────────────────────
     case SDL_SCANCODE_R:
-        if (shift) state.channel_mode = ChannelMode::Red;
+        if (shift) {
+            state.channel_mode = ChannelMode::Red;
+        } else if (ctrl) {
+            for (auto& img : state.images) if (img.loaded) rotate_image_ccw(img);
+            for (auto& v : state.views) { v.fit = true; v.pan_x = 0; v.pan_y = 0; }
+        } else {
+            for (auto& img : state.images) if (img.loaded) rotate_image_cw(img);
+            for (auto& v : state.views) { v.fit = true; v.pan_x = 0; v.pan_y = 0; }
+        }
         break;
     case SDL_SCANCODE_B:
         if (shift) state.channel_mode = ChannelMode::Blue;

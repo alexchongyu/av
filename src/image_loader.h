@@ -14,6 +14,11 @@ bool load_image(const std::string& path, ImageEntry& entry);
 // Free GPU texture and CPU pixel data for an entry.
 void free_image(ImageEntry& entry);
 
+// Rotate image 90 degrees clockwise / counter-clockwise in place.
+// Updates entry.width, entry.height, pixel data, and GPU texture.
+void rotate_image_cw(ImageEntry& entry);
+void rotate_image_ccw(ImageEntry& entry);
+
 // ─── LRU image cache ──────────────────────────────────────────────────────────
 // Keeps the most-recently-used MAX_ENTRIES images in GPU memory.
 
