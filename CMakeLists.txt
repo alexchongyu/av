@@ -156,4 +156,11 @@ set_target_properties(av PROPERTIES
 # Install: cmake --install build  →  ~/.local/bin/av
 install(TARGETS av RUNTIME DESTINATION $ENV{HOME}/.local/bin)
 
+# Auto-copy to ~/.local/bin after every build
+add_custom_command(TARGET av POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $ENV{HOME}/.local/bin
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:av> $ENV{HOME}/.local/bin/av
+    COMMENT "Installing av → ~/.local/bin/av"
+)
+
 message(STATUS "av build configured — C++20, OpenGL 3.3 Core")
