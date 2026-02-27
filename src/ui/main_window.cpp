@@ -260,7 +260,7 @@ void MainWindow::render(AppState& state) {
     if (state.show_info && (state.images[0].loaded || state.images[1].loaded)) {
         ImGui::SetNextWindowSize(ImVec2(600, 0), ImGuiCond_Always);
         if (ImGui::Begin("Image Info", &state.show_info)) {
-            ImGui::SetWindowFontScale(2.0f);
+            if (state.font_large) ImGui::PushFont(state.font_large);
             for (int i = 0; i < 2; ++i) {
                 const auto& img = state.images[i];
                 if (img.loaded) {
@@ -285,7 +285,7 @@ void MainWindow::render(AppState& state) {
                     }
                 }
             }
-            ImGui::SetWindowFontScale(1.0f);
+            if (state.font_large) ImGui::PopFont();
         }
         ImGui::End();
     }
@@ -294,6 +294,7 @@ void MainWindow::render(AppState& state) {
 
     // ── Pixel value balloon ───────────────────────────────────────────────────
     if (state.show_pixel_info) {
+        if (state.font_large) ImGui::PushFont(state.font_large);
         do {
             ImVec2 mouse = ImGui::GetMousePos();
             const ImGuiViewport* mvp = ImGui::GetMainViewport();
@@ -375,9 +376,9 @@ void MainWindow::render(AppState& state) {
             ImVec2 sz_g   = ImGui::CalcTextSize(line_g);
             ImVec2 sz_b   = ImGui::CalcTextSize(line_b);
 
-            float pad     = 8.0f;
-            float gap_y   = 4.0f;
-            float rgb_gap = 6.0f;
+            float pad     = 12.0f;
+            float gap_y   = 6.0f;
+            float rgb_gap = 8.0f;
             float font_h  = ImGui::GetFontSize();
 
             float line2_w = sz_r.x + rgb_gap + sz_g.x + rgb_gap + sz_b.x;
@@ -401,19 +402,22 @@ void MainWindow::render(AppState& state) {
             dl->AddRect(ImVec2(bx, by), ImVec2(bx + box_w, by + box_h),
                         IM_COL32(80, 80, 80, 180), 6.0f);
 
+            ImFont* cur_font = ImGui::GetFont();
+
             // Line 1: coordinates
-            dl->AddText(ImVec2(bx + pad, by + pad),
+            dl->AddText(cur_font, font_h, ImVec2(bx + pad, by + pad),
                         IM_COL32(220, 220, 220, 255), line_pos);
 
             // Line 2: R G B in channel colours
             float y2 = by + pad + font_h + gap_y;
             float x2 = bx + pad;
-            dl->AddText(ImVec2(x2, y2), IM_COL32(255, 100, 100, 255), line_r);
+            dl->AddText(cur_font, font_h, ImVec2(x2, y2), IM_COL32(255, 100, 100, 255), line_r);
             x2 += sz_r.x + rgb_gap;
-            dl->AddText(ImVec2(x2, y2), IM_COL32(100, 255, 100, 255), line_g);
+            dl->AddText(cur_font, font_h, ImVec2(x2, y2), IM_COL32(100, 255, 100, 255), line_g);
             x2 += sz_g.x + rgb_gap;
-            dl->AddText(ImVec2(x2, y2), IM_COL32(100, 130, 255, 255), line_b);
+            dl->AddText(cur_font, font_h, ImVec2(x2, y2), IM_COL32(100, 130, 255, 255), line_b);
         } while (false);
+        if (state.font_large) ImGui::PopFont();
     }
 
     // ── Zoom HUD ──────────────────────────────────────────────────────────────

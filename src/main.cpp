@@ -248,6 +248,15 @@ int main(int argc, char* argv[]) {
     AppState state;
     apply_cli_options(state, cli);
 
+    // ── Fonts ─────────────────────────────────────────────────────────────────
+    // Keep ProggyClean 13px as default (for existing UI elements)
+    io.Fonts->AddFontDefault();
+    // Roboto-Medium 26px for Image Info popup and Pixel Balloon
+    state.font_large = io.Fonts->AddFontFromFileTTF(
+        IMGUI_FONT_DIR "/Roboto-Medium.ttf", 26.0f);
+    if (!state.font_large)
+        state.font_large = io.Fonts->Fonts[0];  // fallback to default
+
     // Load images from CLI
     if (!cli.image_a.empty()) {
         if (!load_image(cli.image_a, state.images[0])) {

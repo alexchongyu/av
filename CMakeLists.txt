@@ -119,6 +119,10 @@ target_link_libraries(av PRIVATE
     stb_headers
 )
 
+target_compile_definitions(av PRIVATE
+    IMGUI_FONT_DIR="${imgui_SOURCE_DIR}/misc/fonts"
+)
+
 # lcms2 optional
 if(LCMS2_FOUND)
     target_compile_definitions(av PRIVATE AV_HAS_LCMS2)

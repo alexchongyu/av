@@ -5,6 +5,8 @@
 #include <array>
 #include <cstdint>
 
+struct ImFont;  // forward declaration — full type in imgui.h
+
 // ─── Core data types ──────────────────────────────────────────────────────────
 
 struct ImageEntry {
@@ -81,6 +83,7 @@ struct AppState {
     int   pan_step        = 32;       // Shift+hjkl jump size in image-pixels
     // Border colors for A / B / Diff panels (ImGui ABGR uint32)
     std::array<uint32_t, 3> border_colors = {0xE6FF00FFu, 0xE600FFFFu, 0xE6FFFF00u};
+    ImFont* font_large = nullptr;     // Roboto-Medium 26px (Image Info & Pixel Balloon)
     CliOptions cli;
 };
 
