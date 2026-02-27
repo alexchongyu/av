@@ -66,6 +66,91 @@ void ImagePanel::handle_mouse_pan(AppState& state, int panel_idx) {
     }
 }
 
+// ─── Right-click drag-to-zoom ─────────────────────────────────────────────────
+// Allows the user to drag-select a region with the right mouse button.
+// On release the view snaps to the largest 2^n zoom that fits the selection.
+
+void ImagePanel::handle_mouse_right_select(AppState& state, int panel_idx,
+                                            ImVec2 widget_pos,
+                                            int view_w, int view_h,
+                                            int img_w, int img_h) {
+    // Begin drag when right-click starts on this panel's image widget
+    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        drag_selecting_ = true;
+        drag_start_     = ImGui::GetMousePos();
+        drag_panel_idx_ = panel_idx;
+    }
+
+    // Only process/draw for the panel that owns the drag
+    if (!drag_selecting_ || panel_idx != drag_panel_idx_) return;
+
+    ImVec2 curr = ImGui::GetMousePos();
+    float rx0 = std::min(drag_start_.x, curr.x);
+    float ry0 = std::min(drag_start_.y, curr.y);
+    float rx1 = std::max(drag_start_.x, curr.x);
+    float ry1 = std::max(drag_start_.y, curr.y);
+
+    // Draw selection overlay on foreground layer
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->AddRectFilled(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
+                      IM_COL32(255, 255, 255, 25));
+    dl->AddRect(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
+                IM_COL32(255, 220, 50, 220), 0.0f, 0, 1.5f);
+
+    if (!ImGui::IsMouseReleased(ImGuiMouseButton_Right)) return;
+
+    drag_selecting_ = false;
+
+    // Ignore tiny drags
+    if ((rx1 - rx0) < 5.0f || (ry1 - ry0) < 5.0f) return;
+
+    ViewportState& v = state.views[panel_idx];
+    float zoom    = v.zoom;
+    float half_vw = view_w * 0.5f;
+    float half_vh = view_h * 0.5f;
+    float half_iw = img_w  * 0.5f;
+    float half_ih = img_h  * 0.5f;
+
+    // Screen (absolute) → image-pixel coordinate
+    // img_px = (abs_screen - widget_pos - half_view) / zoom - pan + half_img
+    auto s2ix = [&](float sx) {
+        return (sx - widget_pos.x - half_vw) / zoom - v.pan_x + half_iw;
+    };
+    auto s2iy = [&](float sy) {
+        return (sy - widget_pos.y - half_vh) / zoom - v.pan_y + half_ih;
+    };
+
+    float ix0 = s2ix(rx0), iy0 = s2iy(ry0);
+    float ix1 = s2ix(rx1), iy1 = s2iy(ry1);
+    float sel_w = ix1 - ix0;
+    float sel_h = iy1 - iy0;
+    if (sel_w < 1.0f || sel_h < 1.0f) return;
+
+    // Largest power-of-2 zoom that fits the selection
+    float need_zoom = std::min(static_cast<float>(view_w) / sel_w,
+                               static_cast<float>(view_h) / sel_h);
+    float new_zoom  = std::pow(2.0f, std::floor(std::log2(need_zoom)));
+    new_zoom = std::max(ZOOM_LEVELS[0],
+               std::min(ZOOM_LEVELS[NUM_ZOOM_LEVELS - 1], new_zoom));
+
+    // Pan so selection centre maps to viewport centre
+    float sel_cx = (ix0 + ix1) * 0.5f;
+    float sel_cy = (iy0 + iy1) * 0.5f;
+
+    viewport_set_zoom(v, new_zoom);
+    v.pan_x = half_iw - sel_cx;
+    v.pan_y = half_ih - sel_cy;
+    v.fit   = false;
+
+    if (state.sync_viewports) {
+        ViewportState& ov = state.views[1 - panel_idx];
+        viewport_set_zoom(ov, new_zoom);
+        ov.pan_x = v.pan_x;
+        ov.pan_y = v.pan_y;
+        ov.fit   = false;
+    }
+}
+
 // ─── draw_image_border ────────────────────────────────────────────────────────
 // Draws a thick border rect around the image extent in screen space.
 // Transform (matches shader): screen_px = (img_px + pan - half_img) * zoom + half_view
@@ -73,7 +158,8 @@ void ImagePanel::handle_mouse_pan(AppState& state, int panel_idx) {
 static void draw_image_border(ImDrawList* dl, ImVec2 widget_pos,
                                float view_w, float view_h,
                                float img_w,  float img_h,
-                               float pan_x,  float pan_y, float zoom) {
+                               float pan_x,  float pan_y, float zoom,
+                               ImU32 border_col) {
     float half_vw = view_w * 0.5f;
     float half_vh = view_h * 0.5f;
     float half_iw = img_w  * 0.5f;
@@ -84,11 +170,111 @@ static void draw_image_border(ImDrawList* dl, ImVec2 widget_pos,
     float x1 = widget_pos.x + (img_w + pan_x - half_iw) * zoom + half_vw;
     float y1 = widget_pos.y + (img_h + pan_y - half_ih) * zoom + half_vh;
 
-    // Shadow rect (1px offset, dark) then bright white border
-    dl->AddRect(ImVec2(x0 + 1, y0 + 1), ImVec2(x1 + 1, y1 + 1),
-                IM_COL32(0, 0, 0, 160), 0.0f, 0, 3.0f);
-    dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1),
-                IM_COL32(220, 220, 220, 230), 0.0f, 0, 2.0f);
+    // Viewport bounds for clipping each edge independently
+    float vx0 = widget_pos.x,          vy0 = widget_pos.y;
+    float vx1 = widget_pos.x + view_w, vy1 = widget_pos.y + view_h;
+
+    ImU32 shadow_col = IM_COL32(0, 0, 0, 160);
+
+    // Vertical edge: draw only if x is inside viewport; clamp y range
+    auto draw_v_edge = [&](float ex, float ey0, float ey1) {
+        if (ex < vx0 || ex > vx1) return;
+        float cy0 = std::max(ey0, vy0), cy1 = std::min(ey1, vy1);
+        if (cy0 >= cy1) return;
+        dl->AddLine(ImVec2(ex + 1.0f, cy0 + 1.0f), ImVec2(ex + 1.0f, cy1 + 1.0f), shadow_col, 3.0f);
+        dl->AddLine(ImVec2(ex,         cy0),         ImVec2(ex,         cy1),         border_col, 2.0f);
+    };
+    // Horizontal edge: draw only if y is inside viewport; clamp x range
+    auto draw_h_edge = [&](float ey, float ex0, float ex1) {
+        if (ey < vy0 || ey > vy1) return;
+        float cx0 = std::max(ex0, vx0), cx1 = std::min(ex1, vx1);
+        if (cx0 >= cx1) return;
+        dl->AddLine(ImVec2(cx0 + 1.0f, ey + 1.0f), ImVec2(cx1 + 1.0f, ey + 1.0f), shadow_col, 3.0f);
+        dl->AddLine(ImVec2(cx0,         ey),         ImVec2(cx1,         ey),         border_col, 2.0f);
+    };
+
+    draw_v_edge(x0, y0, y1);  // left edge
+    draw_v_edge(x1, y0, y1);  // right edge
+    draw_h_edge(y0, x0, x1);  // top edge
+    draw_h_edge(y1, x0, x1);  // bottom edge
+}
+
+// ─── render_pathfinder ────────────────────────────────────────────────────────
+// 왼쪽 패널 하단에 미니맵 + 현재 뷰포트 인디케이터를 표시.
+// vp.fit 상태이거나 panel_idx != 0이면 표시하지 않음.
+
+void ImagePanel::render_pathfinder(const AppState& state, int panel_idx,
+                                    ImVec2 widget_pos, int view_w, int view_h) {
+    if (!state.show_pathfinder) return;
+    if (panel_idx != 0) return;
+
+    int actual_idx = state.swap_images ? 1 : 0;
+    const ImageEntry&    img = state.images[actual_idx];
+    const ViewportState& vp  = state.views[panel_idx];
+
+    if (!img.loaded || img.texture_id == 0) return;
+    if (vp.fit) return;
+
+    // Minimap size: max 150px wide, proportional height, max 30% panel height
+    float mini_w = std::min(150.0f, view_w * 0.2f);
+    float aspect = (img.width > 0) ? static_cast<float>(img.height) / img.width : 1.0f;
+    float mini_h = mini_w * aspect;
+    float max_h  = view_h * 0.3f;
+    if (mini_h > max_h) {
+        mini_h = max_h;
+        mini_w = (aspect > 0.0f) ? mini_h / aspect : mini_h;
+    }
+
+    // Position: bottom-left, 8px margin
+    constexpr float MARGIN = 8.0f;
+    float mx0 = widget_pos.x + MARGIN;
+    float my0 = widget_pos.y + view_h - mini_h - MARGIN;
+    float mx1 = mx0 + mini_w;
+    float my1 = my0 + mini_h;
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // Semi-transparent background
+    dl->AddRectFilled(ImVec2(mx0, my0), ImVec2(mx1, my1),
+                      IM_COL32(0, 0, 0, 180), 4.0f);
+
+    // Minimap thumbnail (full image)
+    ImTextureID tex_id = static_cast<ImTextureID>(img.texture_id);
+    dl->AddImage(tex_id, ImVec2(mx0, my0), ImVec2(mx1, my1));
+
+    // Viewport indicator: compute normalised [0,1] visible image region
+    float half_vw = view_w  * 0.5f;
+    float half_vh = view_h  * 0.5f;
+    float iw      = static_cast<float>(img.width);
+    float ih      = static_cast<float>(img.height);
+    float half_iw = iw * 0.5f;
+    float half_ih = ih * 0.5f;
+
+    // Inverse of shader: img_px = (screen_px - half_view) / zoom - pan + half_img
+    float vis_x0 = ((0.0f   - half_vw) / vp.zoom - vp.pan_x + half_iw) / iw;
+    float vis_y0 = ((0.0f   - half_vh) / vp.zoom - vp.pan_y + half_ih) / ih;
+    float vis_x1 = ((view_w - half_vw) / vp.zoom - vp.pan_x + half_iw) / iw;
+    float vis_y1 = ((view_h - half_vh) / vp.zoom - vp.pan_y + half_ih) / ih;
+
+    float cx0 = std::max(0.0f, std::min(1.0f, vis_x0));
+    float cy0 = std::max(0.0f, std::min(1.0f, vis_y0));
+    float cx1 = std::max(0.0f, std::min(1.0f, vis_x1));
+    float cy1 = std::max(0.0f, std::min(1.0f, vis_y1));
+
+    // Map to minimap screen coordinates
+    float vx0 = mx0 + cx0 * mini_w;
+    float vy0 = my0 + cy0 * mini_h;
+    float vx1 = mx0 + cx1 * mini_w;
+    float vy1 = my0 + cy1 * mini_h;
+
+    if (vx1 > vx0 + 1.0f && vy1 > vy0 + 1.0f) {
+        dl->AddRect(ImVec2(vx0, vy0), ImVec2(vx1, vy1),
+                    IM_COL32(255, 220, 0, 220), 0.0f, 0, 1.5f);
+    }
+
+    // Minimap border
+    dl->AddRect(ImVec2(mx0, my0), ImVec2(mx1, my1),
+                IM_COL32(255, 255, 255, 100), 4.0f, 0, 1.0f);
 }
 
 // ─── render_single ────────────────────────────────────────────────────────────
@@ -155,14 +341,21 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
 
     ImVec2 widget_pos = ImGui::GetItemRectMin();
     handle_mouse_pan(state, panel_idx);
+    handle_mouse_right_select(state, panel_idx, widget_pos, pw, ph,
+                               img.width, img.height);
 
     draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
                       static_cast<float>(pw), static_cast<float>(ph),
                       static_cast<float>(img.width), static_cast<float>(img.height),
-                      vp.pan_x, vp.pan_y, vp.zoom);
+                      vp.pan_x, vp.pan_y, vp.zoom,
+                      static_cast<ImU32>(state.border_colors[panel_idx]));
 
     if (vp.zoom >= 32.0f && img.loaded) {
         render_pixel_values(state, panel_idx, widget_pos, pw, ph);
+    }
+
+    if (panel_idx == 0) {
+        render_pathfinder(state, panel_idx, widget_pos, pw, ph);
     }
 }
 
@@ -336,11 +529,14 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
 
     ImVec2 widget_pos = ImGui::GetItemRectMin();
     handle_mouse_pan(state, 0);
+    handle_mouse_right_select(state, 0, widget_pos, pw, ph,
+                               imgA.width, imgA.height);
 
     draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
                       static_cast<float>(pw), static_cast<float>(ph),
                       static_cast<float>(imgA.width), static_cast<float>(imgA.height),
-                      vp.pan_x, vp.pan_y, vp.zoom);
+                      vp.pan_x, vp.pan_y, vp.zoom,
+                      static_cast<ImU32>(state.border_colors[2]));
 
     if (vp.zoom >= 32.0f && imgA.loaded && imgB.loaded) {
         render_diff_pixel_values(state, widget_pos, pw, ph);

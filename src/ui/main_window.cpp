@@ -80,7 +80,7 @@ void MainWindow::render_menubar(AppState& state) {
         ImGui::Separator();
         ImGui::MenuItem("Sync Viewports", "S", &state.sync_viewports);
         ImGui::Separator();
-        ImGui::MenuItem("Show Pixel Info", "P", &state.show_pixel_info);
+        ImGui::MenuItem("Show Pathfinder", "P", &state.show_pathfinder);
         ImGui::MenuItem("Show Image Info", "I", &state.show_info);
         ImGui::EndMenu();
     }

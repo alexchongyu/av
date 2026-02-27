@@ -56,6 +56,9 @@ struct CliOptions {
     std::string     icc_profile;
     bool            no_color_mgmt = false;
     int             pan_step     = 32;     // Shift+hjkl jump size in image-pixels
+    // Border colors for A / B / Diff panels (ImGui ABGR uint32, alpha=230)
+    // Defaults: magenta / yellow / cyan
+    std::array<uint32_t, 3> border_colors = {0xE6FF00FFu, 0xE600FFFFu, 0xE6FFFF00u};
 };
 
 struct AppState {
@@ -66,7 +69,7 @@ struct AppState {
     bool  show_ui         = false;   // U key: toggle menu/statusbar overlay
     bool  show_histogram  = false;
     bool  show_info       = false;
-    bool  show_pixel_info = false;
+    bool  show_pathfinder = true;   // P key: 미니맵 토글 (기본 ON)
     bool  swap_images     = false;   // A↔B quick-swap toggle
     int   active_panel    = 0;       // 0 or 1 (keyboard focus)
     bool  quit            = false;
@@ -75,6 +78,8 @@ struct AppState {
     float last_zoom_b     = 1.0f;
     ChannelMode channel_mode = ChannelMode::RGB;
     int   pan_step        = 32;       // Shift+hjkl jump size in image-pixels
+    // Border colors for A / B / Diff panels (ImGui ABGR uint32)
+    std::array<uint32_t, 3> border_colors = {0xE6FF00FFu, 0xE600FFFFu, 0xE6FFFF00u};
     CliOptions cli;
 };
 

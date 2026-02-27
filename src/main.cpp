@@ -11,12 +11,115 @@
 
 #include <iostream>
 #include <cstdio>
+#include <cmath>
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-static constexpr const char* APP_TITLE   = "av — Alex's Viewer";
+static constexpr const char* APP_TITLE   = "Advanced Pixel Lens";
 static constexpr int         GL_MAJOR    = 3;
 static constexpr int         GL_MINOR    = 3;
 static constexpr const char* GLSL_VER   = "#version 150";
+
+// ─── Procedural app icon (128×128 RGBA) ───────────────────────────────────────
+
+static SDL_Surface* create_app_icon() {
+    constexpr int SIZE = 128;
+    constexpr int CR   = 14;   // corner radius
+
+    SDL_Surface* surf = SDL_CreateSurface(SIZE, SIZE, SDL_PIXELFORMAT_RGBA8888);
+    if (!surf) return nullptr;
+
+    SDL_LockSurface(surf);
+
+    const uint8_t BG_R = 26, BG_G = 31, BG_B = 46;  // #1a1f2e dark navy
+    const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(surf->format);
+
+    auto set_px = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+        if (x < 0 || x >= SIZE || y < 0 || y >= SIZE) return;
+        auto* row = reinterpret_cast<uint32_t*>(
+            static_cast<uint8_t*>(surf->pixels) + y * surf->pitch);
+        row[x] = SDL_MapRGBA(fmt, nullptr, r, g, b, a);
+    };
+
+    // 1. Fill background
+    for (int y = 0; y < SIZE; ++y)
+        for (int x = 0; x < SIZE; ++x)
+            set_px(x, y, BG_R, BG_G, BG_B, 255);
+
+    // 2. Round corners (mask to transparent)
+    for (int y = 0; y < CR; ++y) {
+        for (int x = 0; x < CR; ++x) {
+            float dx = static_cast<float>(x - CR), dy = static_cast<float>(y - CR);
+            if (dx*dx + dy*dy > static_cast<float>(CR*CR)) set_px(x, y, 0, 0, 0, 0);
+        }
+        for (int x = SIZE-CR; x < SIZE; ++x) {
+            float dx = static_cast<float>(x - (SIZE-1-CR)), dy = static_cast<float>(y - CR);
+            if (dx*dx + dy*dy > static_cast<float>(CR*CR)) set_px(x, y, 0, 0, 0, 0);
+        }
+    }
+    for (int y = SIZE-CR; y < SIZE; ++y) {
+        for (int x = 0; x < CR; ++x) {
+            float dx = static_cast<float>(x - CR), dy = static_cast<float>(y - (SIZE-1-CR));
+            if (dx*dx + dy*dy > static_cast<float>(CR*CR)) set_px(x, y, 0, 0, 0, 0);
+        }
+        for (int x = SIZE-CR; x < SIZE; ++x) {
+            float dx = static_cast<float>(x - (SIZE-1-CR)), dy = static_cast<float>(y - (SIZE-1-CR));
+            if (dx*dx + dy*dy > static_cast<float>(CR*CR)) set_px(x, y, 0, 0, 0, 0);
+        }
+    }
+
+    // 3. 3×3 colour grid
+    constexpr int MARGIN = 10;
+    constexpr int GAP    = 2;
+    constexpr int CELL   = (SIZE - 2*MARGIN - 2*GAP) / 3;  // ~34
+    const uint8_t COLORS[9][3] = {
+        {255,  60, 200},  // magenta
+        { 40, 220, 255},  // cyan
+        {255, 220,  30},  // yellow
+        {255,  70,  70},  // red
+        { 70, 220,  90},  // green
+        { 70, 120, 255},  // blue
+        {255, 155,  30},  // orange
+        { 30, 220, 175},  // mint
+        {190,  70, 255},  // violet
+    };
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            int ci  = row * 3 + col;
+            int gx0 = MARGIN + col * (CELL + GAP);
+            int gy0 = MARGIN + row * (CELL + GAP);
+            for (int dy = 0; dy < CELL; ++dy)
+                for (int dx = 0; dx < CELL; ++dx)
+                    set_px(gx0+dx, gy0+dy,
+                           COLORS[ci][0], COLORS[ci][1], COLORS[ci][2], 230);
+        }
+    }
+
+    // 4. Magnifier glass (bottom-right overlay)
+    constexpr int LX = 80, LY = 80, LR = 28;
+    // Lens ring (white, ~3px thick)
+    for (int y = LY-LR-2; y <= LY+LR+2; ++y) {
+        for (int x = LX-LR-2; x <= LX+LR+2; ++x) {
+            float dx = static_cast<float>(x - LX), dy2 = static_cast<float>(y - LY);
+            float d  = std::sqrt(dx*dx + dy2*dy2);
+            if (d >= static_cast<float>(LR-1) && d <= static_cast<float>(LR+1))
+                set_px(x, y, 255, 255, 255, 210);
+        }
+    }
+    // Handle (thick line, ~45° toward bottom-right)
+    int hx_start = LX + static_cast<int>(LR * 0.707f);
+    int hy_start = LY + static_cast<int>(LR * 0.707f);
+    for (int i = 0; i <= 12; ++i) {
+        int hx = hx_start + i;
+        int hy = hy_start + i;
+        for (int t = -1; t <= 1; ++t) {
+            set_px(hx+t, hy,   255, 255, 255, 220);
+            set_px(hx,   hy+t, 255, 255, 255, 220);
+        }
+    }
+
+    SDL_UnlockSurface(surf);
+    return surf;
+}
 
 // ─── Cleanup helper ───────────────────────────────────────────────────────────
 struct SdlCleanup {
@@ -81,6 +184,12 @@ int main(int argc, char* argv[]) {
         return 2;
     }
     cleanup.window = window;
+
+    // Set procedural app icon
+    if (SDL_Surface* icon = create_app_icon()) {
+        SDL_SetWindowIcon(window, icon);
+        SDL_DestroySurface(icon);
+    }
 
     // ── OpenGL context ────────────────────────────────────────────────────────
     SDL_GLContext gl_ctx = SDL_GL_CreateContext(window);

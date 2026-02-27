@@ -31,13 +31,23 @@ private:
     void render_diff  (AppState& state, DiffRenderer& diff_renderer);
 
     void handle_mouse_pan(AppState& state, int panel_idx);
+    void handle_mouse_right_select(AppState& state, int panel_idx,
+                                   ImVec2 widget_pos, int view_w, int view_h,
+                                   int img_w, int img_h);
     void render_pixel_values(const AppState& state, int panel_idx,
                              ImVec2 widget_pos, int view_w, int view_h);
     void render_diff_pixel_values(const AppState& state,
                                   ImVec2 widget_pos, int view_w, int view_h);
+    void render_pathfinder(const AppState& state, int panel_idx,
+                           ImVec2 widget_pos, int view_w, int view_h);
 
     ShaderProgram image_shader_;
     ScreenQuad    quad_;
     FBO           fbo_;
-    bool          inited_ = false;
+    bool          inited_         = false;
+
+    // Right-click drag-to-zoom state
+    bool   drag_selecting_  = false;
+    ImVec2 drag_start_      = {0.0f, 0.0f};
+    int    drag_panel_idx_  = 0;
 };

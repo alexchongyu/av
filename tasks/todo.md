@@ -77,6 +77,27 @@ cmake --build build  → 오류 없음 (경고만)
   - side-by-side: `BeginChild("##PanelLeft", half_w) + SameLine + BeginChild("##PanelRight")`
 - `main.cpp`: `ImGuiConfigFlags_ViewportsEnable` 및 multi-viewport 코드 제거
 
+## [완료] Advanced Pixel Lens — 앱 이름/아이콘 + Pathfinder + Border 수정 (2026-02-27)
+
+### 변경 내역
+- [x] `src/main.cpp` — APP_TITLE → "Advanced Pixel Lens"
+- [x] `src/main.cpp` — `create_app_icon()` 128×128 RGBA 프로시저럴 아이콘 (배경+라운드코너+3×3컬러그리드+돋보기), `SDL_SetWindowIcon` 호출
+- [x] `src/app.h` — `show_pixel_info` → `show_pathfinder = true` (기본 ON)
+- [x] `src/app.cpp` — P키 핸들러: `show_pathfinder` 토글
+- [x] `src/ui/main_window.cpp` — 메뉴 아이템: "Show Pathfinder"
+- [x] `src/ui/image_panel.h` — `render_pathfinder()` 선언 추가
+- [x] `src/ui/image_panel.cpp` — `draw_image_border()`: 4개 edge를 개별 `AddLine`으로 분리 (줌 시 클리핑 수정)
+- [x] `src/ui/image_panel.cpp` — `render_pathfinder()` 구현 (panel_idx==0, fit 모드 제외)
+- [x] `src/ui/image_panel.cpp` — `render_single()` 끝에서 `render_pathfinder()` 호출
+
+### 검증
+- cmake --build → 오류 없음 (경고만)
+- 앱 실행 확인 완료
+
+### 수정 이슈
+- SDL3에서 `SDL_MapRGBA` 인자: `SDL_PixelFormat` enum → `SDL_GetPixelFormatDetails()`로 `const SDL_PixelFormatDetails*` 획득 필요
+- `ImTextureID`(uint64_t)와 `uintptr_t`(uint32_t on x86?) 캐스트 — `static_cast<ImTextureID>` 사용
+
 ## 다음 작업 (Phase 5+)
 - [ ] 파일 열기 다이얼로그 (SDL_ShowOpenFileDialog)
 - [ ] Overlay (Swipe) 비교 모드

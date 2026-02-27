@@ -12,6 +12,23 @@
 
 // ─── parse_cli ────────────────────────────────────────────────────────────────
 
+// Parse a 6-digit hex RGB string (with optional '#') into an ImGui ABGR uint32
+// with alpha = 230.
+static uint32_t parse_hex_color(const std::string& s) {
+    const char* p = s.c_str();
+    if (*p == '#') ++p;
+    unsigned int rgb = 0;
+    if (std::sscanf(p, "%6x", &rgb) != 1) {
+        std::cerr << "Invalid hex colour: " << s << "\n";
+        std::exit(1);
+    }
+    uint8_t r = (rgb >> 16) & 0xFF;
+    uint8_t g = (rgb >> 8)  & 0xFF;
+    uint8_t b =  rgb        & 0xFF;
+    // ImGui IM_COL32 stores as ABGR: (A<<24)|(B<<16)|(G<<8)|R
+    return (230u << 24) | ((uint32_t)b << 16) | ((uint32_t)g << 8) | r;
+}
+
 static void print_help(const char* prog) {
     std::cout <<
         "Usage: " << prog << " [options] [imageA] [imageB]\n"
@@ -27,6 +44,8 @@ static void print_help(const char* prog) {
         "  --profile <file>     ICC colour profile path\n"
         "  --no-color-mgmt      Disable colour management\n"
         "  -p, --pan-step <N>   Shift+hjkl jump size in pixels   (default: 32)\n"
+        "  -bc <A> <B> <D>      Border colours for A/B/Diff panels as 6-digit hex\n"
+        "                       e.g. -bc ff00ff ffff00 00ffff   (default: magenta/yellow/cyan)\n"
         "  -d, --diff           Show pixel-absolute diff (shortcut)\n"
         "  --version            Print version and exit\n"
         "  -h, --help           Print this help\n"
@@ -87,6 +106,9 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.pan_step = std::stoi(next());
         } else if (arg == "-d" || arg == "--diff") {
             opts.diff_mode = DiffState::Mode::PixelAbsolute;
+        } else if (arg == "-bc") {
+            for (int j = 0; j < 3; ++j)
+                opts.border_colors[j] = parse_hex_color(next());
         } else if (arg.size() > 2 && arg.substr(0, 2) == "--") {
             std::cerr << "Unknown option: " << arg << "\n";
             std::exit(1);
@@ -109,6 +131,7 @@ void apply_cli_options(AppState& state, const CliOptions& opts) {
     state.diff.amplify    = opts.amplify;
     state.sync_viewports  = opts.sync;
     state.pan_step        = opts.pan_step;
+    state.border_colors   = opts.border_colors;
 }
 
 // ─── handle_keyboard ──────────────────────────────────────────────────────────
@@ -192,13 +215,13 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         break;
     case SDL_SCANCODE_K:
     case SDL_SCANCODE_UP:
-        viewport_pan(vA, 0.0f, -step);
-        if (state.sync_viewports) viewport_pan(vB, 0.0f, -step);
+        viewport_pan(vA, 0.0f, +step);
+        if (state.sync_viewports) viewport_pan(vB, 0.0f, +step);
         break;
     case SDL_SCANCODE_J:
     case SDL_SCANCODE_DOWN:
-        viewport_pan(vA, 0.0f, +step);
-        if (state.sync_viewports) viewport_pan(vB, 0.0f, +step);
+        viewport_pan(vA, 0.0f, -step);
+        if (state.sync_viewports) viewport_pan(vB, 0.0f, -step);
         break;
 
     // ── Diff mode ─────────────────────────────────────────────────────────────
@@ -257,7 +280,7 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         state.show_info = !state.show_info;
         break;
     case SDL_SCANCODE_P:
-        state.show_pixel_info = !state.show_pixel_info;
+        state.show_pathfinder = !state.show_pathfinder;
         break;
 
     default:
