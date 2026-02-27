@@ -9,6 +9,8 @@
 
 #include <iostream>
 #include <cstring>
+#include <cmath>
+#include <cstdio>
 
 // ─── Static panel instances ───────────────────────────────────────────────────
 static ImagePanel s_panel_left;
@@ -82,6 +84,7 @@ void MainWindow::render_menubar(AppState& state) {
         ImGui::Separator();
         ImGui::MenuItem("Show Pathfinder", "P", &state.show_pathfinder);
         ImGui::MenuItem("Show Image Info", "I", &state.show_info);
+        ImGui::MenuItem("Show Pixel Info", "V", &state.show_pixel_info);
         ImGui::EndMenu();
     }
 
@@ -191,6 +194,9 @@ void MainWindow::render(AppState& state) {
     float panel_h = state.show_ui ? (content.y - STATUSBAR_H) : content.y;
     if (panel_h < 1.0f) panel_h = 1.0f;
 
+    // Capture panels area origin for pixel balloon (used after ImGui::End())
+    ImVec2 panels_origin = ImGui::GetCursorScreenPos();
+
     ImGuiWindowFlags child_flags =
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
@@ -252,8 +258,9 @@ void MainWindow::render(AppState& state) {
 
     // ── Image info popup ──────────────────────────────────────────────────────
     if (state.show_info && (state.images[0].loaded || state.images[1].loaded)) {
-        ImGui::SetNextWindowSize(ImVec2(340, 120), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(600, 0), ImGuiCond_Always);
         if (ImGui::Begin("Image Info", &state.show_info)) {
+            ImGui::SetWindowFontScale(2.0f);
             for (int i = 0; i < 2; ++i) {
                 const auto& img = state.images[i];
                 if (img.loaded) {
@@ -264,11 +271,150 @@ void MainWindow::render(AppState& state) {
                                 img.is_hdr ? "  [HDR]" : "");
                 }
             }
+            ImGui::Separator();
+            for (int i = 0; i < 2; ++i) {
+                const auto& v   = state.views[i];
+                const auto& img = state.images[i];
+                if (img.loaded) {
+                    if (v.fit) {
+                        ImGui::Text("%s Zoom: Fit-to-Window", i == 0 ? "A" : "B");
+                    } else {
+                        ImGui::Text("%s Zoom: %.1f%%  Pan: (%.0f, %.0f)",
+                                    i == 0 ? "A" : "B",
+                                    v.zoom * 100.0f, v.pan_x, v.pan_y);
+                    }
+                }
+            }
+            ImGui::SetWindowFontScale(1.0f);
         }
         ImGui::End();
     }
 
     ImGui::End(); // ##Host
+
+    // ── Pixel value balloon ───────────────────────────────────────────────────
+    if (state.show_pixel_info) {
+        do {
+            ImVec2 mouse = ImGui::GetMousePos();
+            const ImGuiViewport* mvp = ImGui::GetMainViewport();
+            float total_w = mvp->WorkSize.x;
+
+            float px = mouse.x - panels_origin.x;
+            float py = mouse.y - panels_origin.y;
+
+            if (py < 0.0f || py >= panel_h || px < 0.0f || px >= total_w) break;
+
+            // Determine which panel the mouse is over
+            int   panel_idx    = 0;
+            float panel_x_start = 0.0f;
+            float panel_w_local = total_w;
+
+            if (two_images && diff_mode) {
+                float third_w = std::floor(total_w / 3.0f);
+                if (px < third_w) {
+                    panel_idx = 0; panel_x_start = 0.0f;          panel_w_local = third_w;
+                } else if (px < 2.0f * third_w) {
+                    panel_idx = 1; panel_x_start = third_w;        panel_w_local = third_w;
+                } else {
+                    break; // diff panel — no single source image
+                }
+            } else if (two_images) {
+                float half_w = std::floor(total_w * 0.5f);
+                if (px < half_w) {
+                    panel_idx = 0; panel_x_start = 0.0f;    panel_w_local = half_w;
+                } else {
+                    panel_idx = 1; panel_x_start = half_w;  panel_w_local = total_w - half_w;
+                }
+            }
+
+            int img_idx = state.swap_images ? (1 - panel_idx) : panel_idx;
+            if (img_idx < 0 || img_idx > 1) break;
+            const ImageEntry&    bimg = state.images[img_idx];
+            if (!bimg.loaded) break;
+
+            const ViewportState& bvp = state.views[panel_idx];
+
+            float view_w  = panel_w_local;
+            float view_h  = static_cast<float>(panel_h);
+            float half_vw = view_w * 0.5f;
+            float half_vh = view_h * 0.5f;
+            float half_iw = bimg.width  * 0.5f;
+            float half_ih = bimg.height * 0.5f;
+
+            // Screen → image pixel coordinates
+            float local_x = px - panel_x_start;
+            float local_y = py;
+            float img_fx = (local_x - half_vw) / bvp.zoom - bvp.pan_x + half_iw;
+            float img_fy = (local_y - half_vh) / bvp.zoom - bvp.pan_y + half_ih;
+
+            int ix = static_cast<int>(std::floor(img_fx));
+            int iy = static_cast<int>(std::floor(img_fy));
+            if (ix < 0 || ix >= bimg.width || iy < 0 || iy >= bimg.height) break;
+
+            int pidx = (iy * bimg.width + ix) * 4;
+
+            char line_pos[32];
+            std::snprintf(line_pos, sizeof(line_pos), "(%d, %d)", ix, iy);
+            char line_r[24], line_g[24], line_b[24];
+
+            if (bimg.is_hdr && !bimg.pixels_f32.empty()) {
+                std::snprintf(line_r, sizeof(line_r), "R:%.3f", bimg.pixels_f32[pidx + 0]);
+                std::snprintf(line_g, sizeof(line_g), "G:%.3f", bimg.pixels_f32[pidx + 1]);
+                std::snprintf(line_b, sizeof(line_b), "B:%.3f", bimg.pixels_f32[pidx + 2]);
+            } else if (!bimg.pixels.empty()) {
+                std::snprintf(line_r, sizeof(line_r), "R:%d", (int)bimg.pixels[pidx + 0]);
+                std::snprintf(line_g, sizeof(line_g), "G:%d", (int)bimg.pixels[pidx + 1]);
+                std::snprintf(line_b, sizeof(line_b), "B:%d", (int)bimg.pixels[pidx + 2]);
+            } else {
+                break;
+            }
+
+            // Measure text for balloon sizing
+            ImVec2 sz_pos = ImGui::CalcTextSize(line_pos);
+            ImVec2 sz_r   = ImGui::CalcTextSize(line_r);
+            ImVec2 sz_g   = ImGui::CalcTextSize(line_g);
+            ImVec2 sz_b   = ImGui::CalcTextSize(line_b);
+
+            float pad     = 8.0f;
+            float gap_y   = 4.0f;
+            float rgb_gap = 6.0f;
+            float font_h  = ImGui::GetFontSize();
+
+            float line2_w = sz_r.x + rgb_gap + sz_g.x + rgb_gap + sz_b.x;
+            float content_w = (sz_pos.x > line2_w ? sz_pos.x : line2_w);
+            float box_w   = content_w + pad * 2.0f;
+            float box_h   = font_h + gap_y + font_h + pad * 2.0f;
+
+            // Position: upper-right of cursor; clamp to screen edges
+            float bx = mouse.x + 16.0f;
+            float by = mouse.y - 40.0f;
+            if (bx + box_w > mvp->WorkPos.x + mvp->WorkSize.x)
+                bx = mouse.x - box_w - 8.0f;
+            if (by < mvp->WorkPos.y)
+                by = mouse.y + 16.0f;
+            if (by + box_h > mvp->WorkPos.y + mvp->WorkSize.y)
+                by = mvp->WorkPos.y + mvp->WorkSize.y - box_h - 4.0f;
+
+            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + box_w, by + box_h),
+                              IM_COL32(20, 20, 20, 200), 6.0f);
+            dl->AddRect(ImVec2(bx, by), ImVec2(bx + box_w, by + box_h),
+                        IM_COL32(80, 80, 80, 180), 6.0f);
+
+            // Line 1: coordinates
+            dl->AddText(ImVec2(bx + pad, by + pad),
+                        IM_COL32(220, 220, 220, 255), line_pos);
+
+            // Line 2: R G B in channel colours
+            float y2 = by + pad + font_h + gap_y;
+            float x2 = bx + pad;
+            dl->AddText(ImVec2(x2, y2), IM_COL32(255, 100, 100, 255), line_r);
+            x2 += sz_r.x + rgb_gap;
+            dl->AddText(ImVec2(x2, y2), IM_COL32(100, 255, 100, 255), line_g);
+            x2 += sz_g.x + rgb_gap;
+            dl->AddText(ImVec2(x2, y2), IM_COL32(100, 130, 255, 255), line_b);
+        } while (false);
+    }
 
     // ── Zoom HUD ──────────────────────────────────────────────────────────────
     {

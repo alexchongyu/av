@@ -69,6 +69,7 @@ struct AppState {
     bool  show_ui         = false;   // U key: toggle menu/statusbar overlay
     bool  show_histogram  = false;
     bool  show_info       = false;
+    bool  show_pixel_info = false;   // V key: cursor pixel balloon
     bool  show_pathfinder = true;   // P key: 미니맵 토글 (기본 ON)
     bool  swap_images     = false;   // A↔B quick-swap toggle
     int   active_panel    = 0;       // 0 or 1 (keyboard focus)

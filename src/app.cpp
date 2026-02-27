@@ -279,6 +279,9 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     case SDL_SCANCODE_I:
         state.show_info = !state.show_info;
         break;
+    case SDL_SCANCODE_V:
+        state.show_pixel_info = !state.show_pixel_info;
+        break;
     case SDL_SCANCODE_P:
         state.show_pathfinder = !state.show_pathfinder;
         break;
