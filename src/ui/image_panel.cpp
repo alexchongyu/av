@@ -282,7 +282,8 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
                          vp,
                          imgA.width, imgA.height,
                          pw, ph,
-                         state.diff.mode, state.diff.amplify);
+                         state.diff.mode, state.diff.amplify,
+                         state.channel_mode);
     fbo_.unbind();
 
     viewport_clamp_pan(vp, imgA.width, imgA.height, pw, ph);

@@ -55,6 +55,7 @@ struct CliOptions {
     int             win_h        = 720;
     std::string     icc_profile;
     bool            no_color_mgmt = false;
+    int             pan_step     = 32;     // Shift+hjkl jump size in image-pixels
 };
 
 struct AppState {
@@ -73,6 +74,7 @@ struct AppState {
     float last_zoom_a     = 1.0f;   // previous frame zoom (change detection)
     float last_zoom_b     = 1.0f;
     ChannelMode channel_mode = ChannelMode::RGB;
+    int   pan_step        = 32;       // Shift+hjkl jump size in image-pixels
     CliOptions cli;
 };
 

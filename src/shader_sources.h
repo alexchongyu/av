@@ -81,6 +81,7 @@ uniform float u_zoom;
 uniform vec2  u_pan;
 uniform int   u_diff_mode;
 uniform float u_amplify;
+uniform int   u_channel;     // 0=RGB, 1=R, 2=G, 3=B
 
 in  vec2 v_uv;
 out vec4 out_color;
@@ -116,10 +117,18 @@ void main() {
 
     vec3 result;
     if (u_diff_mode == 2) {    // FalseColor
-        float intensity = (diff.r + diff.g + diff.b) / 3.0;
+        float intensity;
+        if (u_channel == 1) intensity = diff.r;
+        else if (u_channel == 2) intensity = diff.g;
+        else if (u_channel == 3) intensity = diff.b;
+        else intensity = (diff.r + diff.g + diff.b) / 3.0;
         result = falsecolor(intensity * u_amplify);
-    } else {                   // Absolute or Relative → direct
-        result = clamp(diff.rgb * u_amplify, 0.0, 1.0);
+    } else {                   // Absolute or Relative
+        vec3 d = diff.rgb * u_amplify;
+        if (u_channel == 1) result = vec3(clamp(d.r, 0.0, 1.0));
+        else if (u_channel == 2) result = vec3(clamp(d.g, 0.0, 1.0));
+        else if (u_channel == 3) result = vec3(clamp(d.b, 0.0, 1.0));
+        else result = clamp(d, 0.0, 1.0);
     }
 
     out_color = vec4(result, 1.0);

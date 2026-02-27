@@ -25,7 +25,8 @@ public:
                 const ViewportState& view,
                 int img_w,  int img_h,
                 int view_w, int view_h,
-                DiffState::Mode mode, float amplify);
+                DiffState::Mode mode, float amplify,
+                ChannelMode channel);
 
     bool valid() const { return shader_.valid(); }
 

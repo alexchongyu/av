@@ -25,6 +25,7 @@ static void print_help(const char* prog) {
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
         "  --profile <file>     ICC colour profile path\n"
         "  --no-color-mgmt      Disable colour management\n"
+        "  -p, --pan-step <N>   Shift+hjkl jump size in pixels   (default: 32)\n"
         "  -d, --diff           Show pixel-absolute diff (shortcut)\n"
         "  --version            Print version and exit\n"
         "  -h, --help           Print this help\n"
@@ -81,6 +82,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.icc_profile = next();
         } else if (arg == "--no-color-mgmt") {
             opts.no_color_mgmt = true;
+        } else if (arg == "-p" || arg == "--pan-step") {
+            opts.pan_step = std::stoi(next());
         } else if (arg == "-d" || arg == "--diff") {
             opts.diff_mode = DiffState::Mode::PixelAbsolute;
         } else if (arg.size() > 2 && arg.substr(0, 2) == "--") {
@@ -104,6 +107,7 @@ void apply_cli_options(AppState& state, const CliOptions& opts) {
     state.diff.mode       = opts.diff_mode;
     state.diff.amplify    = opts.amplify;
     state.sync_viewports  = opts.sync;
+    state.pan_step        = opts.pan_step;
 }
 
 // ─── handle_keyboard ──────────────────────────────────────────────────────────
@@ -116,11 +120,8 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     auto& imgA = state.images[0];
     auto& imgB = state.images[1];
 
-    // Current focused view (for single-view ops)
-    ViewportState& cv = state.views[state.active_panel];
-
-    // Pan step in image-pixels at current zoom
-    float step = shift ? (10.0f / cv.zoom) : (5.0f / cv.zoom);
+    // Pan step in image-pixels (zoom-independent)
+    float step = shift ? static_cast<float>(state.pan_step) : 1.0f;
 
     switch (scancode) {
     // ── Quit ──────────────────────────────────────────────────────────────────

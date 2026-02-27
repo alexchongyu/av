@@ -36,7 +36,8 @@ void DiffRenderer::render(GLuint texA, GLuint texB,
                           const ViewportState& view,
                           int img_w,  int img_h,
                           int view_w, int view_h,
-                          DiffState::Mode mode, float amplify) {
+                          DiffState::Mode mode, float amplify,
+                          ChannelMode channel) {
     if (!shader_.valid()) return;
 
     int diff_mode_int = 0;
@@ -61,6 +62,7 @@ void DiffRenderer::render(GLuint texA, GLuint texB,
     shader_.set_vec2 ("u_pan",         view.pan_x, view.pan_y);
     shader_.set_int  ("u_diff_mode",   diff_mode_int);
     shader_.set_float("u_amplify",     amplify);
+    shader_.set_int  ("u_channel",    static_cast<int>(channel));
 
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
