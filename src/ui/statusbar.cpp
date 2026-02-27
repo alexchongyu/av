@@ -56,9 +56,11 @@ void StatusBar::render(const AppState& state) {
 
     // Diff mode
     if (state.diff.mode != DiffState::Mode::None) {
+        const char* dir = state.swap_images ? "B-A" : "A-B";
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
-                           "Diff: %s  x%.1f",
+                           "Diff: %s (%s)  x%.1f",
                            diff_mode_name(state.diff.mode),
+                           dir,
                            state.diff.amplify);
         ImGui::SameLine();
         ImGui::TextDisabled("|");

@@ -297,6 +297,9 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
         viewport_fit(vp, img.width, img.height, pw, ph);
     }
 
+    // Clamp pan before shader uses it (ensure shader and border use same values)
+    viewport_clamp_pan(vp, img.width, img.height, pw, ph);
+
     // Ensure FBO matches panel size
     if (!fbo_.ensure(pw, ph)) return;
 
@@ -329,9 +332,6 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
     quad_.draw();
     glBindTexture(GL_TEXTURE_2D, 0);
     fbo_.unbind();
-
-    // Clamp pan
-    viewport_clamp_pan(vp, img.width, img.height, pw, ph);
 
     // Display FBO texture.
     // FBO bottom (GL t=0) = image top (shader maps screen_px.y=0 → img_px.y=0).
@@ -511,6 +511,9 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
 
     if (vp.fit) viewport_fit(vp, imgA.width, imgA.height, pw, ph);
 
+    // Clamp pan before shader uses it (ensure shader and border use same values)
+    viewport_clamp_pan(vp, imgA.width, imgA.height, pw, ph);
+
     if (!fbo_.ensure(pw, ph)) return;
 
     fbo_.bind();
@@ -521,8 +524,6 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
                          state.diff.mode, state.diff.amplify,
                          state.channel_mode);
     fbo_.unbind();
-
-    viewport_clamp_pan(vp, imgA.width, imgA.height, pw, ph);
 
     ImTextureID tex = static_cast<ImTextureID>(fbo_.tex_id);
     ImGui::Image(tex, avail, ImVec2(0, 0), ImVec2(1, 1));

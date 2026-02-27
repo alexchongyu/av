@@ -1845,6 +1845,73 @@ ImGui DrawList를 사용하여 각 패널의 이미지 경계를 시각적으로
   - 선택 영역에 맞는 최대 2#super[n] 줌 레벨 자동 계산
   - 선택 영역을 뷰포트 중심으로 이동
 
+#v(0.8em)
+
+== Statistics 창 (Ctrl+S) <sec-statistics>
+
+`Ctrl+S` 키(또는 View 메뉴 → Show Statistics)로 토글하는 `render_stats_window()` 함수가 Image A, Image B, Diff |A–B| 세 섹션의 채널별 통계를 ImGui 테이블로 표시한다.
+
+#v(0.5em)
+
+*테이블 구조:* 5개 컬럼으로 구성된다.
+
+#figure(
+  table(
+    columns: (2fr, 1fr, 1fr, 1fr, 4fr),
+    align: (left, center, center, center, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*컬럼*][*R*][*G*][*B*][*비고*],
+    [Metric (width 2.0)], [1.2], [1.2], [1.2], [컬럼 weight 비율],
+    [Description (width 4.0)], [#sym.dash.en], [#sym.dash.en], [#sym.dash.en], [`TextWrapped` 자동 줄바꿈],
+  ),
+  caption: [Statistics 테이블 컬럼 구성],
+) <tab-stats-cols>
+
+#v(0.5em)
+
+*기본 통계 (13개):* Image A / B 공통으로 표시된다.
+
+#figure(
+  table(
+    columns: (2fr, 5fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*Metric*][*Description*],
+    [Pixels],           [Total number of pixels in the image (width × height)],
+    [Min],              [Smallest pixel value in the channel],
+    [Max],              [Largest pixel value in the channel],
+    [Dynamic Range],    [Difference between max and min values (Max #sym.minus Min)],
+    [Mean],             [Average pixel value: sum of all values divided by pixel count],
+    [Std Dev],          [Standard deviation: measures the spread of values around the mean],
+    [Variance],         [Square of standard deviation: average squared deviation from the mean],
+    [Median],           [Middle value when all pixels are sorted; more robust to outliers than mean],
+    [Skewness],         [Asymmetry of the distribution: 0=symmetric, positive=right tail, negative=left tail],
+    [Kurtosis (excess)],[Tail heaviness vs. normal distribution: 0=normal, positive=heavy tails, negative=light tails],
+    [Energy],           [Mean of squared pixel values (second moment about zero)],
+    [RMS],              [Root Mean Square: square root of energy; represents overall signal magnitude],
+    [Entropy (bits)],   [Shannon entropy: information content in bits; higher values indicate more complex\/random data],
+  ),
+  caption: [기본 통계 13개 및 Description],
+) <tab-stats-basic>
+
+#v(0.5em)
+
+*Diff 전용 통계 (4개):* Image A와 Image B가 모두 로드된 경우에만 Diff 섹션에 추가 표시된다.
+
+#figure(
+  table(
+    columns: (2fr, 5fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*Metric*][*Description*],
+    [MSE],       [Mean Squared Error: average of squared differences per pixel; lower = more similar],
+    [PSNR],      [Peak Signal-to-Noise Ratio in dB; higher = better quality (typical range: 30--50 dB)],
+    [MAE],       [Mean Absolute Error: average of absolute differences per pixel; lower = more similar],
+    [Max Error], [Largest single-pixel absolute difference between image A and image B],
+  ),
+  caption: [Diff 전용 통계 4개 및 Description],
+) <tab-stats-diff>
+
 
 // ──────────────────────────────────────────────
 // Ch 9 – 사용법
@@ -2008,6 +2075,10 @@ av [options] [imageA] [imageB]
     [`I`], [이미지 정보 팝업 토글],
     [`P`], [Pathfinder 미니맵 토글],
     [`V`], [픽셀 정보 풍선말 토글],
+    [`Ctrl+H`], [Histogram 창 토글],
+    [`Ctrl+L`], [H-Line Cut 창 토글],
+    [`Ctrl+Y`], [V-Line Cut 창 토글],
+    [`Ctrl+S`], [Statistics 창 토글],
     [`Q`], [애플리케이션 종료],
   ),
   caption: [UI 토글 단축키],
@@ -2065,7 +2136,7 @@ av --zoom=2 --no-sync -bc ff0000 0000ff 00ff00 a.jpg b.jpg
 + `av --diff-mode=abs --amplify=10 golden.png current.png` 실행
 + FalseColor 모드로 전환 (`Ctrl+5`)
 + `]` 키로 amplify 증가하여 미세 차이 확인
-+ `Ctrl+S`로 diff 이미지 저장
++ `Ctrl+S`로 Statistics 창 열어 MSE/PSNR 수치 확인
 
 === 시나리오 2: 색 보정 검토
 

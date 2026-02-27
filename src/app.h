@@ -70,6 +70,9 @@ struct AppState {
     bool  sync_viewports  = true;
     bool  show_ui         = false;   // U key: toggle menu/statusbar overlay
     bool  show_histogram  = false;
+    bool  show_hline_cut  = false;   // Ctrl+L: 수평 라인 컷뷰
+    bool  show_vline_cut  = false;   // Ctrl+Y: 수직 라인 컷뷰
+    bool  show_stats      = false;   // Ctrl+S: Image Statistics window
     bool  show_info       = false;
     bool  show_pixel_info = false;   // V key: cursor pixel balloon
     bool  show_pathfinder = true;   // P key: 미니맵 토글 (기본 ON)

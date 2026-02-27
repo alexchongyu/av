@@ -104,6 +104,7 @@ set(AV_SOURCES
     src/ui/main_window.cpp
     src/ui/image_panel.cpp
     src/ui/statusbar.cpp
+    src/ui/chart_windows.cpp
 )
 
 add_executable(av ${AV_SOURCES})

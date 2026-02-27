@@ -204,11 +204,15 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 
     // ── Pan ───────────────────────────────────────────────────────────────────
     case SDL_SCANCODE_H:
+        if (ctrl) { state.show_histogram = !state.show_histogram; break; }
+        [[fallthrough]];
     case SDL_SCANCODE_LEFT:
         viewport_pan(vA, -step, 0.0f);
         if (state.sync_viewports) viewport_pan(vB, -step, 0.0f);
         break;
     case SDL_SCANCODE_L:
+        if (ctrl) { state.show_hline_cut = !state.show_hline_cut; break; }
+        [[fallthrough]];
     case SDL_SCANCODE_RIGHT:
         viewport_pan(vA, +step, 0.0f);
         if (state.sync_viewports) viewport_pan(vB, +step, 0.0f);
@@ -240,9 +244,10 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         state.diff.amplify = 1.0f;
         break;
 
-    // ── Viewport sync ─────────────────────────────────────────────────────────
+    // ── Viewport sync / Statistics ────────────────────────────────────────────
     case SDL_SCANCODE_S:
-        if (!ctrl) state.sync_viewports = !state.sync_viewports;
+        if (ctrl) state.show_stats = !state.show_stats;
+        else state.sync_viewports = !state.sync_viewports;
         break;
 
     // ── A/B swap / 1:1 zoom ───────────────────────────────────────────────────
@@ -284,6 +289,9 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         break;
     case SDL_SCANCODE_P:
         state.show_pathfinder = !state.show_pathfinder;
+        break;
+    case SDL_SCANCODE_Y:
+        if (ctrl) state.show_vline_cut = !state.show_vline_cut;
         break;
 
     default:
