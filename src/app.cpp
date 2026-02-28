@@ -136,7 +136,7 @@ void apply_cli_options(AppState& state, const CliOptions& opts) {
 
 // ─── handle_keyboard ──────────────────────────────────────────────────────────
 
-void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool alt) {
+void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool alt, bool gui) {
     (void)alt;
 
     auto& vA = state.views[0];
@@ -244,10 +244,17 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         state.diff.amplify = 1.0f;
         break;
 
-    // ── Viewport sync / Statistics ────────────────────────────────────────────
+    // ── Open Images dialog ───────────────────────────────────────────────────
+    case SDL_SCANCODE_O:
+        if (shift && (ctrl || gui))
+            state.open_state.show = !state.open_state.show;
+        break;
+
+    // ── Viewport sync / Statistics / Save ────────────────────────────────────
     case SDL_SCANCODE_S:
-        if (ctrl) state.show_stats = !state.show_stats;
-        else state.sync_viewports = !state.sync_viewports;
+        if (shift && (ctrl || gui)) state.show_save_dialog = !state.show_save_dialog;
+        else if (ctrl)              state.show_stats = !state.show_stats;
+        else                        state.sync_viewports = !state.sync_viewports;
         break;
 
     // ── A/B swap / 1:1 zoom ───────────────────────────────────────────────────

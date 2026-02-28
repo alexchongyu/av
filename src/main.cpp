@@ -247,6 +247,7 @@ int main(int argc, char* argv[]) {
     // ── Application state ─────────────────────────────────────────────────────
     AppState state;
     apply_cli_options(state, cli);
+    state.window = window;
 
     // ── Fonts ─────────────────────────────────────────────────────────────────
     // Keep ProggyClean 13px as default (for existing UI elements)
@@ -256,6 +257,11 @@ int main(int argc, char* argv[]) {
         IMGUI_FONT_DIR "/Roboto-Medium.ttf", 26.0f);
     if (!state.font_large)
         state.font_large = io.Fonts->Fonts[0];  // fallback to default
+    // Roboto-Medium 18px for Save/Open dialogs
+    state.font_medium = io.Fonts->AddFontFromFileTTF(
+        IMGUI_FONT_DIR "/Roboto-Medium.ttf", 18.0f);
+    if (!state.font_medium)
+        state.font_medium = io.Fonts->Fonts[0];  // fallback to default
 
     // Load images from CLI
     if (!cli.image_a.empty()) {
@@ -295,9 +301,10 @@ int main(int argc, char* argv[]) {
                     bool ctrl  = (event.key.mod & SDL_KMOD_CTRL)  != 0;
                     bool shift = (event.key.mod & SDL_KMOD_SHIFT) != 0;
                     bool alt   = (event.key.mod & SDL_KMOD_ALT)   != 0;
+                    bool gui   = (event.key.mod & SDL_KMOD_GUI)   != 0;
                     handle_keyboard(state,
                                     static_cast<int>(event.key.scancode),
-                                    ctrl, shift, alt);
+                                    ctrl, shift, alt, gui);
                 }
             } else if (event.type == SDL_EVENT_DROP_FILE) {
                 const char* dropped = event.drop.data;

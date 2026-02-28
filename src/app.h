@@ -5,7 +5,8 @@
 #include <array>
 #include <cstdint>
 
-struct ImFont;  // forward declaration — full type in imgui.h
+struct ImFont;       // forward declaration — full type in imgui.h
+struct SDL_Window;   // forward declaration — full type in SDL3/SDL.h
 
 // ─── Core data types ──────────────────────────────────────────────────────────
 
@@ -43,6 +44,50 @@ struct DiffState {
     float ssim_score     = -1.0f;      // -1 = not computed
     unsigned int ssim_texture_id = 0;  // SSIM heatmap texture (GLuint)
     bool  ssim_computing = false;
+};
+
+struct SaveDialogState {
+    enum class Format { PNG, BMP, PPM };
+    Format format = Format::PNG;
+
+    enum class PpmMode { Binary, ASCII };
+    PpmMode ppm_mode = PpmMode::Binary;
+    int     ppm_bits = 8;   // 8, 10, 12, or 16
+
+    enum class Target { None, ImageA, ImageB, Diff };
+    Target  pending_target = Target::None;
+
+    std::string saved_path;   // set by dialog callback
+    bool  save_pending = false;
+    bool  save_error   = false;
+    std::string error_msg;
+    char filename_buf[256] = {};  // user-editable default filename
+};
+
+struct OpenDialogState {
+    bool  show         = false;   // Shift+Cmd+O toggle
+    std::string opened_path;      // set by SDL dialog callback
+    int   open_target  = -1;      // 0=A, 1=B
+    bool  open_pending = false;   // waiting for main loop to handle
+    bool  clear_other  = false;   // remove other slot when loading single image
+};
+
+struct ChartExportState {
+    int  export_width      = 1920;
+    int  export_height     = 1080;
+    bool separate_channels = false;  // true: R/G/B separate files
+
+    enum class ExportType {
+        None,
+        HistPNG, HistCSV,
+        HCutPNG, HCutCSV,
+        VCutPNG, VCutCSV,
+        StatsCSV
+    };
+    ExportType  pending_type    = ExportType::None;
+    int         pending_img_idx = 0;  // 0=A, 1=B, 2=Diff
+    std::string pending_path;
+    bool        export_pending  = false;
 };
 
 struct CliOptions {
@@ -86,8 +131,14 @@ struct AppState {
     int   pan_step        = 32;       // Shift+hjkl jump size in image-pixels
     // Border colors for A / B / Diff panels (ImGui ABGR uint32)
     std::array<uint32_t, 3> border_colors = {0xE6FF00FFu, 0xE600FFFFu, 0xE6FFFF00u};
-    ImFont* font_large = nullptr;     // Roboto-Medium 26px (Image Info & Pixel Balloon)
+    ImFont* font_large  = nullptr;    // Roboto-Medium 26px (Image Info & Pixel Balloon)
+    ImFont* font_medium = nullptr;    // Roboto-Medium 18px (Save/Open dialog)
     CliOptions cli;
+    bool  show_save_dialog = false;   // Shift+Cmd/Ctrl+S: Save Images window
+    SaveDialogState  save_state;
+    OpenDialogState  open_state;
+    ChartExportState chart_export;
+    SDL_Window* window = nullptr;     // main SDL window (for file dialogs)
 };
 
 // ─── Function declarations ────────────────────────────────────────────────────
@@ -99,4 +150,5 @@ CliOptions parse_cli(int argc, char* argv[]);
 void apply_cli_options(AppState& state, const CliOptions& opts);
 
 // Handle a keyboard event (SDL_SCANCODE_* values).
-void handle_keyboard(AppState& state, int sdl_scancode, bool ctrl, bool shift, bool alt);
+// gui: true if Cmd (macOS) / Win key is held.
+void handle_keyboard(AppState& state, int sdl_scancode, bool ctrl, bool shift, bool alt, bool gui = false);

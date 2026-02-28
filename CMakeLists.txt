@@ -101,6 +101,10 @@ set(AV_SOURCES
     src/gl_texture.cpp
     src/diff_engine.cpp
     src/stb_impl.cpp
+    src/image_save.cpp
+    src/image_open.cpp
+    src/soft_renderer.cpp
+    src/chart_export.cpp
     src/ui/main_window.cpp
     src/ui/image_panel.cpp
     src/ui/statusbar.cpp
