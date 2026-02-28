@@ -1,6 +1,7 @@
 #include "app.h"
 #include "viewport.h"
 #include "image_loader.h"
+#include "image_open.h"
 
 #include <SDL3/SDL.h>
 
@@ -204,14 +205,30 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 
     // ── Pan ───────────────────────────────────────────────────────────────────
     case SDL_SCANCODE_H:
-        if (ctrl) { state.show_histogram = !state.show_histogram; break; }
+        if (ctrl) {
+            state.show_histogram = !state.show_histogram;
+            if (state.show_histogram) {
+                state.show_hline_cut = false;
+                state.show_vline_cut = false;
+                state.show_stats     = false;
+            }
+            break;
+        }
         [[fallthrough]];
     case SDL_SCANCODE_LEFT:
         viewport_pan(vA, -step, 0.0f);
         if (state.sync_viewports) viewport_pan(vB, -step, 0.0f);
         break;
     case SDL_SCANCODE_L:
-        if (ctrl) { state.show_hline_cut = !state.show_hline_cut; break; }
+        if (ctrl) {
+            state.show_hline_cut = !state.show_hline_cut;
+            if (state.show_hline_cut) {
+                state.show_histogram = false;
+                state.show_vline_cut = false;
+                state.show_stats     = false;
+            }
+            break;
+        }
         [[fallthrough]];
     case SDL_SCANCODE_RIGHT:
         viewport_pan(vA, +step, 0.0f);
@@ -244,17 +261,25 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         state.diff.amplify = 1.0f;
         break;
 
-    // ── Open Images dialog ───────────────────────────────────────────────────
+    // ── Open Image (native dialog) ───────────────────────────────────────────
     case SDL_SCANCODE_O:
         if (shift && (ctrl || gui))
-            state.open_state.show = !state.open_state.show;
+            open_open_file_dialog(state, state.active_panel);
         break;
 
     // ── Viewport sync / Statistics / Save ────────────────────────────────────
     case SDL_SCANCODE_S:
         if (shift && (ctrl || gui)) state.show_save_dialog = !state.show_save_dialog;
-        else if (ctrl)              state.show_stats = !state.show_stats;
-        else                        state.sync_viewports = !state.sync_viewports;
+        else if (ctrl) {
+            state.show_stats = !state.show_stats;
+            if (state.show_stats) {
+                state.show_histogram  = false;
+                state.show_hline_cut  = false;
+                state.show_vline_cut  = false;
+            }
+        } else {
+            state.sync_viewports = !state.sync_viewports;
+        }
         break;
 
     // ── A/B swap / 1:1 zoom ───────────────────────────────────────────────────
@@ -303,10 +328,21 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         state.show_pixel_info = !state.show_pixel_info;
         break;
     case SDL_SCANCODE_P:
-        state.show_pathfinder = !state.show_pathfinder;
+        if (ctrl || gui) {
+            state.pathfinder_mode = (state.pathfinder_mode == 2) ? 0 : 2;
+        } else {
+            state.pathfinder_mode = (state.pathfinder_mode == 1) ? 0 : 1;
+        }
         break;
     case SDL_SCANCODE_Y:
-        if (ctrl) state.show_vline_cut = !state.show_vline_cut;
+        if (ctrl) {
+            state.show_vline_cut = !state.show_vline_cut;
+            if (state.show_vline_cut) {
+                state.show_histogram  = false;
+                state.show_hline_cut  = false;
+                state.show_stats      = false;
+            }
+        }
         break;
 
     default:

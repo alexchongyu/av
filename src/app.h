@@ -46,22 +46,47 @@ struct DiffState {
     bool  ssim_computing = false;
 };
 
-struct SaveDialogState {
+struct SaveItemState {
+    bool checked = true;
+    char path[512] = {};
+};
+
+struct ImageSaveDialog {
     enum class Format { PNG, BMP, PPM };
     Format format = Format::PNG;
+    Format prev_format = Format::PNG;  // for extension auto-update
 
     enum class PpmMode { Binary, ASCII };
     PpmMode ppm_mode = PpmMode::Binary;
     int     ppm_bits = 8;   // 8, 10, 12, or 16
 
     enum class Target { None, ImageA, ImageB, Diff };
-    Target  pending_target = Target::None;
 
-    std::string saved_path;   // set by dialog callback
-    bool  save_pending = false;
-    bool  save_error   = false;
-    std::string error_msg;
-    char filename_buf[256] = {};  // user-editable default filename
+    SaveItemState items[3];   // 0=A, 1=B, 2=Diff
+    bool initialized = false;
+    std::string status_msg;
+    bool status_error = false;
+};
+
+struct ChartSaveDialog {
+    int  export_width      = 1920;
+    int  export_height     = 1080;
+    bool separate_channels = false;
+
+    SaveItemState png_items[3];   // 0=A, 1=B, 2=Diff
+    SaveItemState csv_items[3];
+    bool initialized      = false;
+    bool init_was_histogram = false;
+    bool init_was_hcut      = false;
+    std::string status_msg;
+    bool status_error = false;
+};
+
+struct StatsSaveDialog {
+    SaveItemState items[3];   // 0=A, 1=B, 2=Diff
+    bool initialized = false;
+    std::string status_msg;
+    bool status_error = false;
 };
 
 struct OpenDialogState {
@@ -72,23 +97,6 @@ struct OpenDialogState {
     bool  clear_other  = false;   // remove other slot when loading single image
 };
 
-struct ChartExportState {
-    int  export_width      = 1920;
-    int  export_height     = 1080;
-    bool separate_channels = false;  // true: R/G/B separate files
-
-    enum class ExportType {
-        None,
-        HistPNG, HistCSV,
-        HCutPNG, HCutCSV,
-        VCutPNG, VCutCSV,
-        StatsCSV
-    };
-    ExportType  pending_type    = ExportType::None;
-    int         pending_img_idx = 0;  // 0=A, 1=B, 2=Diff
-    std::string pending_path;
-    bool        export_pending  = false;
-};
 
 struct CliOptions {
     std::string     image_a;
@@ -120,7 +128,7 @@ struct AppState {
     bool  show_stats      = false;   // Ctrl+S: Image Statistics window
     bool  show_info       = false;
     bool  show_pixel_info = false;   // V key: cursor pixel balloon
-    bool  show_pathfinder = true;   // P key: 미니맵 토글 (기본 ON)
+    int   pathfinder_mode = 1;      // 0=hidden, 1=image (P), 2=schematic (Ctrl+P)
     bool  swap_images     = false;   // A↔B quick-swap toggle
     int   active_panel    = 0;       // 0 or 1 (keyboard focus)
     bool  quit            = false;
@@ -134,10 +142,11 @@ struct AppState {
     ImFont* font_large  = nullptr;    // Roboto-Medium 26px (Image Info & Pixel Balloon)
     ImFont* font_medium = nullptr;    // Roboto-Medium 18px (Save/Open dialog)
     CliOptions cli;
-    bool  show_save_dialog = false;   // Shift+Cmd/Ctrl+S: Save Images window
-    SaveDialogState  save_state;
+    bool  show_save_dialog = false;   // Shift+Cmd/Ctrl+S: context-aware Save window
+    ImageSaveDialog  image_save;
+    ChartSaveDialog  chart_save;
+    StatsSaveDialog  stats_save;
     OpenDialogState  open_state;
-    ChartExportState chart_export;
     SDL_Window* window = nullptr;     // main SDL window (for file dialogs)
 };
 

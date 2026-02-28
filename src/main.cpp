@@ -296,12 +296,13 @@ int main(int argc, char* argv[]) {
                     state.quit = true;
                 }
             } else if (event.type == SDL_EVENT_KEY_DOWN) {
-                // Don't pass to app if ImGui captured it
-                if (!io.WantCaptureKeyboard) {
-                    bool ctrl  = (event.key.mod & SDL_KMOD_CTRL)  != 0;
-                    bool shift = (event.key.mod & SDL_KMOD_SHIFT) != 0;
-                    bool alt   = (event.key.mod & SDL_KMOD_ALT)   != 0;
-                    bool gui   = (event.key.mod & SDL_KMOD_GUI)   != 0;
+                bool ctrl  = (event.key.mod & SDL_KMOD_CTRL)  != 0;
+                bool shift = (event.key.mod & SDL_KMOD_SHIFT) != 0;
+                bool alt   = (event.key.mod & SDL_KMOD_ALT)   != 0;
+                bool gui   = (event.key.mod & SDL_KMOD_GUI)   != 0;
+                // Global shortcuts (Cmd/Ctrl combos) always pass through;
+                // plain keys deferred to ImGui when it wants keyboard
+                if (!io.WantCaptureKeyboard || ctrl || gui) {
                     handle_keyboard(state,
                                     static_cast<int>(event.key.scancode),
                                     ctrl, shift, alt, gui);
