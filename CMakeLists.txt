@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
 project(av C CXX)   # C required for glad2 generated sources
 
+# Static CRT for standalone deployment (no vcruntime DLL needed)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -170,6 +173,12 @@ set_target_properties(av PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_SOURCE_DIR}/bin
     RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     ${CMAKE_SOURCE_DIR}/bin
 )
+
+# Windows: 콘솔 창 숨기기 (GUI 서브시스템)
+if(WIN32)
+    set_target_properties(av PROPERTIES WIN32_EXECUTABLE TRUE)
+    target_link_options(av PRIVATE /ENTRY:mainCRTStartup)
+endif()
 
 # Install + Auto-copy (플랫폼별 분기)
 if(WIN32)
