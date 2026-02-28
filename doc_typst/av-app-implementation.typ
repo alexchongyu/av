@@ -8,7 +8,7 @@
 #set document(
   title: "Advanced Pixel Lens — 구현 가이드",
   author: "Alex",
-  date: datetime(year: 2026, month: 2, day: 27),
+  date: datetime(year: 2026, month: 2, day: 28),
 )
 
 // ── 페이지 ─────────────────────────────────────────────
@@ -132,7 +132,7 @@
   #v(2.8em)
   #line(length: 60%, stroke: 0.8pt + luma(180))
   #v(1.2em)
-  #text(size: 11pt, fill: luma(80))[Version 0.1 #h(2em) 2026#sym.dash.en{}02#sym.dash.en{}27]
+  #text(size: 11pt, fill: luma(80))[Version 0.2 #h(2em) 2026#sym.dash.en{}02#sym.dash.en{}28]
   #v(0.6em)
   #text(size: 10pt, fill: luma(120))[크로스 플랫폼 GPU 가속 이미지 뷰어 / 비교 도구]
 ]
@@ -517,6 +517,9 @@ struct AppState {
     bool  sync_viewports  = true;
     bool  show_ui         = false;
     bool  show_histogram  = false;
+    bool  show_hline_cut  = false;
+    bool  show_vline_cut  = false;
+    bool  show_stats      = false;
     bool  show_info       = false;
     bool  show_pixel_info = false;
     bool  show_pathfinder = true;
@@ -529,7 +532,15 @@ struct AppState {
     ChannelMode channel_mode = ChannelMode::RGB;
     int   pan_step        = 32;
     std::array<uint32_t, 3> border_colors;
+    ImFont* font_large    = nullptr;   // Roboto-Medium 26px
+    ImFont* font_medium   = nullptr;   // Roboto-Medium 18px
     CliOptions cli;
+    bool  show_save_dialog = false;
+    ImageSaveDialog  image_save;
+    ChartSaveDialog  chart_save;
+    StatsSaveDialog  stats_save;
+    OpenDialogState  open_state;
+    SDL_Window*      window = nullptr;
 };
 ```
 
@@ -537,25 +548,125 @@ struct AppState {
 
 #figure(
   table(
-    columns: (1.3fr, 3fr),
+    columns: (1.5fr, 3fr),
     fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
     align: (left, left),
     table.header([필드], [설명]),
-    [`images`],          [A/B 이미지 엔트리 (2개 고정)],
-    [`views`],           [A/B 뷰포트 상태 (줌, 팬, fit)],
-    [`diff`],            [Diff 모드 상태],
-    [`sync_viewports`],  [뷰포트 동기화 여부 (`S` 키 토글)],
-    [`show_ui`],         [ImGui 데모 UI 표시 여부 (`U` 키)],
-    [`show_pixel_info`], [커서 위치 픽셀 값 풍선말 표시 (`V` 키)],
-    [`show_pathfinder`], [미니맵 표시 여부 (`P` 키, 기본 ON)],
-    [`swap_images`],     [A/B 이미지 교환 상태 (`Shift+Space`)],
-    [`active_panel`],    [현재 포커스된 패널 인덱스 (0 또는 1)],
-    [`channel_mode`],    [채널 표시 모드 (RGB, R, G, B)],
-    [`pan_step`],        [Shift+hjkl 팬 이동량 (픽셀, 기본 32)],
-    [`border_colors`],   [패널 테두리 색상 배열 \[A, B, Diff\]],
+    [`images`],           [A/B 이미지 엔트리 (2개 고정)],
+    [`views`],            [A/B 뷰포트 상태 (줌, 팬, fit)],
+    [`diff`],             [Diff 모드 상태],
+    [`sync_viewports`],   [뷰포트 동기화 여부 (`S` 키 토글)],
+    [`show_ui`],          [ImGui 데모 UI 표시 여부 (`U` 키)],
+    [`show_histogram`],   [Histogram 창 표시 여부 (`Ctrl+H`)],
+    [`show_hline_cut`],   [H-Line Cut 창 표시 여부 (`Ctrl+L`)],
+    [`show_vline_cut`],   [V-Line Cut 창 표시 여부 (`Ctrl+Y`)],
+    [`show_stats`],       [Statistics 창 표시 여부 (`Ctrl+S`)],
+    [`show_pixel_info`],  [커서 위치 픽셀 값 풍선말 표시 (`V` 키)],
+    [`show_pathfinder`],  [미니맵 표시 여부 (`P` 키, 기본 ON)],
+    [`swap_images`],      [A/B 이미지 교환 상태 (`Shift+Space`)],
+    [`active_panel`],     [현재 포커스된 패널 인덱스 (0 또는 1)],
+    [`channel_mode`],     [채널 표시 모드 (RGB, R, G, B)],
+    [`pan_step`],         [Shift+hjkl 팬 이동량 (픽셀, 기본 32)],
+    [`border_colors`],    [패널 테두리 색상 배열 \[A, B, Diff\]],
+    [`font_medium`],      [Roboto-Medium 18px 폰트 (차트 창 등에서 사용)],
+    [`show_save_dialog`], [컨텍스트 인식 Save 다이얼로그 표시 여부 (`Shift+Cmd+S`)],
+    [`image_save`],       [`ImageSaveDialog` 상태 구조체],
+    [`chart_save`],       [`ChartSaveDialog` 상태 구조체],
+    [`stats_save`],       [`StatsSaveDialog` 상태 구조체],
+    [`open_state`],       [`OpenDialogState` 상태 구조체],
+    [`window`],           [네이티브 파일 다이얼로그용 SDL 윈도우 포인터],
   ),
   caption: [AppState 주요 필드],
 ) <tab:app-state>
+
+== 다이얼로그 관련 구조체
+
+v0.2에서 파일 열기·저장 다이얼로그 시스템을 지원하기 위한 구조체 4종이 추가되었다.
+
+=== SaveItemState
+
+개별 저장 항목(A/B/Diff)의 체크박스 상태와 경로를 보관하는 최소 구조체이다.
+
+```cpp
+struct SaveItemState {
+    bool checked    = true;
+    char path[512]  = {};
+};
+```
+
+=== ImageSaveDialog
+
+이미지 저장 다이얼로그의 전체 상태를 보관한다. A/B/Diff 세 이미지를 동시에 저장할 수 있다.
+
+```cpp
+struct ImageSaveDialog {
+    enum class Format  { PNG, BMP, PPM };
+    enum class PpmMode { Binary, ASCII };
+
+    Format  format      = Format::PNG;
+    Format  prev_format = Format::PNG;   // 확장자 자동 업데이트용
+    PpmMode ppm_mode    = PpmMode::Binary;
+    int     ppm_bits    = 8;             // 8, 10, 12, 16
+
+    SaveItemState items[3];              // 0=A, 1=B, 2=Diff
+    bool          initialized  = false;
+    std::string   status_msg;
+    bool          status_error = false;
+};
+```
+
+PPM 모드에서 `ppm_bits`는 8/10/12/16 비트를 지원하며, `PpmMode::Binary`는 P6(바이너리), `PpmMode::ASCII`는 P3(텍스트) 형식으로 저장한다.
+
+=== ChartSaveDialog
+
+차트 PNG 및 CSV 내보내기 다이얼로그의 전체 상태를 보관한다.
+
+```cpp
+struct ChartSaveDialog {
+    int  export_width       = 1920;
+    int  export_height      = 1080;
+    bool separate_channels  = false;
+
+    SaveItemState png_items[3];   // PNG 내보내기 (0=A, 1=B, 2=Diff)
+    SaveItemState csv_items[3];   // CSV 내보내기
+    bool          initialized        = false;
+    bool          init_was_histogram = false;
+    bool          init_was_hcut      = false;
+    std::string   status_msg;
+    bool          status_error       = false;
+};
+```
+
+`init_was_histogram`/`init_was_hcut` 플래그로 활성 창 종류를 추적하여 파일 접미사(`_histogram`/`_hcut`/`_vcut`)를 자동 결정한다. `separate_channels`가 `true`이면 R/G/B 채널을 각각 별도 파일(`_R`/`_G`/`_B`)로 내보낸다.
+
+=== StatsSaveDialog
+
+Statistics 창의 CSV 저장 다이얼로그 상태를 보관한다.
+
+```cpp
+struct StatsSaveDialog {
+    SaveItemState items[3];      // 0=A, 1=B, 2=Diff
+    bool          initialized  = false;
+    std::string   status_msg;
+    bool          status_error = false;
+};
+```
+
+=== OpenDialogState
+
+파일 열기 다이얼로그와 "Open Images" 창의 상태를 보관한다.
+
+```cpp
+struct OpenDialogState {
+    bool        show         = false;   // Shift+Cmd+O 토글
+    std::string opened_path;            // SDL 콜백에서 설정
+    int         open_target  = -1;      // 0=A, 1=B
+    bool        open_pending = false;   // 메인 루프 처리 대기 중
+    bool        clear_other  = false;   // 단일 로드 시 반대 슬롯 클리어
+};
+```
+
+SDL3의 비동기 파일 다이얼로그 콜백이 `opened_path`와 `open_pending`을 설정하면, 메인 루프에서 이를 감지하여 실제 이미지 로딩을 처리한다.
 
 == 데이터 흐름
 
@@ -1128,6 +1239,72 @@ void free_image(ImageEntry& entry) {
 }
 ```
 
+#v(1em)
+== 이미지 회전
+
+av는 CPU 기반의 90° 회전 기능을 제공한다. `r` 키는 시계방향(CW), `Ctrl+R` 키는 반시계방향(CCW)으로 모든 로드된 이미지를 동시에 90° 회전한다.
+
+=== 인터페이스
+
+```cpp
+// image_loader.h
+void rotate_image_cw (ImageEntry& entry);   // 시계방향 90°
+void rotate_image_ccw(ImageEntry& entry);   // 반시계방향 90°
+```
+
+두 함수 모두 `ImageEntry`를 제자리에서 수정한다. CPU 측 픽셀 데이터(`pixels` 또는 `pixels_f32`)와 GPU 텍스처를 모두 갱신한다.
+
+=== 변환 공식
+
+회전 전 이미지 크기: $w_"old" times h_"old"$ → 회전 후: $w_"new" = h_"old",quad h_"new" = w_"old"$
+
+#figure(
+  table(
+    columns: (1.2fr, 2fr, 2.5fr),
+    align: (center, center, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header([*방향*], [*변환*], [*수식*]),
+    [CW (시계방향)],  [`new[x][old_h-1-y] = old[y][x]`],  [dst\_row = x, dst\_col = old\_h#sym.minus{}1#sym.minus{}y],
+    [CCW (반시계)],   [`new[old_w-1-x][y] = old[y][x]`],  [dst\_row = old\_w#sym.minus{}1#sym.minus{}x, dst\_col = y],
+  ),
+  caption: [90° 회전 변환 공식],
+) <tab-rotate>
+
+=== 구현 세부
+
++ *데이터 타입 분기*: LDR(`uint8_t` × 4, `pixels`) / HDR(`float` × 4, `pixels_f32`) 모두 처리
++ *GPU 텍스처 재생성*: 기존 텍스처를 `glDeleteTextures()`로 해제 후 `upload_rgba8()` 또는 `upload_rgba_f32()`로 재업로드
++ *뷰포트 초기화*: 회전 후 모든 뷰포트의 `fit = true`, `pan_x = pan_y = 0.0f`로 초기화 (fit-to-window)
+
+```cpp
+void rotate_image_cw(ImageEntry& entry) {
+    if (!entry.loaded) return;
+    const int old_w = entry.width, old_h = entry.height;
+    const int new_w = old_h,       new_h = old_w;
+
+    // LDR
+    if (!entry.pixels.empty()) {
+        std::vector<uint8_t> dst(new_w * new_h * 4);
+        for (int y = 0; y < old_h; ++y)
+          for (int x = 0; x < old_w; ++x) {
+              int dst_row = x, dst_col = old_h - 1 - y;
+              // 4채널 복사
+              const uint8_t* sp = entry.pixels.data() + (y*old_w+x)*4;
+              uint8_t*       dp = dst.data() + (dst_row*new_w+dst_col)*4;
+              dp[0]=sp[0]; dp[1]=sp[1]; dp[2]=sp[2]; dp[3]=sp[3];
+          }
+        entry.pixels = std::move(dst);
+    }
+    // HDR (pixels_f32 동일 구조)
+    entry.width = new_w; entry.height = new_h;
+    // GPU 재업로드
+    glDeleteTextures(1, &entry.texture_id); entry.texture_id = 0;
+    entry.texture_id = entry.pixels.empty()
+        ? upload_rgba_f32(entry.pixels_f32.data(), new_w, new_h)
+        : upload_rgba8   (entry.pixels.data(),     new_w, new_h);
+}
+```
+
 
 // ── Ch 6 ─────────────────────────────────────────────────────────
 #pagebreak()
@@ -1642,6 +1819,9 @@ ImGui 메인 메뉴바는 네 개의 메뉴로 구성된다.
 *File 메뉴:*
 - Open Image A\... (`O`) #sym.dash.en 파일 열기 다이얼로그 (Image A)
 - Open Image B\... (`Shift+O`) #sym.dash.en 파일 열기 다이얼로그 (Image B)
+- Open Images (`Shift+Cmd+O`) #sym.dash.en Open Images 창 토글
+- Separator
+- Save (`Shift+Cmd+S`) #sym.dash.en 컨텍스트 인식 Save 다이얼로그 토글
 - Separator
 - Quit (`Q`) #sym.dash.en 애플리케이션 종료
 
@@ -1654,6 +1834,10 @@ ImGui 메인 메뉴바는 네 개의 메뉴로 구성된다.
 - Show Pathfinder (`P`) #sym.dash.en 미니맵 체크박스 토글
 - Show Image Info (`I`) #sym.dash.en 정보 팝업 체크박스 토글
 - Show Pixel Info (`V`) #sym.dash.en 커서 픽셀 값 풍선말 토글
+- Show Histogram (`Ctrl+H`) #sym.dash.en Histogram 창 토글 (상호 배타)
+- Show H-Line Cut (`Ctrl+L`) #sym.dash.en H-Line Cut 창 토글 (상호 배타)
+- Show V-Line Cut (`Ctrl+Y`) #sym.dash.en V-Line Cut 창 토글 (상호 배타)
+- Show Statistics (`Ctrl+S`) #sym.dash.en Statistics 창 토글 (상호 배타)
 
 *Diff 메뉴:*
 - Off (`Ctrl+D`)
@@ -1913,6 +2097,280 @@ ImGui DrawList를 사용하여 각 패널의 이미지 경계를 시각적으로
 ) <tab-stats-diff>
 
 
+== 차트/통계 창 상호 배타적 토글 <sec-chart-exclusive>
+
+Histogram, H-Line Cut, V-Line Cut, Statistics 4개 창은 상호 배타적으로 동작한다. 하나를 열면 나머지 세 창이 자동으로 닫힌다. 이 동작은 키보드 단축키(`app.cpp`)와 메뉴바(`main_window.cpp`) 모두에서 동일하게 적용된다.
+
+#figure(
+  table(
+    columns: (1.5fr, 1fr, 3fr),
+    align: (left, center, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header([*창*], [*단축키*], [*토글 시 동작*]),
+    [Histogram],   [`Ctrl+H`], [나머지 3개 창(`hline_cut`, `vline_cut`, `stats`) 닫힘],
+    [H-Line Cut],  [`Ctrl+L`], [나머지 3개 창(`histogram`, `vline_cut`, `stats`) 닫힘],
+    [V-Line Cut],  [`Ctrl+Y`], [나머지 3개 창(`histogram`, `hline_cut`, `stats`) 닫힘],
+    [Statistics],  [`Ctrl+S`], [나머지 3개 창(`histogram`, `hline_cut`, `vline_cut`) 닫힘],
+  ),
+  caption: [차트/통계 창 상호 배타적 토글],
+) <tab-exclusive>
+
+#v(0.8em)
+
+== Histogram 창 (Ctrl+H) <sec-histogram>
+
+`Ctrl+H` 키(또는 View 메뉴 → Show Histogram)로 토글하는 `render_histogram_window()` 함수가 Image A, Image B, Diff |A#sym.minus{}B| 세 섹션의 R/G/B 채널별 히스토그램을 표시한다.
+
+#v(0.5em)
+
+*창 크기*: 메인 뷰포트의 90% × 85% (첫 표시 시)
+
+*히스토그램 계산*:
+- 256 빈(bin) × 3 채널 (R/G/B) 각각 독립 집계
+- Diff 섹션: Image A와 B의 채널별 절대 차이 `|A[i]−B[i]|`를 256 빈으로 집계
+
+*Y축 스케일*: 로그 스케일 (`std::log1p`) 적용. 최대 로그값(`max_log`)으로 정규화하여 막대 높이를 결정.
+
+*Y축 라벨*: 25/50/75/100% 위치에 실제 카운트 값을 쉼표 포맷(예: `1,234,567`)으로 표시. 라벨 폭에 맞춰 좌측 여백(`y_margin`)을 동적으로 계산.
+
+*X축 틱*: `{0, 32, 64, 96, 128, 160, 192, 224, 255}` 고정 9개.
+
+#figure(
+  table(
+    columns: (1fr, 1.5fr, 2fr),
+    align: (center, center, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header([*채널*], [*색상 (RGBA)*], [*비고*]),
+    [R], [`(255, 60, 60, 180)`],  [붉은 막대],
+    [G], [`(60, 255, 60, 180)`],  [녹색 막대],
+    [B], [`(60, 60, 255, 180)`],  [파란 막대],
+  ),
+  caption: [Histogram 채널 막대 색상],
+) <tab-hist-colors>
+
+*스타일*:
+- 차트 배경: `(30, 30, 30, 220)`
+- 격자선: 25/50/75/100% 위치, `(60, 60, 60, 120)`
+- 테두리: `(80, 80, 80, 180)`
+
+*호버 툴팁*: 마우스가 차트 영역 위에 있을 때 수직 크로스헤어 3개(채널별, 흰색 alpha=120)와 함께 현재 bin 번호, R/G/B 카운트(쉼표 포맷)를 툴팁으로 표시한다.
+
+#v(0.8em)
+
+== H-Line Cut 창 (Ctrl+L) <sec-hline-cut>
+
+`Ctrl+L` 키로 토글하는 `render_hline_cut_window()` 함수가 현재 뷰포트 중앙에 해당하는 수평 라인의 픽셀값을 R/G/B 채널별 라인 차트로 표시한다.
+
+#v(0.5em)
+
+*창 크기*: 메인 뷰포트의 90% × 85% (첫 표시 시)
+
+*라인 선택*: 뷰포트 pan_y를 기반으로 계산.
+
+$ "row" = "round"(-"pan"_y + h_"img" / 2) $
+
+*데이터 추출*:
+- 선택된 row의 전체 가로 픽셀 R/G/B 값 추출
+- LDR: `pixels[idx] / 255.0f` 정규화
+- HDR: `pixels_f32[idx]` 사용, 채널 최대값으로 정규화
+
+*렌더링*: `ImDrawList::AddPolyline`, 선 두께 1.5f. 픽셀 수가 차트 폭보다 많으면 균등 다운샘플링.
+
+#figure(
+  table(
+    columns: (1fr, 1.5fr, 2fr),
+    align: (center, center, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header([*채널*], [*색상 (RGBA)*], [*비고*]),
+    [R], [`(255, 80, 80, 200)`],   [붉은 라인],
+    [G], [`(80, 255, 80, 200)`],   [녹색 라인],
+    [B], [`(80, 120, 255, 200)`],  [파란 라인],
+  ),
+  caption: [H-Line Cut 채널 라인 색상],
+) <tab-hcut-colors>
+
+*Y축 라벨*: 25/50/75/100% 위치에 역정규화 값을 표시.
+- LDR: `%d` 정수 포맷 (예: `255`)
+- HDR: `%.2f` 소수점 포맷 (예: `1.23`)
+
+*X축 틱*: `calc_nice_ticks` 알고리즘 — 최대 7구간으로 1/2/5/10 배수 스텝 자동 계산.
+
+*라벨 형식*: `"A: filename.png  row=123"`
+
+*호버 툴팁*: 마우스 X 위치에 해당하는 픽셀 인덱스, R/G/B 값 표시. LDR은 `%d`, HDR은 `%.4f` 포맷. 3채널 차트 전체에 수직 크로스헤어(흰색 alpha=120) 표시.
+
+#v(0.8em)
+
+== V-Line Cut 창 (Ctrl+Y) <sec-vline-cut>
+
+`Ctrl+Y` 키로 토글하는 `render_vline_cut_window()` 함수가 현재 뷰포트 중앙에 해당하는 수직 라인의 픽셀값을 표시한다. H-Line Cut과 구조가 동일하며 방향만 수직이다.
+
+#v(0.5em)
+
+*라인 선택*: 뷰포트 pan_x를 기반으로 계산.
+
+$ "col" = "round"(-"pan"_x + w_"img" / 2) $
+
+*데이터 추출*: 선택된 col의 전체 세로 픽셀 R/G/B 값 추출 (H-Line Cut과 동일한 HDR/LDR 분기).
+
+*라벨 형식*: `"A: filename.png  col=456"`
+
+채널 색상, Y축/X축 라벨 형식, 호버 툴팁 모두 H-Line Cut과 동일하다.
+
+#v(0.8em)
+
+== 파일 열기 다이얼로그 <sec-open-dialog>
+
+av는 SDL3 네이티브 파일 다이얼로그(`SDL_ShowOpenFileDialog`)를 통해 플랫폼 기본 파일 선택 UI를 제공한다.
+
+=== Open Images 창 (Shift+Cmd+O)
+
+`Shift+Cmd+O` 키(또는 File 메뉴 → Open Images)로 토글하는 플로팅 창이다.
+
+- *창 폭*: 480px 고정
+- *배경 알파*: `0.92f`
+- *내용*: Image A와 Image B 각각의 파일명 + 해상도 표시 + "Open" 버튼
+- *체크박스*: "Clear other image when loading single" — 단일 이미지 로드 시 반대 슬롯 자동 클리어 여부
+
+=== SDL 파일 다이얼로그 필터
+
+```cpp
+SDL_DialogFileFilter filters[] = {
+    { "Image files",
+      "png;jpg;jpeg;bmp;tga;hdr;ppm;pgm" },
+    { "All files", "*" },
+};
+SDL_ShowOpenFileDialog(callback, userdata, window,
+                       filters, 2, nullptr, false);
+```
+
+=== 비동기 처리 흐름
+
+SDL3 파일 다이얼로그는 비동기 콜백으로 결과를 반환한다. `open_dialog_callback()`이 `open_state.opened_path`와 `open_pending = true`를 설정하면, 메인 루프에서 이를 감지하여 이미지를 로딩한다.
+
+#v(0.8em)
+
+== Save 다이얼로그 시스템 <sec-save-dialog>
+
+`Shift+Cmd+S` 키(또는 File 메뉴 → Save)로 토글하는 컨텍스트 인식 저장 다이얼로그이다. 현재 활성 창에 따라 세 가지 모드로 분기한다.
+
+*분기 로직*:
+- Histogram 활성 → Chart Save (`is_histogram = true`)
+- H-Line Cut 또는 V-Line Cut 활성 → Chart Save (`is_histogram = false`)
+- Statistics 활성 → Stats Save
+- 그 외 → Image Save (기본)
+
+=== Image Save 다이얼로그
+
+*창 폭*: 580px, 배경 알파 `0.92f`
+
+- *포맷 선택*: PNG / BMP / PPM (라디오 버튼)
+- *PPM 옵션*: P6(바이너리)/P3(ASCII) + 비트 수 (8/10/12/16)
+- *항목*: Image A, Image B, Diff 각각 체크박스 + 경로 입력 필드
+- *경로 자동 생성*: 원본 경로에 `_save` 접미사 + 확장자 자동 변경
+- *Save All Checked 버튼*: 체크된 항목 모두 저장
+- *상태 메시지*: 성공 시 초록색, 에러 시 빨간색
+
+=== Chart Save 다이얼로그
+
+*창 폭*: 610px, 배경 알파 `0.92f`
+
+- *해상도 설정*: 기본 1920 × 1080, 최소 320 × 240
+- *채널 모드*: Combined (3채널 합산) / Separate (R/G/B 별도 파일)
+- *PNG 항목*: A/B/Diff 각각 체크박스 + 경로
+- *CSV 항목*: A/B/Diff 각각 체크박스 + 경로
+- *파일 접미사 자동 결정*: Histogram → `_histogram`, H-Line Cut → `_hcut`, V-Line Cut → `_vcut`
+
+=== Stats Save 다이얼로그
+
+*창 폭*: 560px, 배경 알파 `0.92f`
+
+- CSV 전용, A/B/Diff 각각 체크박스 + 경로
+- 파일 접미사: `_stats`
+
+#v(0.8em)
+
+== 이미지 회전 UI <sec-rotate-ui>
+
+`r` 키는 시계방향 90°, `Ctrl+R` 키는 반시계방향 90°로 모든 로드된 이미지를 동시에 회전한다.
+
+- *처리 범위*: 로드된 모든 이미지(`images[0]`, `images[1]`) 동시 적용
+- *뷰포트 초기화*: 회전 후 모든 뷰포트의 fit-to-window 리셋 (`fit=true`, `pan=0`)
+- *CPU 기반*: GPU 셰이더가 아닌 CPU 픽셀 데이터 직접 변환 후 텍스처 재업로드
+
+#v(0.8em)
+
+== Chart Export 렌더링 파이프라인 <sec-chart-export>
+
+차트를 PNG/CSV로 내보내는 기능은 `chart_export.cpp`와 CPU 전용 소프트웨어 렌더러 `SoftRenderer`를 통해 구현된다.
+
+=== SoftRenderer
+
+`soft_renderer.h`/`soft_renderer.cpp`에 정의된 CPU 기반 RGBA8 캔버스 클래스이다. OpenGL이나 ImGui에 의존하지 않고 독립적으로 이미지를 생성한다.
+
+```cpp
+class SoftRenderer {
+public:
+    SoftRenderer(int width, int height);
+    void clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
+    void fill_rect(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
+    void draw_rect(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
+    void hline(int x0, int x1, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
+    void vline(int x, int y0, int y1, uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
+    void draw_polyline(const float* xs, const float* ys, int count,
+                       uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255,
+                       float thickness = 1.5f);
+    bool load_font(const char* ttf_path, float pixel_height);
+    void draw_text(int x, int y, const char* text,
+                   uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255);
+    int  text_width(const char* text) const;
+    bool save_png(const char* path) const;
+};
+```
+
+- *텍스트*: stb_truetype으로 Roboto-Medium.ttf 14px 래스터화
+- *저장*: `stbi_write_png()`로 PNG 파일 생성
+
+=== Histogram PNG 내보내기
+
+`export_histogram_png()` 함수가 지정 해상도(기본 1920 × 1080)의 PNG를 생성한다.
+
+*마진*: ml=80, mr=20, mt=40, mb=50 (픽셀)
+
+*모드*:
+- *Combined*: R/G/B 3개 서브차트를 수직 스택, 각 채널 색상 막대
+- *Separate*: R/G/B 채널을 각각 별도 파일(`_R.png`/`_G.png`/`_B.png`)로 저장
+
+*Y축*: 최대 카운트 + "0" (왼쪽 마진, right-align)
+
+*X축 틱*: `{0, 64, 128, 192, 255}` 고정 5개
+
+=== Line Cut PNG 내보내기
+
+`export_linecut_png()` 함수가 H-Line Cut 또는 V-Line Cut 데이터를 PNG로 내보낸다.
+
+*마진*: ml=70, mr=20, mt=40, mb=50
+
+*렌더링*: `SoftRenderer::draw_polyline()`, 두께 1.5f
+
+*채널 색상*: R=(255,80,80), G=(80,255,80), B=(80,120,255)
+
+=== CSV 내보내기
+
+#figure(
+  table(
+    columns: (2fr, 1.5fr, 2.5fr),
+    align: (left, left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header([*함수*], [*컬럼*], [*행 수*]),
+    [`export_histogram_csv`], [`bin,R,G,B`],            [256행],
+    [`export_linecut_csv`],   [`position,R,G,B`],       [n행 (픽셀 수)],
+    [`export_stats_csv`],     [`Metric,R,G,B,Description`], [13 + 4행],
+  ),
+  caption: [CSV 내보내기 형식],
+) <tab-csv-format>
+
+
 // ──────────────────────────────────────────────
 // Ch 9 – 사용법
 // ──────────────────────────────────────────────
@@ -2067,19 +2525,23 @@ av [options] [imageA] [imageB]
 
 #figure(
   table(
-    columns: (1.5fr, 3fr),
-    align: (left, left),
+    columns: (2fr, 3fr, 2fr),
+    align: (left, left, left),
     fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
-    table.header[*키*][*동작*],
-    [`U`], [메뉴바 / 상태바 토글],
-    [`I`], [이미지 정보 팝업 토글],
-    [`P`], [Pathfinder 미니맵 토글],
-    [`V`], [픽셀 정보 풍선말 토글],
-    [`Ctrl+H`], [Histogram 창 토글],
-    [`Ctrl+L`], [H-Line Cut 창 토글],
-    [`Ctrl+Y`], [V-Line Cut 창 토글],
-    [`Ctrl+S`], [Statistics 창 토글],
-    [`Q`], [애플리케이션 종료],
+    table.header[*키*][*동작*][*비고*],
+    [`U`], [메뉴바 / 상태바 토글], [],
+    [`I`], [이미지 정보 팝업 토글], [],
+    [`P`], [Pathfinder 미니맵 토글], [],
+    [`V`], [픽셀 정보 풍선말 토글], [],
+    [`R`], [이미지 시계방향 90° 회전], [모든 로드 이미지 동시],
+    [`Ctrl+R`], [이미지 반시계방향 90° 회전], [모든 로드 이미지 동시],
+    [`Shift+Cmd+O`], [Open Images 창 토글], [],
+    [`Shift+Cmd+S`], [Save 다이얼로그 토글], [컨텍스트 인식],
+    [`Ctrl+H`], [Histogram 창 토글], [상호 배타적],
+    [`Ctrl+L`], [H-Line Cut 창 토글], [상호 배타적],
+    [`Ctrl+Y`], [V-Line Cut 창 토글], [상호 배타적],
+    [`Ctrl+S`], [Statistics 창 토글], [상호 배타적],
+    [`Q`], [애플리케이션 종료], [],
   ),
   caption: [UI 토글 단축키],
 ) <tab-keys-ui>
@@ -2237,9 +2699,9 @@ SDL_SetWindowIcon(window, icon);
 #pagebreak()
 #align(center + horizon)[
   #text(size: 11pt, fill: luma(120))[
-    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.1 \
+    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.2 \
     #v(0.3em)
-    2026\-02\-27 \
+    2026\-02\-28 \
     #v(0.3em)
     이 문서는 av 이미지 뷰어/비교기의 완전한 구현 참조 문서입니다.
   ]
