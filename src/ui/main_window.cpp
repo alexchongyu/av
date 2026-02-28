@@ -288,6 +288,7 @@ void MainWindow::render(AppState& state) {
     // ── Image info popup ──────────────────────────────────────────────────────
     if (state.show_info && (state.images[0].loaded || state.images[1].loaded)) {
         ImGui::SetNextWindowSize(ImVec2(600, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.85f);
         if (ImGui::Begin("Image Info", &state.show_info)) {
             if (state.font_large) ImGui::PushFont(state.font_large);
             for (int i = 0; i < 2; ++i) {
