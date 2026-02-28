@@ -507,10 +507,10 @@ static bool load_chart_font(SoftRenderer& sr, float size)
 
 // Render a single channel's histogram bars into the SoftRenderer.
 // chart_x/y/w/h: the chart area in canvas pixels.
-static void render_hist_channel(SoftRenderer& sr,
-                                 const uint32_t* hist,
-                                 int cx, int cy, int cw, int ch,
-                                 uint8_t cr, uint8_t cg, uint8_t cb)
+static uint32_t render_hist_channel(SoftRenderer& sr,
+                                     const uint32_t* hist,
+                                     int cx, int cy, int cw, int ch,
+                                     uint8_t cr, uint8_t cg, uint8_t cb)
 {
     // Background
     sr.fill_rect(cx, cy, cw, ch, 30, 30, 30);
@@ -521,9 +521,11 @@ static void render_hist_channel(SoftRenderer& sr,
         sr.hline(cx, cx + cw - 1, gy, 60, 60, 60, 120);
     }
 
-    // Max log for normalisation
+    // Max count and max log for normalisation
+    uint32_t max_cnt = 0;
     float max_log = 1.0f;
     for (int b = 0; b < 256; ++b) {
+        if (hist[b] > max_cnt) max_cnt = hist[b];
         float lv = std::log1p((float)hist[b]);
         if (lv > max_log) max_log = lv;
     }
@@ -542,6 +544,7 @@ static void render_hist_channel(SoftRenderer& sr,
 
     // Border
     sr.draw_rect(cx, cy, cw, ch, 80, 80, 80);
+    return max_cnt;
 }
 
 static bool render_histogram_to_sr(SoftRenderer& sr,
@@ -561,11 +564,22 @@ static bool render_histogram_to_sr(SoftRenderer& sr,
         {60, 60, 255}    // B
     };
 
+    auto draw_yaxis = [&](int cy, int chart_h, uint32_t max_cnt) {
+        char cnt_buf[32];
+        std::snprintf(cnt_buf, sizeof(cnt_buf), "%u", max_cnt);
+        int tw = sr.text_width(cnt_buf);
+        sr.draw_text(ml - tw - 2, cy + 2, cnt_buf, 180, 180, 180);
+        int tw0 = sr.text_width("0");
+        sr.draw_text(ml - tw0 - 2, cy + chart_h - 14, "0", 180, 180, 180);
+    };
+
     if (ch_idx >= 0) {
         // Single channel
-        render_hist_channel(sr, hists[ch_idx],
+        uint32_t max_cnt = render_hist_channel(sr, hists[ch_idx],
                             ml, mt, cw, ch,
                             cols[ch_idx][0], cols[ch_idx][1], cols[ch_idx][2]);
+        // Y-axis labels
+        draw_yaxis(mt, ch, max_cnt);
     } else {
         // Combined: sub-divide vertically into 3 sub-charts
         int sub_h  = (ch - 20) / 3;
@@ -573,18 +587,20 @@ static bool render_histogram_to_sr(SoftRenderer& sr,
         const char* labels[3] = {"R", "G", "B"};
         for (int c = 0; c < 3; ++c) {
             int cy = mt + c * (sub_h + gap);
-            render_hist_channel(sr, hists[c],
+            uint32_t max_cnt = render_hist_channel(sr, hists[c],
                                 ml, cy, cw, sub_h,
                                 cols[c][0], cols[c][1], cols[c][2]);
             // Channel label
             sr.draw_text(ml + 4, cy + 4, labels[c],
                          cols[c][0], cols[c][1], cols[c][2]);
+            // Y-axis labels
+            draw_yaxis(cy, sub_h, max_cnt);
         }
         // X-axis ticks (drawn once below last chart)
         int last_cy  = mt + 2 * (sub_h + gap);
         int last_cy2 = last_cy + sub_h;
-        static const int x_ticks[] = { 0, 64, 128, 192, 255 };
-        for (int v : x_ticks) {
+        static const int x_ticks_c[] = { 0, 64, 128, 192, 255 };
+        for (int v : x_ticks_c) {
             int px = ml + static_cast<int>((float)v / 255.0f * cw);
             char buf[8];
             std::snprintf(buf, sizeof(buf), "%d", v);
@@ -605,15 +621,6 @@ static bool render_histogram_to_sr(SoftRenderer& sr,
         int tw = sr.text_width(buf);
         sr.draw_text(px - tw/2, mt + ch + 4, buf, 180, 180, 180);
     }
-
-    // Y-axis: max count label
-    uint32_t max_cnt = 0;
-    const uint32_t* h = (ch_idx >= 0) ? hists[ch_idx] : data.r;
-    for (int b = 0; b < 256; ++b)
-        if (h[b] > max_cnt) max_cnt = h[b];
-    char cnt_buf[32];
-    std::snprintf(cnt_buf, sizeof(cnt_buf), "%u", max_cnt);
-    sr.draw_text(4, mt, cnt_buf, 180, 180, 180);
 
     // Title
     sr.draw_text(ml, 8, data.label.c_str(), 200, 200, 200);
