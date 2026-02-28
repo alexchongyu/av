@@ -1,6 +1,7 @@
 #include "chart_windows.h"
 #include "../app.h"
 #include "../chart_export.h"
+#include "../path_utils.h"
 
 #include <imgui.h>
 
@@ -16,8 +17,7 @@
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 static const char* basename_of(const char* path) {
-    const char* s = std::strrchr(path, '/');
-    return s ? s + 1 : path;
+    return path_basename(path);
 }
 
 // Format integer with comma separators (e.g. 1234567 → "1,234,567")

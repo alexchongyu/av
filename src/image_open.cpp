@@ -1,5 +1,6 @@
 #include "image_open.h"
 #include "image_loader.h"
+#include "path_utils.h"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -30,7 +31,7 @@ static void SDLCALL open_dialog_callback(void* userdata,
 void open_open_file_dialog(AppState& state, int target)
 {
     SDL_DialogFileFilter filters[] = {
-        {"Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.hdr;*.ppm;*.pgm"},
+        {"Image files", "png;jpg;jpeg;bmp;tga;hdr;ppm;pgm"},
         {"All files",   "*"},
     };
 
@@ -45,11 +46,13 @@ void render_open_images_window(AppState& state)
 {
     if (!state.open_state.show) return;
 
-    ImGui::SetNextWindowSize(ImVec2(480, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(580, 0), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowBgAlpha(0.92f);
 
+    if (state.font_medium) ImGui::PushFont(state.font_medium);
     if (!ImGui::Begin("Open Images", &state.open_state.show)) {
         ImGui::End();
+        if (state.font_medium) ImGui::PopFont();
         return;
     }
 
@@ -59,9 +62,7 @@ void render_open_images_window(AppState& state)
         const auto& img = state.images[idx];
         if (img.loaded) {
             const char* fname = img.path.empty() ? "(loaded)"
-                              : (img.path.rfind('/') != std::string::npos
-                                  ? img.path.c_str() + img.path.rfind('/') + 1
-                                  : img.path.c_str());
+                              : path_basename(img.path.c_str());
             ImGui::TextDisabled("  Current: %s  %dx%d", fname, img.width, img.height);
         } else {
             ImGui::TextDisabled("  Current: (none)");
@@ -89,4 +90,5 @@ void render_open_images_window(AppState& state)
     }
 
     ImGui::End();
+    if (state.font_medium) ImGui::PopFont();
 }

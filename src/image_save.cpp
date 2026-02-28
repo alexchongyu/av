@@ -1,6 +1,6 @@
 #include "image_save.h"
+#include "path_utils.h"
 
-#include <SDL3/SDL.h>
 #include <stb_image_write.h>
 
 #include <cmath>
@@ -206,49 +206,47 @@ static std::vector<uint8_t> compute_diff_cpu(const ImageEntry& imgA,
 // ─── perform_save ─────────────────────────────────────────────────────────────
 
 void perform_save(const std::string& path,
-                  SaveDialogState::Target target,
+                  ImageSaveDialog::Target target,
                   AppState& state)
 {
-    auto& ss = state.save_state;
-    ss.save_error = false;
-    ss.error_msg.clear();
+    auto& sd = state.image_save;
+    sd.status_error = false;
+    sd.status_msg.clear();
 
     bool ok = false;
 
-    if (target == SaveDialogState::Target::ImageA ||
-        target == SaveDialogState::Target::ImageB)
+    if (target == ImageSaveDialog::Target::ImageA ||
+        target == ImageSaveDialog::Target::ImageB)
     {
-        int idx = (target == SaveDialogState::Target::ImageA) ? 0 : 1;
+        int idx = (target == ImageSaveDialog::Target::ImageA) ? 0 : 1;
         const ImageEntry& img = state.images[idx];
 
         if (!img.loaded) {
-            ss.save_error = true;
-            ss.error_msg  = "Image not loaded";
-            ss.save_pending = false;
+            sd.status_error = true;
+            sd.status_msg   = "Image not loaded";
             return;
         }
 
-        switch (ss.format) {
-        case SaveDialogState::Format::PNG:
+        switch (sd.format) {
+        case ImageSaveDialog::Format::PNG:
             ok = save_png_impl(path, img);
             break;
-        case SaveDialogState::Format::BMP:
+        case ImageSaveDialog::Format::BMP:
             ok = save_bmp_impl(path, img);
             break;
-        case SaveDialogState::Format::PPM:
+        case ImageSaveDialog::Format::PPM:
             ok = save_ppm_impl(path, img,
-                               ss.ppm_mode == SaveDialogState::PpmMode::Binary,
-                               ss.ppm_bits);
+                               sd.ppm_mode == ImageSaveDialog::PpmMode::Binary,
+                               sd.ppm_bits);
             break;
         }
-    } else if (target == SaveDialogState::Target::Diff) {
+    } else if (target == ImageSaveDialog::Target::Diff) {
         const ImageEntry& imgA = state.images[state.swap_images ? 1 : 0];
         const ImageEntry& imgB = state.images[state.swap_images ? 0 : 1];
 
         if (!imgA.loaded || !imgB.loaded) {
-            ss.save_error = true;
-            ss.error_msg  = "Both images must be loaded for Diff";
-            ss.save_pending = false;
+            sd.status_error = true;
+            sd.status_msg   = "Both images must be loaded for Diff";
             return;
         }
 
@@ -264,71 +262,28 @@ void perform_save(const std::string& path,
         tmp.is_hdr   = false;
         tmp.pixels   = std::move(diff_rgba8);
 
-        switch (ss.format) {
-        case SaveDialogState::Format::PNG:
+        switch (sd.format) {
+        case ImageSaveDialog::Format::PNG:
             ok = save_png_impl(path, tmp);
             break;
-        case SaveDialogState::Format::BMP:
+        case ImageSaveDialog::Format::BMP:
             ok = save_bmp_impl(path, tmp);
             break;
-        case SaveDialogState::Format::PPM:
+        case ImageSaveDialog::Format::PPM:
             ok = save_ppm_impl(path, tmp,
-                               ss.ppm_mode == SaveDialogState::PpmMode::Binary,
-                               ss.ppm_bits);
+                               sd.ppm_mode == ImageSaveDialog::PpmMode::Binary,
+                               sd.ppm_bits);
             break;
         }
     }
 
     if (!ok) {
-        ss.save_error = true;
-        ss.error_msg  = "Failed to write: " + path;
+        sd.status_error = true;
+        sd.status_msg   = "Error: Failed to write " + path;
+    } else {
+        // Extract just the filename for display
+        auto slash = path_last_sep(path);
+        std::string fname = (slash != std::string::npos) ? path.substr(slash + 1) : path;
+        sd.status_msg = "Saved: " + fname;
     }
-    ss.save_pending = false;
-}
-
-// ─── File dialog ──────────────────────────────────────────────────────────────
-
-struct SaveDialogUserData {
-    SaveDialogState*        save_state;
-    SaveDialogState::Target target;
-};
-
-static void SDLCALL save_dialog_callback(void* userdata,
-                                         const char* const* filelist,
-                                         int /*filter*/)
-{
-    auto* ud = static_cast<SaveDialogUserData*>(userdata);
-
-    if (filelist && filelist[0] && filelist[0][0] != '\0') {
-        ud->save_state->saved_path     = filelist[0];
-        ud->save_state->pending_target = ud->target;
-        ud->save_state->save_pending   = true;
-    }
-    delete ud;
-}
-
-void open_save_file_dialog(AppState& state,
-                           SaveDialogState::Target target,
-                           const char* default_filename)
-{
-    auto& ss = state.save_state;
-
-    // Choose filters based on current format
-    SDL_DialogFileFilter filter{};
-    switch (ss.format) {
-    case SaveDialogState::Format::PNG:
-        filter = {"PNG Image (*.png)", "*.png"};
-        break;
-    case SaveDialogState::Format::BMP:
-        filter = {"BMP Image (*.bmp)", "*.bmp"};
-        break;
-    case SaveDialogState::Format::PPM:
-        filter = {"PPM Image (*.ppm)", "*.ppm"};
-        break;
-    }
-
-    auto* ud = new SaveDialogUserData{&ss, target};
-    // Pass default_filename as initial filename hint for the OS dialog
-    SDL_ShowSaveFileDialog(save_dialog_callback, ud,
-                           state.window, &filter, 1, default_filename);
 }

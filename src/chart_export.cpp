@@ -1,11 +1,13 @@
 #include "chart_export.h"
 #include "soft_renderer.h"
+#include "path_utils.h"
 
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <vector>
 #include <numeric>
@@ -229,9 +231,7 @@ HistogramData extract_histogram(const ImageEntry& img)
     if (!img.loaded) return d;
 
     const char* fname = img.path.empty() ? "(loaded)"
-                      : (img.path.rfind('/') != std::string::npos
-                          ? img.path.c_str() + img.path.rfind('/') + 1
-                          : img.path.c_str());
+                      : path_basename(img.path.c_str());
     d.label = fname;
 
     int npix = img.width * img.height;
@@ -308,9 +308,7 @@ LineCutData extract_hline_cut(const ImageEntry& img, const ViewportState& vp)
     d.position = row;
 
     const char* fname = img.path.empty() ? "(loaded)"
-                      : (img.path.rfind('/') != std::string::npos
-                          ? img.path.c_str() + img.path.rfind('/') + 1
-                          : img.path.c_str());
+                      : path_basename(img.path.c_str());
     char lbl[256];
     std::snprintf(lbl, sizeof(lbl), "%s  row=%d", fname, row);
     d.label = lbl;
@@ -357,9 +355,7 @@ LineCutData extract_vline_cut(const ImageEntry& img, const ViewportState& vp)
     d.position = col;
 
     const char* fname = img.path.empty() ? "(loaded)"
-                      : (img.path.rfind('/') != std::string::npos
-                          ? img.path.c_str() + img.path.rfind('/') + 1
-                          : img.path.c_str());
+                      : path_basename(img.path.c_str());
     char lbl[256];
     std::snprintf(lbl, sizeof(lbl), "%s  col=%d", fname, col);
     d.label = lbl;

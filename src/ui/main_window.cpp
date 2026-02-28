@@ -7,6 +7,7 @@
 #include "../image_save.h"
 #include "../image_open.h"
 #include "../chart_export.h"
+#include "../path_utils.h"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -16,6 +17,542 @@
 #include <cstring>
 #include <cmath>
 #include <cstdio>
+
+// ─── Save window helpers ──────────────────────────────────────────────────────
+
+namespace {
+
+static std::string sv_path_dir(const std::string& p) {
+    auto pos = path_last_sep(p);
+    return (pos == std::string::npos) ? "./" : p.substr(0, pos + 1);
+}
+
+static std::string sv_path_stem(const std::string& p) {
+    std::string f = p;
+    auto s = path_last_sep(p); if (s != std::string::npos) f = p.substr(s + 1);
+    auto d = f.rfind('.'); if (d != std::string::npos) f = f.substr(0, d);
+    return f.empty() ? "file" : f;
+}
+
+static void sv_set_ext(char* buf, const char* new_ext) {
+    std::string s = buf;
+    auto dot = s.rfind('.');
+    if (dot != std::string::npos) s = s.substr(0, dot);
+    s += new_ext;
+    std::strncpy(buf, s.c_str(), 511);
+    buf[511] = '\0';
+}
+
+// ─── Image Save window ────────────────────────────────────────────────────────
+
+static void render_image_save_window(AppState& state) {
+    auto& sd = state.image_save;
+
+    // Determine extension
+    auto img_ext = [&]() -> const char* {
+        switch (sd.format) {
+        case ImageSaveDialog::Format::BMP: return ".bmp";
+        case ImageSaveDialog::Format::PPM: return ".ppm";
+        default:                           return ".png";
+        }
+    };
+
+    // Initialize paths on first open
+    if (!sd.initialized) {
+        const char* ext = img_ext();
+        // Image A
+        if (state.images[0].loaded && !state.images[0].path.empty()) {
+            std::string p = sv_path_dir(state.images[0].path) +
+                            sv_path_stem(state.images[0].path) + "_save" + ext;
+            std::strncpy(sd.items[0].path, p.c_str(), 511);
+        } else {
+            std::snprintf(sd.items[0].path, sizeof(sd.items[0].path), "./image_a_save%s", ext);
+        }
+        // Image B
+        if (state.images[1].loaded && !state.images[1].path.empty()) {
+            std::string p = sv_path_dir(state.images[1].path) +
+                            sv_path_stem(state.images[1].path) + "_save" + ext;
+            std::strncpy(sd.items[1].path, p.c_str(), 511);
+        } else {
+            std::snprintf(sd.items[1].path, sizeof(sd.items[1].path), "./image_b_save%s", ext);
+        }
+        // Diff
+        {
+            std::string dir  = "./";
+            std::string sa   = "image_a";
+            std::string sb   = "image_b";
+            if (state.images[0].loaded && !state.images[0].path.empty()) {
+                dir = sv_path_dir(state.images[0].path);
+                sa  = sv_path_stem(state.images[0].path);
+            }
+            if (state.images[1].loaded && !state.images[1].path.empty())
+                sb = sv_path_stem(state.images[1].path);
+            std::string p = dir + sa + "_vs_" + sb + "_diff" + ext;
+            std::strncpy(sd.items[2].path, p.c_str(), 511);
+        }
+        sd.prev_format = sd.format;
+        sd.initialized = true;
+    }
+
+    // Update extensions when format changes
+    if (sd.prev_format != sd.format) {
+        const char* ext = img_ext();
+        for (auto& item : sd.items) sv_set_ext(item.path, ext);
+        sd.prev_format = sd.format;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(580, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.92f);
+    bool open = true;
+    if (state.font_medium) ImGui::PushFont(state.font_medium);
+    if (!ImGui::Begin("Save Images", &open)) {
+        ImGui::End();
+        if (state.font_medium) ImGui::PopFont();
+        if (!open) { state.show_save_dialog = false; sd.initialized = false; }
+        return;
+    }
+
+    // Format selection
+    ImGui::Text("Format:");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("PNG", sd.format == ImageSaveDialog::Format::PNG))
+        sd.format = ImageSaveDialog::Format::PNG;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("BMP", sd.format == ImageSaveDialog::Format::BMP))
+        sd.format = ImageSaveDialog::Format::BMP;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("PPM", sd.format == ImageSaveDialog::Format::PPM))
+        sd.format = ImageSaveDialog::Format::PPM;
+
+    if (sd.format == ImageSaveDialog::Format::PPM) {
+        bool is_bin = (sd.ppm_mode == ImageSaveDialog::PpmMode::Binary);
+        bool is_asc = (sd.ppm_mode == ImageSaveDialog::PpmMode::ASCII);
+        ImGui::Text("Mode:");
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Binary (P6)", is_bin)) sd.ppm_mode = ImageSaveDialog::PpmMode::Binary;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("ASCII (P3)",  is_asc)) sd.ppm_mode = ImageSaveDialog::PpmMode::ASCII;
+        ImGui::Text("Bits:");
+        ImGui::SameLine();
+        if (ImGui::RadioButton(" 8",  sd.ppm_bits ==  8)) sd.ppm_bits =  8;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("10",  sd.ppm_bits == 10)) sd.ppm_bits = 10;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("12",  sd.ppm_bits == 12)) sd.ppm_bits = 12;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("16",  sd.ppm_bits == 16)) sd.ppm_bits = 16;
+    }
+
+    ImGui::Separator();
+
+    const char* item_labels[3] = {"Image A", "Image B", "Diff"};
+    for (int i = 0; i < 3; ++i) {
+        auto& item = sd.items[i];
+        bool loaded = (i < 2) ? state.images[i].loaded
+                               : (state.images[0].loaded && state.images[1].loaded &&
+                                  state.diff.mode != DiffState::Mode::None);
+
+        char chk_id[16], inp_id[16], btn_id[24];
+        std::snprintf(chk_id, sizeof(chk_id), "##ck%d", i);
+        std::snprintf(inp_id, sizeof(inp_id), "##pi%d", i);
+        std::snprintf(btn_id, sizeof(btn_id), "Save##si%d", i);
+
+        if (!loaded) ImGui::BeginDisabled();
+        ImGui::Checkbox(chk_id, &item.checked);
+        ImGui::SameLine();
+        ImGui::Text("%s", item_labels[i]);
+        ImGui::SetNextItemWidth(-85.0f);
+        ImGui::InputText(inp_id, item.path, sizeof(item.path));
+        ImGui::SameLine();
+        if (ImGui::Button(btn_id) && item.path[0] != '\0') {
+            ImageSaveDialog::Target tgt =
+                (i == 0) ? ImageSaveDialog::Target::ImageA :
+                (i == 1) ? ImageSaveDialog::Target::ImageB :
+                           ImageSaveDialog::Target::Diff;
+            perform_save(item.path, tgt, state);
+        }
+        if (!loaded) ImGui::EndDisabled();
+    }
+
+    ImGui::Separator();
+
+    // Status message
+    if (!sd.status_msg.empty()) {
+        if (sd.status_error)
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", sd.status_msg.c_str());
+        else
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", sd.status_msg.c_str());
+    }
+
+    // Save All Checked + Close
+    if (ImGui::Button("Save All Checked")) {
+        sd.status_msg.clear(); sd.status_error = false;
+        for (int i = 0; i < 3; ++i) {
+            auto& item = sd.items[i];
+            if (!item.checked || item.path[0] == '\0') continue;
+            bool loaded = (i < 2) ? state.images[i].loaded
+                                   : (state.images[0].loaded && state.images[1].loaded &&
+                                      state.diff.mode != DiffState::Mode::None);
+            if (!loaded) continue;
+            ImageSaveDialog::Target tgt =
+                (i == 0) ? ImageSaveDialog::Target::ImageA :
+                (i == 1) ? ImageSaveDialog::Target::ImageB :
+                           ImageSaveDialog::Target::Diff;
+            perform_save(item.path, tgt, state);
+            if (sd.status_error) break;
+        }
+    }
+
+    ImGui::SameLine();
+    {
+        float close_w = ImGui::CalcTextSize("Close").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        float x = ImGui::GetWindowWidth() - close_w - ImGui::GetStyle().WindowPadding.x;
+        if (ImGui::GetCursorPosX() < x) ImGui::SetCursorPosX(x);
+    }
+    if (ImGui::Button("Close")) {
+        state.show_save_dialog = false;
+        sd.initialized = false;
+    }
+
+    ImGui::End();
+    if (state.font_medium) ImGui::PopFont();
+    if (!open) { state.show_save_dialog = false; sd.initialized = false; }
+}
+
+// ─── Chart Save window (Histogram / H-Line Cut / V-Line Cut) ─────────────────
+
+static void render_chart_save_window(AppState& state, bool is_histogram) {
+    auto& sd = state.chart_save;
+
+    bool is_hcut = !is_histogram && state.show_hline_cut;
+    // is_vcut = !is_histogram && !is_hcut
+
+    const char* title   = is_histogram ? "Save Histogram"
+                        : is_hcut      ? "Save H-Line Cut"
+                                       : "Save V-Line Cut";
+    const char* suffix  = is_histogram ? "_histogram"
+                        : is_hcut      ? "_hcut"
+                                       : "_vcut";
+
+    // Re-initialize if not done or chart type changed
+    if (!sd.initialized || sd.init_was_histogram != is_histogram || sd.init_was_hcut != is_hcut) {
+        std::string dir_a = "./", sa = "image_a";
+        std::string dir_b = "./", sb = "image_b";
+        if (state.images[0].loaded && !state.images[0].path.empty()) {
+            dir_a = sv_path_dir(state.images[0].path);
+            sa    = sv_path_stem(state.images[0].path);
+        }
+        if (state.images[1].loaded && !state.images[1].path.empty()) {
+            dir_b = sv_path_dir(state.images[1].path);
+            sb    = sv_path_stem(state.images[1].path);
+        }
+
+        // PNG items
+        { std::string p = dir_a + sa + suffix + ".png"; std::strncpy(sd.png_items[0].path, p.c_str(), 511); }
+        { std::string p = dir_b + sb + suffix + ".png"; std::strncpy(sd.png_items[1].path, p.c_str(), 511); }
+        { std::string p = dir_a + sa + "_vs_" + sb + suffix + "_diff.png"; std::strncpy(sd.png_items[2].path, p.c_str(), 511); }
+
+        // CSV items
+        { std::string p = dir_a + sa + suffix + ".csv"; std::strncpy(sd.csv_items[0].path, p.c_str(), 511); }
+        { std::string p = dir_b + sb + suffix + ".csv"; std::strncpy(sd.csv_items[1].path, p.c_str(), 511); }
+        { std::string p = dir_a + sa + "_vs_" + sb + suffix + "_diff.csv"; std::strncpy(sd.csv_items[2].path, p.c_str(), 511); }
+
+        sd.init_was_histogram = is_histogram;
+        sd.init_was_hcut      = is_hcut;
+        sd.initialized        = true;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(610, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.92f);
+    bool open = true;
+    if (state.font_medium) ImGui::PushFont(state.font_medium);
+    if (!ImGui::Begin(title, &open)) {
+        ImGui::End();
+        if (state.font_medium) ImGui::PopFont();
+        if (!open) { state.show_save_dialog = false; sd.initialized = false; }
+        return;
+    }
+
+    // Resolution
+    ImGui::Text("Resolution:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(80.0f);
+    ImGui::InputInt("##cew", &sd.export_width, 0);
+    ImGui::SameLine(); ImGui::Text("x");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(80.0f);
+    ImGui::InputInt("##ceh", &sd.export_height, 0);
+    sd.export_width  = std::max(sd.export_width,  320);
+    sd.export_height = std::max(sd.export_height, 240);
+
+    // Channel mode
+    ImGui::Text("Channels:");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Combined##cc",     !sd.separate_channels)) sd.separate_channels = false;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Separate R/G/B##cs", sd.separate_channels)) sd.separate_channels = true;
+
+    ImGui::Separator();
+
+    bool both_loaded = state.images[0].loaded && state.images[1].loaded;
+    const char* item_labels[3] = {"Image A", "Image B", "Diff"};
+
+    // Helper: do a single export and update status
+    auto do_png = [&](int i, const char* path_buf) {
+        if (path_buf[0] == '\0') return;
+        bool ok = false;
+        int ew = sd.export_width, eh = sd.export_height;
+        bool sep = sd.separate_channels;
+        if (is_histogram) {
+            HistogramData hd = (i == 2) ? extract_diff_histogram(state.images[0], state.images[1])
+                                        : extract_histogram(state.images[i]);
+            ok = export_histogram_png(hd, path_buf, ew, eh, sep);
+        } else if (is_hcut) {
+            LineCutData ld = (i == 2) ? extract_diff_hline_cut(state.images[0], state.images[1], state.views[0])
+                                      : extract_hline_cut(state.images[i], state.views[i < 2 ? i : 0]);
+            ok = export_linecut_png(ld, path_buf, ew, eh, sep, "Pixel Column");
+        } else {
+            LineCutData ld = (i == 2) ? extract_diff_vline_cut(state.images[0], state.images[1], state.views[0])
+                                      : extract_vline_cut(state.images[i], state.views[i < 2 ? i : 0]);
+            ok = export_linecut_png(ld, path_buf, ew, eh, sep, "Pixel Row");
+        }
+        if (!ok) {
+            sd.status_error = true;
+            sd.status_msg   = "Error: Failed to write " + std::string(path_buf);
+        } else {
+            sd.status_error = false;
+            auto sl = path_last_sep(std::string(path_buf));
+            sd.status_msg = "Saved: " + std::string(path_buf).substr(sl != std::string::npos ? sl + 1 : 0);
+        }
+    };
+    auto do_csv = [&](int i, const char* path_buf) {
+        if (path_buf[0] == '\0') return;
+        bool ok = false;
+        if (is_histogram) {
+            HistogramData hd = (i == 2) ? extract_diff_histogram(state.images[0], state.images[1])
+                                        : extract_histogram(state.images[i]);
+            ok = export_histogram_csv(hd, path_buf);
+        } else if (is_hcut) {
+            LineCutData ld = (i == 2) ? extract_diff_hline_cut(state.images[0], state.images[1], state.views[0])
+                                      : extract_hline_cut(state.images[i], state.views[i < 2 ? i : 0]);
+            ok = export_linecut_csv(ld, path_buf);
+        } else {
+            LineCutData ld = (i == 2) ? extract_diff_vline_cut(state.images[0], state.images[1], state.views[0])
+                                      : extract_vline_cut(state.images[i], state.views[i < 2 ? i : 0]);
+            ok = export_linecut_csv(ld, path_buf);
+        }
+        if (!ok) {
+            sd.status_error = true;
+            sd.status_msg   = "Error: Failed to write " + std::string(path_buf);
+        } else {
+            sd.status_error = false;
+            auto sl = path_last_sep(std::string(path_buf));
+            sd.status_msg = "Saved: " + std::string(path_buf).substr(sl != std::string::npos ? sl + 1 : 0);
+        }
+    };
+
+    for (int i = 0; i < 3; ++i) {
+        auto& pi = sd.png_items[i];
+        auto& ci = sd.csv_items[i];
+        bool loaded = (i < 2) ? state.images[i].loaded : both_loaded;
+
+        char chk_id[16];
+        std::snprintf(chk_id, sizeof(chk_id), "##cck%d", i);
+
+        if (!loaded) ImGui::BeginDisabled();
+        ImGui::Checkbox(chk_id, &pi.checked);
+        ImGui::SameLine();
+        ImGui::Text("%s", item_labels[i]);
+
+        // PNG row
+        {
+            char inp_id[20], btn_id[24];
+            std::snprintf(inp_id, sizeof(inp_id), "##cpng%d", i);
+            std::snprintf(btn_id, sizeof(btn_id), "Save##cpng%d", i);
+            ImGui::Text("  PNG:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-85.0f);
+            ImGui::InputText(inp_id, pi.path, sizeof(pi.path));
+            ImGui::SameLine();
+            if (ImGui::Button(btn_id)) do_png(i, pi.path);
+        }
+        // CSV row
+        {
+            char inp_id[20], btn_id[24];
+            std::snprintf(inp_id, sizeof(inp_id), "##ccsv%d", i);
+            std::snprintf(btn_id, sizeof(btn_id), "Save##ccsv%d", i);
+            ImGui::Text("  CSV:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-85.0f);
+            ImGui::InputText(inp_id, ci.path, sizeof(ci.path));
+            ImGui::SameLine();
+            if (ImGui::Button(btn_id)) do_csv(i, ci.path);
+        }
+        if (!loaded) ImGui::EndDisabled();
+    }
+
+    // Status message
+    if (!sd.status_msg.empty()) {
+        ImGui::Separator();
+        if (sd.status_error)
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", sd.status_msg.c_str());
+        else
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", sd.status_msg.c_str());
+    }
+
+    ImGui::Separator();
+
+    // Save All Checked
+    if (ImGui::Button("Save All Checked")) {
+        sd.status_msg.clear(); sd.status_error = false;
+        for (int i = 0; i < 3 && !sd.status_error; ++i) {
+            bool loaded = (i < 2) ? state.images[i].loaded : both_loaded;
+            if (!loaded || !sd.png_items[i].checked) continue;
+            if (sd.png_items[i].path[0] != '\0') do_png(i, sd.png_items[i].path);
+            if (!sd.status_error && sd.csv_items[i].path[0] != '\0') do_csv(i, sd.csv_items[i].path);
+        }
+        if (!sd.status_error) sd.status_msg = "All checked items saved.";
+    }
+
+    ImGui::SameLine();
+    {
+        float close_w = ImGui::CalcTextSize("Close").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        float x = ImGui::GetWindowWidth() - close_w - ImGui::GetStyle().WindowPadding.x;
+        if (ImGui::GetCursorPosX() < x) ImGui::SetCursorPosX(x);
+    }
+    if (ImGui::Button("Close")) {
+        state.show_save_dialog = false;
+        sd.initialized = false;
+    }
+
+    ImGui::End();
+    if (state.font_medium) ImGui::PopFont();
+    if (!open) { state.show_save_dialog = false; sd.initialized = false; }
+}
+
+// ─── Stats Save window ────────────────────────────────────────────────────────
+
+static void render_stats_save_window(AppState& state) {
+    auto& sd = state.stats_save;
+
+    if (!sd.initialized) {
+        std::string dir_a = "./", sa = "image_a";
+        std::string dir_b = "./", sb = "image_b";
+        if (state.images[0].loaded && !state.images[0].path.empty()) {
+            dir_a = sv_path_dir(state.images[0].path);
+            sa    = sv_path_stem(state.images[0].path);
+        }
+        if (state.images[1].loaded && !state.images[1].path.empty()) {
+            dir_b = sv_path_dir(state.images[1].path);
+            sb    = sv_path_stem(state.images[1].path);
+        }
+        { std::string p = dir_a + sa + "_stats.csv"; std::strncpy(sd.items[0].path, p.c_str(), 511); }
+        { std::string p = dir_b + sb + "_stats.csv"; std::strncpy(sd.items[1].path, p.c_str(), 511); }
+        { std::string p = dir_a + sa + "_vs_" + sb + "_stats.csv"; std::strncpy(sd.items[2].path, p.c_str(), 511); }
+        sd.initialized = true;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(560, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.92f);
+    bool open = true;
+    if (state.font_medium) ImGui::PushFont(state.font_medium);
+    if (!ImGui::Begin("Save Statistics", &open)) {
+        ImGui::End();
+        if (state.font_medium) ImGui::PopFont();
+        if (!open) { state.show_save_dialog = false; sd.initialized = false; }
+        return;
+    }
+
+    bool both_loaded = state.images[0].loaded && state.images[1].loaded;
+    const char* item_labels[3] = {"Image A", "Image B", "Diff"};
+
+    for (int i = 0; i < 3; ++i) {
+        auto& item = sd.items[i];
+        bool loaded = (i < 2) ? state.images[i].loaded : both_loaded;
+
+        char chk_id[16], inp_id[16], btn_id[24];
+        std::snprintf(chk_id, sizeof(chk_id), "##stck%d", i);
+        std::snprintf(inp_id, sizeof(inp_id), "##stpi%d", i);
+        std::snprintf(btn_id, sizeof(btn_id), "Save##stbtn%d", i);
+
+        if (!loaded) ImGui::BeginDisabled();
+        ImGui::Checkbox(chk_id, &item.checked);
+        ImGui::SameLine();
+        ImGui::Text("%s", item_labels[i]);
+        ImGui::SetNextItemWidth(-85.0f);
+        ImGui::InputText(inp_id, item.path, sizeof(item.path));
+        ImGui::SameLine();
+        if (ImGui::Button(btn_id) && item.path[0] != '\0') {
+            bool ok = false;
+            if (i == 2) {
+                DiffExtraStats extra;
+                ImageStats st = compute_diff_stats(state.images[0], state.images[1], extra);
+                ok = export_stats_csv(st, item.path, &extra);
+            } else {
+                ImageStats st = compute_image_stats(state.images[i]);
+                ok = export_stats_csv(st, item.path);
+            }
+            if (!ok) {
+                sd.status_error = true;
+                sd.status_msg   = "Error: Failed to write " + std::string(item.path);
+            } else {
+                sd.status_error = false;
+                auto sl = path_last_sep(std::string(item.path));
+                sd.status_msg = "Saved: " + std::string(item.path).substr(sl != std::string::npos ? sl + 1 : 0);
+            }
+        }
+        if (!loaded) ImGui::EndDisabled();
+    }
+
+    // Status message
+    if (!sd.status_msg.empty()) {
+        ImGui::Separator();
+        if (sd.status_error)
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", sd.status_msg.c_str());
+        else
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", sd.status_msg.c_str());
+    }
+
+    ImGui::Separator();
+
+    if (ImGui::Button("Save All Checked")) {
+        sd.status_msg.clear(); sd.status_error = false;
+        for (int i = 0; i < 3; ++i) {
+            auto& item = sd.items[i];
+            if (!item.checked || item.path[0] == '\0') continue;
+            bool loaded = (i < 2) ? state.images[i].loaded : both_loaded;
+            if (!loaded) continue;
+            bool ok = false;
+            if (i == 2) {
+                DiffExtraStats extra;
+                ImageStats st = compute_diff_stats(state.images[0], state.images[1], extra);
+                ok = export_stats_csv(st, item.path, &extra);
+            } else {
+                ImageStats st = compute_image_stats(state.images[i]);
+                ok = export_stats_csv(st, item.path);
+            }
+            if (!ok) { sd.status_error = true; sd.status_msg = "Error: " + std::string(item.path); break; }
+        }
+        if (!sd.status_error) sd.status_msg = "All checked items saved.";
+    }
+
+    ImGui::SameLine();
+    {
+        float close_w = ImGui::CalcTextSize("Close").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        float x = ImGui::GetWindowWidth() - close_w - ImGui::GetStyle().WindowPadding.x;
+        if (ImGui::GetCursorPosX() < x) ImGui::SetCursorPosX(x);
+    }
+    if (ImGui::Button("Close")) {
+        state.show_save_dialog = false;
+        sd.initialized = false;
+    }
+
+    ImGui::End();
+    if (state.font_medium) ImGui::PopFont();
+    if (!open) { state.show_save_dialog = false; sd.initialized = false; }
+}
+
+} // namespace
 
 // ─── Static panel instances ───────────────────────────────────────────────────
 static ImagePanel s_panel_left;
@@ -64,8 +601,8 @@ void MainWindow::render_menubar(AppState& state) {
         if (ImGui::MenuItem("Open Image B…", "")) {
             open_open_file_dialog(state, 1);
         }
-        if (ImGui::MenuItem("Open Images…", "Shift+Cmd+O")) {
-            state.open_state.show = !state.open_state.show;
+        if (ImGui::MenuItem("Open Image…", "Shift+Cmd+O")) {
+            open_open_file_dialog(state, state.active_panel);
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Save Images…", "Shift+Cmd+S")) {
@@ -94,14 +631,31 @@ void MainWindow::render_menubar(AppState& state) {
         ImGui::Separator();
         ImGui::MenuItem("Sync Viewports", "S", &state.sync_viewports);
         ImGui::Separator();
-        ImGui::MenuItem("Show Pathfinder", "P", &state.show_pathfinder);
+        if (ImGui::MenuItem("Pathfinder: Image", "P", state.pathfinder_mode == 1)) {
+            state.pathfinder_mode = (state.pathfinder_mode == 1) ? 0 : 1;
+        }
+        if (ImGui::MenuItem("Pathfinder: Schematic", "Ctrl+P", state.pathfinder_mode == 2)) {
+            state.pathfinder_mode = (state.pathfinder_mode == 2) ? 0 : 2;
+        }
         ImGui::MenuItem("Show Image Info", "I", &state.show_info);
         ImGui::MenuItem("Show Pixel Info", "V", &state.show_pixel_info);
         ImGui::Separator();
-        ImGui::MenuItem("Show Histogram",  "Ctrl+H", &state.show_histogram);
-        ImGui::MenuItem("Show H-Line Cut",  "Ctrl+L", &state.show_hline_cut);
-        ImGui::MenuItem("Show V-Line Cut",  "Ctrl+Y", &state.show_vline_cut);
-        ImGui::MenuItem("Show Statistics",  "Ctrl+S", &state.show_stats);
+        if (ImGui::MenuItem("Show Histogram", "Ctrl+H", state.show_histogram)) {
+            state.show_histogram = !state.show_histogram;
+            if (state.show_histogram) { state.show_hline_cut = false; state.show_vline_cut = false; state.show_stats = false; }
+        }
+        if (ImGui::MenuItem("Show H-Line Cut", "Ctrl+L", state.show_hline_cut)) {
+            state.show_hline_cut = !state.show_hline_cut;
+            if (state.show_hline_cut) { state.show_histogram = false; state.show_vline_cut = false; state.show_stats = false; }
+        }
+        if (ImGui::MenuItem("Show V-Line Cut", "Ctrl+Y", state.show_vline_cut)) {
+            state.show_vline_cut = !state.show_vline_cut;
+            if (state.show_vline_cut) { state.show_histogram = false; state.show_hline_cut = false; state.show_stats = false; }
+        }
+        if (ImGui::MenuItem("Show Statistics", "Ctrl+S", state.show_stats)) {
+            state.show_stats = !state.show_stats;
+            if (state.show_stats) { state.show_histogram = false; state.show_hline_cut = false; state.show_vline_cut = false; }
+        }
         ImGui::EndMenu();
     }
 
@@ -138,14 +692,6 @@ void MainWindow::render_menubar(AppState& state) {
 void MainWindow::render(AppState& state) {
     if (!inited_) return;
 
-    // ── Process pending file-save (set by SDL dialog callback) ───────────────
-    if (state.save_state.save_pending && !state.save_state.saved_path.empty()) {
-        perform_save(state.save_state.saved_path,
-                     state.save_state.pending_target,
-                     state);
-        state.save_state.saved_path.clear();
-    }
-
     // ── Process pending image-open (set by SDL dialog callback) ──────────────
     if (state.open_state.open_pending && !state.open_state.opened_path.empty()) {
         int target = state.open_state.open_target;
@@ -162,76 +708,6 @@ void MainWindow::render(AppState& state) {
         }
         state.open_state.opened_path.clear();
         state.open_state.open_pending = false;
-    }
-
-    // ── Dispatch pending chart/stats export ───────────────────────────────────
-    if (state.chart_export.export_pending && !state.chart_export.pending_path.empty()) {
-        auto& ce = state.chart_export;
-        bool ok = false;
-        const std::string& path = ce.pending_path;
-        int idx = ce.pending_img_idx;
-        bool sep = ce.separate_channels;
-        int ew = ce.export_width, eh = ce.export_height;
-
-        switch (ce.pending_type) {
-        case ChartExportState::ExportType::HistPNG: {
-            HistogramData hd;
-            if (idx == 2) hd = extract_diff_histogram(state.images[0], state.images[1]);
-            else          hd = extract_histogram(state.images[idx]);
-            ok = export_histogram_png(hd, path, ew, eh, sep);
-            break;
-        }
-        case ChartExportState::ExportType::HistCSV: {
-            HistogramData hd;
-            if (idx == 2) hd = extract_diff_histogram(state.images[0], state.images[1]);
-            else          hd = extract_histogram(state.images[idx]);
-            ok = export_histogram_csv(hd, path);
-            break;
-        }
-        case ChartExportState::ExportType::HCutPNG: {
-            LineCutData ld;
-            if (idx == 2) ld = extract_diff_hline_cut(state.images[0], state.images[1], state.views[0]);
-            else          ld = extract_hline_cut(state.images[idx], state.views[idx]);
-            ok = export_linecut_png(ld, path, ew, eh, sep, "Pixel Column");
-            break;
-        }
-        case ChartExportState::ExportType::HCutCSV: {
-            LineCutData ld;
-            if (idx == 2) ld = extract_diff_hline_cut(state.images[0], state.images[1], state.views[0]);
-            else          ld = extract_hline_cut(state.images[idx], state.views[idx]);
-            ok = export_linecut_csv(ld, path);
-            break;
-        }
-        case ChartExportState::ExportType::VCutPNG: {
-            LineCutData ld;
-            if (idx == 2) ld = extract_diff_vline_cut(state.images[0], state.images[1], state.views[0]);
-            else          ld = extract_vline_cut(state.images[idx], state.views[idx]);
-            ok = export_linecut_png(ld, path, ew, eh, sep, "Pixel Row");
-            break;
-        }
-        case ChartExportState::ExportType::VCutCSV: {
-            LineCutData ld;
-            if (idx == 2) ld = extract_diff_vline_cut(state.images[0], state.images[1], state.views[0]);
-            else          ld = extract_vline_cut(state.images[idx], state.views[idx]);
-            ok = export_linecut_csv(ld, path);
-            break;
-        }
-        case ChartExportState::ExportType::StatsCSV: {
-            if (idx == 2) {
-                DiffExtraStats extra;
-                ImageStats st = compute_diff_stats(state.images[0], state.images[1], extra);
-                ok = export_stats_csv(st, path, &extra);
-            } else {
-                ImageStats st = compute_image_stats(state.images[idx]);
-                ok = export_stats_csv(st, path);
-            }
-            break;
-        }
-        default: break;
-        }
-        (void)ok;
-        ce.pending_path.clear();
-        ce.export_pending = false;
     }
 
     // ── Upload SSIM result on main thread if ready ────────────────────────────
@@ -442,322 +918,16 @@ void MainWindow::render(AppState& state) {
     // ── Open Images window ────────────────────────────────────────────────────
     render_open_images_window(state);
 
-    // ── Save Images window ─────────────────────────────────────────────────────
+    // ── Save window (context-aware) ───────────────────────────────────────────
     if (state.show_save_dialog) {
-        ImGui::SetNextWindowSize(ImVec2(560, 0), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowBgAlpha(0.92f);
-        if (state.font_medium) ImGui::PushFont(state.font_medium);
-        if (ImGui::Begin("Save Images", &state.show_save_dialog)) {
-            auto& ss = state.save_state;
-
-            // ── Format selection ─────────────────────────────────────────────
-            ImGui::Text("Format:");
-            ImGui::SameLine();
-            bool fmt_png = (ss.format == SaveDialogState::Format::PNG);
-            bool fmt_bmp = (ss.format == SaveDialogState::Format::BMP);
-            bool fmt_ppm = (ss.format == SaveDialogState::Format::PPM);
-            if (ImGui::RadioButton("PNG",  fmt_png)) ss.format = SaveDialogState::Format::PNG;
-            ImGui::SameLine();
-            if (ImGui::RadioButton("BMP",  fmt_bmp)) ss.format = SaveDialogState::Format::BMP;
-            ImGui::SameLine();
-            if (ImGui::RadioButton("PPM",  fmt_ppm)) ss.format = SaveDialogState::Format::PPM;
-
-            ImGui::Separator();
-
-            // ── Format-specific options ──────────────────────────────────────
-            if (ss.format == SaveDialogState::Format::PNG) {
-                ImGui::TextDisabled("8-bit RGB  (no options)");
-            } else if (ss.format == SaveDialogState::Format::BMP) {
-                ImGui::TextDisabled("24-bit RGB  (no options)");
-            } else {
-                // PPM options
-                bool is_bin = (ss.ppm_mode == SaveDialogState::PpmMode::Binary);
-                bool is_asc = (ss.ppm_mode == SaveDialogState::PpmMode::ASCII);
-                ImGui::Text("Mode:");
-                ImGui::SameLine();
-                if (ImGui::RadioButton("Binary (P6)", is_bin))
-                    ss.ppm_mode = SaveDialogState::PpmMode::Binary;
-                ImGui::SameLine();
-                if (ImGui::RadioButton("ASCII (P3)",  is_asc))
-                    ss.ppm_mode = SaveDialogState::PpmMode::ASCII;
-
-                ImGui::Text("Bits:");
-                ImGui::SameLine();
-                if (ImGui::RadioButton(" 8",  ss.ppm_bits ==  8)) ss.ppm_bits =  8;
-                ImGui::SameLine();
-                if (ImGui::RadioButton("10",  ss.ppm_bits == 10)) ss.ppm_bits = 10;
-                ImGui::SameLine();
-                if (ImGui::RadioButton("12",  ss.ppm_bits == 12)) ss.ppm_bits = 12;
-                ImGui::SameLine();
-                if (ImGui::RadioButton("16",  ss.ppm_bits == 16)) ss.ppm_bits = 16;
-            }
-
-            // ── Filename input ───────────────────────────────────────────────
-            ImGui::Text("Filename:");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(-1.0f);
-            ImGui::InputText("##filename", ss.filename_buf, sizeof(ss.filename_buf));
-
-            ImGui::Separator();
-
-            // ── Error message ────────────────────────────────────────────────
-            if (ss.save_error) {
-                ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Error: %s", ss.error_msg.c_str());
-            }
-
-            // ── Save buttons ─────────────────────────────────────────────────
-            bool any_pending = ss.save_pending;
-
-            // Image A
-            {
-                bool loaded = state.images[0].loaded;
-                bool disabled = !loaded || any_pending;
-                if (disabled) ImGui::BeginDisabled();
-
-                if (ImGui::Button("Save##A")) {
-                    ss.save_error = false;
-                    const char* dfn = (ss.filename_buf[0] != '\0') ? ss.filename_buf : nullptr;
-                    open_save_file_dialog(state, SaveDialogState::Target::ImageA, dfn);
-                }
-                if (disabled) ImGui::EndDisabled();
-
-                ImGui::SameLine();
-                if (loaded) {
-                    const auto& img = state.images[0];
-                    char info[256];
-                    if (img.path.empty())
-                        std::snprintf(info, sizeof(info), "Image A  (%dx%d)", img.width, img.height);
-                    else
-                        std::snprintf(info, sizeof(info), "Image A — %s  (%dx%d)",
-                                      img.path.substr(img.path.rfind('/') + 1).c_str(),
-                                      img.width, img.height);
-                    ImGui::Text("%s", info);
-                } else {
-                    ImGui::TextDisabled("Image A  (not loaded)");
-                }
-            }
-
-            // Image B
-            {
-                bool loaded = state.images[1].loaded;
-                bool disabled = !loaded || any_pending;
-                if (disabled) ImGui::BeginDisabled();
-
-                if (ImGui::Button("Save##B")) {
-                    ss.save_error = false;
-                    const char* dfn = (ss.filename_buf[0] != '\0') ? ss.filename_buf : nullptr;
-                    open_save_file_dialog(state, SaveDialogState::Target::ImageB, dfn);
-                }
-                if (disabled) ImGui::EndDisabled();
-
-                ImGui::SameLine();
-                if (loaded) {
-                    const auto& img = state.images[1];
-                    char info[256];
-                    if (img.path.empty())
-                        std::snprintf(info, sizeof(info), "Image B  (%dx%d)", img.width, img.height);
-                    else
-                        std::snprintf(info, sizeof(info), "Image B — %s  (%dx%d)",
-                                      img.path.substr(img.path.rfind('/') + 1).c_str(),
-                                      img.width, img.height);
-                    ImGui::Text("%s", info);
-                } else {
-                    ImGui::TextDisabled("Image B  (not loaded)");
-                }
-            }
-
-            // Diff
-            {
-                bool both_loaded = state.images[0].loaded && state.images[1].loaded;
-                bool diff_active = (state.diff.mode != DiffState::Mode::None);
-                bool disabled = !both_loaded || !diff_active || any_pending;
-                if (disabled) ImGui::BeginDisabled();
-
-                if (ImGui::Button("Save##Diff")) {
-                    ss.save_error = false;
-                    const char* dfn = (ss.filename_buf[0] != '\0') ? ss.filename_buf : nullptr;
-                    open_save_file_dialog(state, SaveDialogState::Target::Diff, dfn);
-                }
-                if (disabled) ImGui::EndDisabled();
-
-                ImGui::SameLine();
-                if (!both_loaded) {
-                    ImGui::TextDisabled("Diff  (need both images)");
-                } else if (!diff_active) {
-                    ImGui::TextDisabled("Diff  (enable diff mode first)");
-                } else {
-                    const char* mode_name = "Absolute";
-                    switch (state.diff.mode) {
-                    case DiffState::Mode::PixelAbsolute: mode_name = "Absolute";   break;
-                    case DiffState::Mode::PixelRelative: mode_name = "Relative";   break;
-                    case DiffState::Mode::FalseColor:    mode_name = "FalseColor"; break;
-                    case DiffState::Mode::SSIM:          mode_name = "SSIM";       break;
-                    default: break;
-                    }
-                    ImGui::Text("Diff — %s  x%.1f", mode_name, state.diff.amplify);
-                }
-            }
-
-            // ── Chart Export ──────────────────────────────────────────────────
-            bool has_hist  = state.show_histogram;
-            bool has_hcut  = state.show_hline_cut;
-            bool has_vcut  = state.show_vline_cut;
-            bool has_stats = state.show_stats;
-            bool has_chart = has_hist || has_hcut || has_vcut;
-            bool both_loaded = state.images[0].loaded && state.images[1].loaded;
-            bool diff_on     = (state.diff.mode != DiffState::Mode::None);
-
-            if ((has_chart || has_stats) && ImGui::CollapsingHeader("Chart / Statistics Export")) {
-                auto& ce = state.chart_export;
-
-                // Resolution
-                ImGui::Text("Resolution:");
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(80.0f);
-                ImGui::InputInt("##ew", &ce.export_width,  0);
-                ImGui::SameLine(); ImGui::Text("x");
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(80.0f);
-                ImGui::InputInt("##eh", &ce.export_height, 0);
-                ce.export_width  = std::max(ce.export_width,  320);
-                ce.export_height = std::max(ce.export_height, 240);
-
-                // Channel mode
-                ImGui::Text("Channels:");
-                ImGui::SameLine();
-                if (ImGui::RadioButton("Combined##chA", !ce.separate_channels)) ce.separate_channels = false;
-                ImGui::SameLine();
-                if (ImGui::RadioButton("Separate R/G/B##chB", ce.separate_channels)) ce.separate_channels = true;
-
-                ImGui::Separator();
-
-                // Helper lambda: trigger export via SDL save dialog
-                auto do_export = [&](ChartExportState::ExportType etype,
-                                     int img_idx,
-                                     const char* ext_hint) {
-                    ce.pending_type    = etype;
-                    ce.pending_img_idx = img_idx;
-                    SDL_DialogFileFilter filter{"Export file", ext_hint};
-                    struct ExportDialogUD {
-                        ChartExportState* ce;
-                    };
-                    auto* ud = new ExportDialogUD{&ce};
-                    SDL_ShowSaveFileDialog(
-                        [](void* ud_ptr, const char* const* fl, int) {
-                            auto* ud = static_cast<ExportDialogUD*>(ud_ptr);
-                            if (fl && fl[0] && fl[0][0] != '\0') {
-                                ud->ce->pending_path    = fl[0];
-                                ud->ce->export_pending  = true;
-                            }
-                            delete ud;
-                        },
-                        ud, state.window, &filter, 1, nullptr);
-                };
-
-                if (has_hist) {
-                    ImGui::TextDisabled("Histogram:");
-                    ImGui::SameLine();
-                    bool aok = state.images[0].loaded;
-                    bool bok = state.images[1].loaded;
-                    bool dok = both_loaded && diff_on;
-                    if (!aok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("PNG A##ha")) do_export(ChartExportState::ExportType::HistPNG, 0, "*.png");
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("CSV A##ha")) do_export(ChartExportState::ExportType::HistCSV, 0, "*.csv");
-                    if (!aok) ImGui::EndDisabled();
-                    ImGui::SameLine();
-                    if (!bok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("PNG B##hb")) do_export(ChartExportState::ExportType::HistPNG, 1, "*.png");
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("CSV B##hb")) do_export(ChartExportState::ExportType::HistCSV, 1, "*.csv");
-                    if (!bok) ImGui::EndDisabled();
-                    ImGui::SameLine();
-                    if (!dok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("PNG Diff##hd")) do_export(ChartExportState::ExportType::HistPNG, 2, "*.png");
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("CSV Diff##hd")) do_export(ChartExportState::ExportType::HistCSV, 2, "*.csv");
-                    if (!dok) ImGui::EndDisabled();
-                }
-
-                if (has_hcut) {
-                    ImGui::TextDisabled("H-Line Cut:");
-                    ImGui::SameLine();
-                    bool aok = state.images[0].loaded;
-                    bool bok = state.images[1].loaded;
-                    bool dok = both_loaded && diff_on;
-                    if (!aok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("PNG A##ha2")) do_export(ChartExportState::ExportType::HCutPNG, 0, "*.png");
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("CSV A##ha2")) do_export(ChartExportState::ExportType::HCutCSV, 0, "*.csv");
-                    if (!aok) ImGui::EndDisabled();
-                    ImGui::SameLine();
-                    if (!bok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("PNG B##hb2")) do_export(ChartExportState::ExportType::HCutPNG, 1, "*.png");
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("CSV B##hb2")) do_export(ChartExportState::ExportType::HCutCSV, 1, "*.csv");
-                    if (!bok) ImGui::EndDisabled();
-                    ImGui::SameLine();
-                    if (!dok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("PNG Diff##hd2")) do_export(ChartExportState::ExportType::HCutPNG, 2, "*.png");
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("CSV Diff##hd2")) do_export(ChartExportState::ExportType::HCutCSV, 2, "*.csv");
-                    if (!dok) ImGui::EndDisabled();
-                }
-
-                if (has_vcut) {
-                    ImGui::TextDisabled("V-Line Cut:");
-                    ImGui::SameLine();
-                    bool aok = state.images[0].loaded;
-                    bool bok = state.images[1].loaded;
-                    bool dok = both_loaded && diff_on;
-                    if (!aok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("PNG A##va")) do_export(ChartExportState::ExportType::VCutPNG, 0, "*.png");
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("CSV A##va")) do_export(ChartExportState::ExportType::VCutCSV, 0, "*.csv");
-                    if (!aok) ImGui::EndDisabled();
-                    ImGui::SameLine();
-                    if (!bok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("PNG B##vb")) do_export(ChartExportState::ExportType::VCutPNG, 1, "*.png");
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("CSV B##vb")) do_export(ChartExportState::ExportType::VCutCSV, 1, "*.csv");
-                    if (!bok) ImGui::EndDisabled();
-                    ImGui::SameLine();
-                    if (!dok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("PNG Diff##vd")) do_export(ChartExportState::ExportType::VCutPNG, 2, "*.png");
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("CSV Diff##vd")) do_export(ChartExportState::ExportType::VCutCSV, 2, "*.csv");
-                    if (!dok) ImGui::EndDisabled();
-                }
-
-                if (has_stats) {
-                    ImGui::TextDisabled("Statistics:");
-                    ImGui::SameLine();
-                    bool aok = state.images[0].loaded;
-                    bool bok = state.images[1].loaded;
-                    bool dok = both_loaded && diff_on;
-                    if (!aok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("CSV A##sa")) do_export(ChartExportState::ExportType::StatsCSV, 0, "*.csv");
-                    if (!aok) ImGui::EndDisabled();
-                    ImGui::SameLine();
-                    if (!bok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("CSV B##sb")) do_export(ChartExportState::ExportType::StatsCSV, 1, "*.csv");
-                    if (!bok) ImGui::EndDisabled();
-                    ImGui::SameLine();
-                    if (!dok) ImGui::BeginDisabled();
-                    if (ImGui::SmallButton("CSV Diff##sd")) do_export(ChartExportState::ExportType::StatsCSV, 2, "*.csv");
-                    if (!dok) ImGui::EndDisabled();
-                }
-            }
-
-            ImGui::Separator();
-            float close_w = ImGui::CalcTextSize("Close").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-            ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - close_w + ImGui::GetStyle().WindowPadding.x);
-            if (ImGui::Button("Close")) {
-                state.show_save_dialog = false;
-            }
-        }
-        ImGui::End();
-        if (state.font_medium) ImGui::PopFont();
+        if (state.show_histogram)
+            render_chart_save_window(state, true);
+        else if (state.show_hline_cut || state.show_vline_cut)
+            render_chart_save_window(state, false);
+        else if (state.show_stats)
+            render_stats_save_window(state);
+        else
+            render_image_save_window(state);
     }
 
     ImGui::End(); // ##Host

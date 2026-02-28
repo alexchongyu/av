@@ -150,26 +150,42 @@ elseif(WIN32)
     target_link_libraries(av PRIVATE opengl32)
 endif()
 
-# Compiler warnings
+# Compiler warnings + ImTextureID 경고 억제 (clang-cl 64-bit)
 if(MSVC)
-    target_compile_options(av PRIVATE /W3)
+    target_compile_options(av PRIVATE /W3 /wd4312)
 else()
     target_compile_options(av PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter)
 endif()
 
-# Output directory: av/bin/
+# Windows: stb UTF-8 경로 지원
+if(WIN32)
+    target_compile_definitions(av PRIVATE STBI_WINDOWS_UTF8)
+endif()
+
+# Output directory: av/bin/  (multi-config 제너레이터도 동일 경로 사용)
 set_target_properties(av PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
+    RUNTIME_OUTPUT_DIRECTORY                ${CMAKE_SOURCE_DIR}/bin
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG          ${CMAKE_SOURCE_DIR}/bin
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE        ${CMAKE_SOURCE_DIR}/bin
+    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_SOURCE_DIR}/bin
+    RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     ${CMAKE_SOURCE_DIR}/bin
 )
 
-# Install: cmake --install build  →  ~/.local/bin/av
-install(TARGETS av RUNTIME DESTINATION $ENV{HOME}/.local/bin)
-
-# Auto-copy to ~/.local/bin after every build
-add_custom_command(TARGET av POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory $ENV{HOME}/.local/bin
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:av> $ENV{HOME}/.local/bin/av
-    COMMENT "Installing av → ~/.local/bin/av"
-)
+# Install + Auto-copy (플랫폼별 분기)
+if(WIN32)
+    install(TARGETS av RUNTIME DESTINATION $ENV{LOCALAPPDATA}/av)
+    add_custom_command(TARGET av POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$ENV{LOCALAPPDATA}/av"
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:av> "$ENV{LOCALAPPDATA}/av/"
+        COMMENT "Installing av → %LOCALAPPDATA%/av/"
+    )
+else()
+    install(TARGETS av RUNTIME DESTINATION $ENV{HOME}/.local/bin)
+    add_custom_command(TARGET av POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory $ENV{HOME}/.local/bin
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:av> $ENV{HOME}/.local/bin/av
+        COMMENT "Installing av → ~/.local/bin/av"
+    )
+endif()
 
 message(STATUS "av build configured — C++20, OpenGL 3.3 Core")
