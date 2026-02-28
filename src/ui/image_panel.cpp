@@ -205,7 +205,7 @@ static void draw_image_border(ImDrawList* dl, ImVec2 widget_pos,
 
 void ImagePanel::render_pathfinder(const AppState& state, int panel_idx,
                                     ImVec2 widget_pos, int view_w, int view_h) {
-    if (!state.show_pathfinder) return;
+    if (state.pathfinder_mode == 0) return;
     if (panel_idx != 0) return;
 
     int actual_idx = state.swap_images ? 1 : 0;
@@ -234,13 +234,14 @@ void ImagePanel::render_pathfinder(const AppState& state, int panel_idx,
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
-    // Semi-transparent background
+    // 두 모드 모두 불투명 gray(32) 배경으로 잔상 방지
     dl->AddRectFilled(ImVec2(mx0, my0), ImVec2(mx1, my1),
-                      IM_COL32(0, 0, 0, 180), 4.0f);
-
-    // Minimap thumbnail (full image)
-    ImTextureID tex_id = static_cast<ImTextureID>(img.texture_id);
-    dl->AddImage(tex_id, ImVec2(mx0, my0), ImVec2(mx1, my1));
+                      IM_COL32(32, 32, 32, 255), 4.0f);
+    if (state.pathfinder_mode == 1) {
+        // Image 모드: gray 배경 위에 이미지 썸네일 추가
+        ImTextureID tex_id = static_cast<ImTextureID>(img.texture_id);
+        dl->AddImage(tex_id, ImVec2(mx0, my0), ImVec2(mx1, my1));
+    }
 
     // Viewport indicator: compute normalised [0,1] visible image region
     float half_vw = view_w  * 0.5f;
@@ -268,6 +269,12 @@ void ImagePanel::render_pathfinder(const AppState& state, int panel_idx,
     float vy1 = my0 + cy1 * mini_h;
 
     if (vx1 > vx0 + 1.0f && vy1 > vy0 + 1.0f) {
+        if (state.pathfinder_mode == 2) {
+            // Schematic: 반투명 노란색 채움
+            dl->AddRectFilled(ImVec2(vx0, vy0), ImVec2(vx1, vy1),
+                              IM_COL32(255, 220, 0, 80));
+        }
+        // 양쪽 모드 공통: 노란색 외곽선
         dl->AddRect(ImVec2(vx0, vy0), ImVec2(vx1, vy1),
                     IM_COL32(255, 220, 0, 220), 0.0f, 0, 1.5f);
     }
@@ -391,7 +398,7 @@ void ImagePanel::render_pixel_values(const AppState& state, int panel_idx,
 
     if (px_start_x >= px_end_x || px_start_y >= px_end_y) return;
 
-    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
 
     // ── Pixel grid lines ──────────────────────────────────────────────────
     ImU32 grid_col = IM_COL32(255, 255, 255, 50);
