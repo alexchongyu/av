@@ -152,6 +152,17 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         state.quit = true;
         break;
 
+    // ── Close popups ──────────────────────────────────────────────────────────
+    case SDL_SCANCODE_ESCAPE:
+        if (state.show_hotkey_help) { state.show_hotkey_help = false; break; }
+        if (state.show_histogram)   { state.show_histogram   = false; break; }
+        if (state.show_hline_cut)   { state.show_hline_cut   = false; break; }
+        if (state.show_vline_cut)   { state.show_vline_cut   = false; break; }
+        if (state.show_stats)       { state.show_stats       = false; break; }
+        if (state.show_info)        { state.show_info        = false; break; }
+        if (state.show_save_dialog) { state.show_save_dialog = false; break; }
+        break;
+
     // ── Zoom ──────────────────────────────────────────────────────────────────
     case SDL_SCANCODE_EQUALS:   // + / =
     case SDL_SCANCODE_KP_PLUS:
