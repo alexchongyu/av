@@ -699,16 +699,15 @@ static void render_hotkey_help_window(AppState& state) {
     ImGuiIO& io = ImGui::GetIO();
     float vp_w = io.DisplaySize.x;
     float vp_h = io.DisplaySize.y;
-    // Width: Category(90) + Shortcut(190) + Description(~320) + padding/scrollbar
     float win_w = std::min(vp_w * 0.52f, 660.0f);
-    float win_h = vp_h * 0.85f;
-    ImGui::SetNextWindowSize(ImVec2(win_w, win_h), ImGuiCond_Always);
-    ImGui::SetNextWindowPos(ImVec2((vp_w - win_w) * 0.5f, (vp_h - win_h) * 0.5f), ImGuiCond_Always);
+    // Auto-height capped at 92% of viewport; positioned near top-center
+    ImGui::SetNextWindowSizeConstraints(ImVec2(win_w, 0), ImVec2(win_w, vp_h * 0.92f));
+    ImGui::SetNextWindowPos(ImVec2((vp_w - win_w) * 0.5f, vp_h * 0.04f), ImGuiCond_Always);
 
     if (state.font_medium) ImGui::PushFont(state.font_medium);
 
     if (!ImGui::Begin("Hotkey Reference", &state.show_hotkey_help,
-                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+                      ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
         ImGui::End();
         if (state.font_medium) ImGui::PopFont();
         return;
@@ -791,11 +790,9 @@ static void render_hotkey_help_window(AppState& state) {
     constexpr ImGuiTableFlags tflags =
         ImGuiTableFlags_Borders |
         ImGuiTableFlags_RowBg   |
-        ImGuiTableFlags_ScrollY |
         ImGuiTableFlags_SizingFixedFit;
 
     if (ImGui::BeginTable("hotkeys", 3, tflags)) {
-        ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Category",    ImGuiTableColumnFlags_WidthFixed,    90.0f);
         ImGui::TableSetupColumn("Shortcut",    ImGuiTableColumnFlags_WidthFixed,   190.0f);
         ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
