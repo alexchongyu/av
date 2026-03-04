@@ -699,7 +699,8 @@ static void render_hotkey_help_window(AppState& state) {
     ImGuiIO& io = ImGui::GetIO();
     float vp_w = io.DisplaySize.x;
     float vp_h = io.DisplaySize.y;
-    float win_w = vp_w * 0.60f;
+    // Width: Category(90) + Shortcut(190) + Description(~320) + padding/scrollbar
+    float win_w = std::min(vp_w * 0.52f, 660.0f);
     float win_h = vp_h * 0.85f;
     ImGui::SetNextWindowSize(ImVec2(win_w, win_h), ImGuiCond_Always);
     ImGui::SetNextWindowPos(ImVec2((vp_w - win_w) * 0.5f, (vp_h - win_h) * 0.5f), ImGuiCond_Always);
@@ -795,8 +796,8 @@ static void render_hotkey_help_window(AppState& state) {
 
     if (ImGui::BeginTable("hotkeys", 3, tflags)) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Category",    ImGuiTableColumnFlags_WidthFixed,   100.0f);
-        ImGui::TableSetupColumn("Shortcut",    ImGuiTableColumnFlags_WidthFixed,   200.0f);
+        ImGui::TableSetupColumn("Category",    ImGuiTableColumnFlags_WidthFixed,    90.0f);
+        ImGui::TableSetupColumn("Shortcut",    ImGuiTableColumnFlags_WidthFixed,   190.0f);
         ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
 
