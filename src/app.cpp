@@ -160,6 +160,7 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         if (state.show_vline_cut)   { state.show_vline_cut   = false; break; }
         if (state.show_stats)       { state.show_stats       = false; break; }
         if (state.show_info)        { state.show_info        = false; break; }
+        if (state.show_pixel_info)  { state.show_pixel_info  = false; break; }
         if (state.show_save_dialog) { state.show_save_dialog = false; break; }
         break;
 
