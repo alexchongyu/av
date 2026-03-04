@@ -197,4 +197,34 @@ else()
     )
 endif()
 
+# ── Linux AppImage ────────────────────────────────────────────────────────────
+if(UNIX AND NOT APPLE)
+    set(APPIMAGE_DIR "${CMAKE_BINARY_DIR}/AppImage")
+    set(LINUXDEPLOY  "${APPIMAGE_DIR}/linuxdeploy-x86_64.AppImage")
+
+    # linuxdeploy 자동 다운로드
+    add_custom_command(
+        OUTPUT "${LINUXDEPLOY}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${APPIMAGE_DIR}"
+        COMMAND curl -fSL -o "${LINUXDEPLOY}"
+            "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+        COMMAND chmod +x "${LINUXDEPLOY}"
+        COMMENT "Downloading linuxdeploy..."
+    )
+
+    add_custom_target(appimage
+        DEPENDS av "${LINUXDEPLOY}"
+        COMMAND ${CMAKE_COMMAND} -E remove_directory "${APPIMAGE_DIR}/AppDir"
+        COMMAND ${CMAKE_COMMAND} -E env
+            OUTPUT="${CMAKE_SOURCE_DIR}/bin/av-x86_64.AppImage"
+            "${LINUXDEPLOY}"
+                --appdir "${APPIMAGE_DIR}/AppDir"
+                --executable $<TARGET_FILE:av>
+                --desktop-file "${CMAKE_SOURCE_DIR}/packaging/av.desktop"
+                --icon-file "${CMAKE_SOURCE_DIR}/packaging/av.svg"
+                --output appimage
+        COMMENT "Building AppImage -> bin/av-x86_64.AppImage"
+    )
+endif()
+
 message(STATUS "av build configured — C++20, OpenGL 3.3 Core")

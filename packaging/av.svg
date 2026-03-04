@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="32" fill="#1a1a2e"/>
+  <text x="128" y="160" font-family="monospace" font-size="120" font-weight="bold"
+        text-anchor="middle" fill="#e0e0ff">av</text>
+</svg>
