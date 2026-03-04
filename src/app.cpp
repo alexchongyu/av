@@ -179,6 +179,7 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
             // ctrl+number: diff mode shortcuts
             int key_num = (scancode == SDL_SCANCODE_0) ? 0 : (scancode - SDL_SCANCODE_1 + 1);
             if      (key_num == 3) state.diff.mode = DiffState::Mode::PixelAbsolute;
+            else if (key_num == 4) state.diff.mode = DiffState::Mode::PixelRelative;
             else if (key_num == 5) state.diff.mode = DiffState::Mode::FalseColor;
             else if (key_num == 6) state.diff.mode = DiffState::Mode::SSIM;
             break;
@@ -205,6 +206,10 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 
     // ── Pan ───────────────────────────────────────────────────────────────────
     case SDL_SCANCODE_H:
+        if (shift && ctrl) {
+            state.show_hotkey_help = !state.show_hotkey_help;
+            break;
+        }
         if (ctrl) {
             state.show_histogram = !state.show_histogram;
             if (state.show_histogram) {

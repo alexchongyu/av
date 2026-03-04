@@ -128,6 +128,7 @@ struct AppState {
     bool  show_stats      = false;   // Ctrl+S: Image Statistics window
     bool  show_info       = false;
     bool  show_pixel_info = false;   // V key: cursor pixel balloon
+    bool  show_hotkey_help = false;  // Ctrl+Shift+H: hotkey reference window
     int   pathfinder_mode = 1;      // 0=hidden, 1=image (P), 2=schematic (Ctrl+P)
     bool  swap_images     = false;   // A↔B quick-swap toggle
     int   active_panel    = 0;       // 0 or 1 (keyboard focus)

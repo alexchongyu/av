@@ -656,6 +656,10 @@ void MainWindow::render_menubar(AppState& state) {
             state.show_stats = !state.show_stats;
             if (state.show_stats) { state.show_histogram = false; state.show_hline_cut = false; state.show_vline_cut = false; }
         }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Hotkey Reference", "Ctrl+Shift+H", state.show_hotkey_help)) {
+            state.show_hotkey_help = !state.show_hotkey_help;
+        }
         ImGui::EndMenu();
     }
 
@@ -685,6 +689,137 @@ void MainWindow::render_menubar(AppState& state) {
     ImGui::TextDisabled("%s", fps);
 
     ImGui::EndMenuBar();
+}
+
+// ─── render_hotkey_help_window ────────────────────────────────────────────────
+
+static void render_hotkey_help_window(AppState& state) {
+    if (!state.show_hotkey_help) return;
+
+    ImGuiIO& io = ImGui::GetIO();
+    float vp_w = io.DisplaySize.x;
+    float vp_h = io.DisplaySize.y;
+    float win_w = vp_w * 0.60f;
+    float win_h = vp_h * 0.85f;
+    ImGui::SetNextWindowSize(ImVec2(win_w, win_h), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2((vp_w - win_w) * 0.5f, (vp_h - win_h) * 0.5f), ImGuiCond_Always);
+
+    if (state.font_medium) ImGui::PushFont(state.font_medium);
+
+    if (!ImGui::Begin("Hotkey Reference", &state.show_hotkey_help,
+                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        ImGui::End();
+        if (state.font_medium) ImGui::PopFont();
+        return;
+    }
+
+    struct HotkeyEntry { const char* category; const char* shortcut; const char* description; };
+    static const HotkeyEntry entries[] = {
+        // Navigation
+        { "Navigation", "H / Left",                "Pan left (1px)" },
+        { "Navigation", "L / Right",               "Pan right (1px)" },
+        { "Navigation", "K / Up",                  "Pan up (1px)" },
+        { "Navigation", "J / Down",                "Pan down (1px)" },
+        { "Navigation", "Shift + H,L,K,J / Arrow", "Fast pan (pan_step px)" },
+        { "Navigation", "G",                       "Center image" },
+        { "Navigation", "Mouse Left Drag",         "Pan image" },
+        // Zoom
+        { "Zoom", "+ / = / Numpad+",               "Zoom in (x2)" },
+        { "Zoom", "- / Numpad-",                   "Zoom out (/2)" },
+        { "Zoom", "Z",                             "Zoom in" },
+        { "Zoom", "Shift+Z",                       "Zoom out" },
+        { "Zoom", "0",                             "Fit to window" },
+        { "Zoom", "1~8",                           "Zoom level 2^n (1=2x, 2=4x, ... 8=256x)" },
+        { "Zoom", "F",                             "Toggle fit-to-window" },
+        { "Zoom", "Space",                         "1:1 zoom + center" },
+        { "Zoom", "Mouse Wheel",                   "Zoom in/out" },
+        { "Zoom", "Mouse Right Drag",              "Zoom to selection" },
+        // Display
+        { "Display", "U",                          "Toggle UI overlay (menubar/statusbar)" },
+        { "Display", "I",                          "Toggle image info window" },
+        { "Display", "V",                          "Toggle cursor pixel value balloon" },
+        { "Display", "S",                          "Toggle viewport sync (A <-> B)" },
+        { "Display", "Tab",                        "Switch active panel (A <-> B)" },
+        { "Display", "R",                          "Rotate image CW 90 degrees" },
+        { "Display", "Ctrl+R",                     "Rotate image CCW 90 degrees" },
+        { "Display", "Shift+Space",                "Swap A/B images" },
+        { "Display", "P",                          "Pathfinder: image minimap" },
+        { "Display", "Ctrl+P",                     "Pathfinder: schematic mode" },
+        // Channel
+        { "Channel", "Shift+R",                    "Show Red channel only" },
+        { "Channel", "Shift+G",                    "Show Green channel only" },
+        { "Channel", "Shift+B",                    "Show Blue channel only" },
+        { "Channel", "Shift+C",                    "Show RGB (default)" },
+        // Analysis
+        { "Analysis", "Ctrl+H",                    "Toggle histogram window" },
+        { "Analysis", "Ctrl+L",                    "Toggle H-Line Cut" },
+        { "Analysis", "Ctrl+Y",                    "Toggle V-Line Cut" },
+        { "Analysis", "Ctrl+S",                    "Toggle statistics window" },
+        // Diff
+        { "Diff", "Ctrl+D",                        "Disable diff mode" },
+        { "Diff", "Ctrl+3",                        "Diff: Pixel Absolute" },
+        { "Diff", "Ctrl+4",                        "Diff: Pixel Relative" },
+        { "Diff", "Ctrl+5",                        "Diff: False Color" },
+        { "Diff", "Ctrl+6",                        "Diff: SSIM" },
+        { "Diff", "[",                             "Decrease diff amplify" },
+        { "Diff", "]",                             "Increase diff amplify" },
+        { "Diff", "\\",                            "Reset diff amplify (1.0x)" },
+        // File
+        { "File", "Shift+Ctrl+O",                  "Open image file" },
+        { "File", "Shift+Ctrl+S",                  "Save dialog" },
+        { "File", "Q",                             "Quit" },
+        // Help
+        { "Help", "Ctrl+Shift+H",                  "Toggle this hotkey reference" },
+        // CLI Options
+        { "CLI", "av [image_a] [image_b]",          "Open one or two images" },
+        { "CLI", "--diff-mode <mode>",              "none|abs|rel|falsecolor|ssim  (default: none)" },
+        { "CLI", "--zoom <factor>",                 "fit|1|2.0 etc.  (default: fit)" },
+        { "CLI", "--sync / --no-sync",              "Enable/disable viewport sync  (default: on)" },
+        { "CLI", "--amplify <val>",                 "Diff amplification 0.1-100  (default: 1.0)" },
+        { "CLI", "--fullscreen",                    "Start in fullscreen" },
+        { "CLI", "--geometry <WxH>",                "Initial window size  (default: 1280x720)" },
+        { "CLI", "--profile <file>",                "ICC colour profile path" },
+        { "CLI", "--no-color-mgmt",                 "Disable colour management" },
+        { "CLI", "-p, --pan-step <N>",              "Shift+hjkl jump size in pixels  (default: 32)" },
+        { "CLI", "-bc <A> <B> <D>",                 "Border colours for A/B/Diff as 6-digit hex" },
+        { "CLI", "-d, --diff",                      "Show pixel-absolute diff (shortcut)" },
+        { "CLI", "--version",                       "Print version and exit" },
+        { "CLI", "-h, --help",                      "Print this help" },
+    };
+
+    constexpr ImGuiTableFlags tflags =
+        ImGuiTableFlags_Borders |
+        ImGuiTableFlags_RowBg   |
+        ImGuiTableFlags_ScrollY |
+        ImGuiTableFlags_SizingFixedFit;
+
+    if (ImGui::BeginTable("hotkeys", 3, tflags)) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Category",    ImGuiTableColumnFlags_WidthFixed,   100.0f);
+        ImGui::TableSetupColumn("Shortcut",    ImGuiTableColumnFlags_WidthFixed,   200.0f);
+        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableHeadersRow();
+
+        const char* prev_cat = nullptr;
+        for (const auto& e : entries) {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            if (prev_cat && strcmp(prev_cat, e.category) == 0) {
+                ImGui::TextDisabled(" ");
+            } else {
+                ImGui::TextUnformatted(e.category);
+                prev_cat = e.category;
+            }
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(e.shortcut);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::TextUnformatted(e.description);
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::End();
+    if (state.font_medium) ImGui::PopFont();
 }
 
 // ─── render ───────────────────────────────────────────────────────────────────
@@ -914,6 +1049,7 @@ void MainWindow::render(AppState& state) {
     render_hline_cut_window(state);
     render_vline_cut_window(state);
     render_stats_window(state);
+    render_hotkey_help_window(state);
 
     // ── Open Images window ────────────────────────────────────────────────────
     render_open_images_window(state);
@@ -1009,11 +1145,11 @@ void MainWindow::render(AppState& state) {
 
                 if (is_hdr && has_f32) {
                     std::snprintf(line_r, sizeof(line_r), "R:%.3f",
-                        std::fabsf(imgA.pixels_f32[pidx_a + 0] - imgB.pixels_f32[pidx_b + 0]));
+                        std::fabs(imgA.pixels_f32[pidx_a + 0] - imgB.pixels_f32[pidx_b + 0]));
                     std::snprintf(line_g, sizeof(line_g), "G:%.3f",
-                        std::fabsf(imgA.pixels_f32[pidx_a + 1] - imgB.pixels_f32[pidx_b + 1]));
+                        std::fabs(imgA.pixels_f32[pidx_a + 1] - imgB.pixels_f32[pidx_b + 1]));
                     std::snprintf(line_b, sizeof(line_b), "B:%.3f",
-                        std::fabsf(imgA.pixels_f32[pidx_a + 2] - imgB.pixels_f32[pidx_b + 2]));
+                        std::fabs(imgA.pixels_f32[pidx_a + 2] - imgB.pixels_f32[pidx_b + 2]));
                 } else if (has_u8) {
                     std::snprintf(line_r, sizeof(line_r), "R:%d",
                         std::abs((int)imgA.pixels[pidx_a + 0] - (int)imgB.pixels[pidx_b + 0]));
