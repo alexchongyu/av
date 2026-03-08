@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <iostream>
+#include <cstring>
 
 // ─── init ─────────────────────────────────────────────────────────────────────
 
@@ -21,6 +22,14 @@ bool ImagePanel::init() {
     glBindAttribLocation(image_shader_.id, 0, "a_pos");
     glBindAttribLocation(image_shader_.id, 1, "a_uv");
     glLinkProgram(image_shader_.id);
+
+    if (!blend_shader_.compile(shaders::VERTEX_SRC, shaders::BLEND_FRAG_SRC)) {
+        std::cerr << "[ImagePanel] blend shader compile failed\n";
+        return false;
+    }
+    glBindAttribLocation(blend_shader_.id, 0, "a_pos");
+    glBindAttribLocation(blend_shader_.id, 1, "a_uv");
+    glLinkProgram(blend_shader_.id);
 
     quad_.init();
     inited_ = true;
@@ -347,15 +356,25 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
     ImGui::Image(tex, avail, ImVec2(0, 0), ImVec2(1, 1));
 
     ImVec2 widget_pos = ImGui::GetItemRectMin();
-    handle_mouse_pan(state, panel_idx);
-    handle_mouse_right_select(state, panel_idx, widget_pos, pw, ph,
-                               img.width, img.height);
+    if (state.roi.active) {
+        handle_roi_drag(state, panel_idx, widget_pos, pw, ph,
+                        img.width, img.height);
+    } else {
+        handle_mouse_pan(state, panel_idx);
+        handle_mouse_right_select(state, panel_idx, widget_pos, pw, ph,
+                                   img.width, img.height);
+    }
 
     draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
                       static_cast<float>(pw), static_cast<float>(ph),
                       static_cast<float>(img.width), static_cast<float>(img.height),
                       vp.pan_x, vp.pan_y, vp.zoom,
                       static_cast<ImU32>(state.border_colors[panel_idx]));
+
+    if (state.roi.has_roi || state.roi.dragging) {
+        render_roi_overlay(state, panel_idx, widget_pos, pw, ph,
+                           img.width, img.height);
+    }
 
     if (vp.zoom >= 32.0f && img.loaded) {
         render_pixel_values(state, panel_idx, widget_pos, pw, ph);
@@ -536,15 +555,25 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
     ImGui::Image(tex, avail, ImVec2(0, 0), ImVec2(1, 1));
 
     ImVec2 widget_pos = ImGui::GetItemRectMin();
-    handle_mouse_pan(state, 0);
-    handle_mouse_right_select(state, 0, widget_pos, pw, ph,
-                               imgA.width, imgA.height);
+    if (state.roi.active) {
+        handle_roi_drag(state, 0, widget_pos, pw, ph,
+                        imgA.width, imgA.height);
+    } else {
+        handle_mouse_pan(state, 0);
+        handle_mouse_right_select(state, 0, widget_pos, pw, ph,
+                                   imgA.width, imgA.height);
+    }
 
     draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
                       static_cast<float>(pw), static_cast<float>(ph),
                       static_cast<float>(imgA.width), static_cast<float>(imgA.height),
                       vp.pan_x, vp.pan_y, vp.zoom,
                       static_cast<ImU32>(state.border_colors[2]));
+
+    if (state.roi.has_roi || state.roi.dragging) {
+        render_roi_overlay(state, 0, widget_pos, pw, ph,
+                           imgA.width, imgA.height);
+    }
 
     if (vp.zoom >= 32.0f && imgA.loaded && imgB.loaded) {
         render_diff_pixel_values(state, widget_pos, pw, ph);
@@ -629,11 +658,11 @@ void ImagePanel::render_diff_pixel_values(const AppState& state,
 
             if (is_hdr && has_f32) {
                 std::snprintf(sr, sizeof(sr), "%.2f",
-                    std::fabsf(imgA.pixels_f32[pidx_a + 0] - imgB.pixels_f32[pidx_b + 0]));
+                    std::fabs(imgA.pixels_f32[pidx_a + 0] - imgB.pixels_f32[pidx_b + 0]));
                 std::snprintf(sg, sizeof(sg), "%.2f",
-                    std::fabsf(imgA.pixels_f32[pidx_a + 1] - imgB.pixels_f32[pidx_b + 1]));
+                    std::fabs(imgA.pixels_f32[pidx_a + 1] - imgB.pixels_f32[pidx_b + 1]));
                 std::snprintf(sb, sizeof(sb), "%.2f",
-                    std::fabsf(imgA.pixels_f32[pidx_a + 2] - imgB.pixels_f32[pidx_b + 2]));
+                    std::fabs(imgA.pixels_f32[pidx_a + 2] - imgB.pixels_f32[pidx_b + 2]));
             } else if (has_u8) {
                 std::snprintf(sr, sizeof(sr), "%d",
                     std::abs((int)imgA.pixels[pidx_a + 0] - (int)imgB.pixels[pidx_b + 0]));
@@ -697,6 +726,13 @@ void ImagePanel::render(AppState& state, int panel_idx, DiffRenderer& diff_rende
     if (!inited_) return;
 
     if (!force_single) {
+        // Overlay 모드: panel_idx==0에서만 blend/curtain 렌더링
+        if (state.overlay.active && panel_idx == 0 &&
+            state.images[0].loaded && state.images[1].loaded) {
+            render_overlay(state, diff_renderer);
+            return;
+        }
+
         // Diff modes take over panel 0 and show both images
         bool is_diff_mode = (state.diff.mode != DiffState::Mode::None &&
                              state.diff.mode != DiffState::Mode::SSIM);
@@ -724,4 +760,257 @@ void ImagePanel::render(AppState& state, int panel_idx, DiffRenderer& diff_rende
     }
 
     render_single(state, panel_idx);
+}
+
+// ─── ROI drag selection ────────────────────────────────────────────────────────
+
+void ImagePanel::handle_roi_drag(AppState& state, int panel_idx,
+                                  ImVec2 widget_pos, int view_w, int view_h,
+                                  int img_w, int img_h)
+{
+    auto& roi = state.roi;
+
+    // Scroll wheel still zooms in ROI mode
+    if (ImGui::IsItemHovered()) {
+        float wheel = ImGui::GetIO().MouseWheel;
+        if (wheel != 0.0f) {
+            auto& v = state.views[panel_idx];
+            if (wheel > 0) viewport_zoom_in(v);
+            else           viewport_zoom_out(v);
+            if (state.sync_viewports) {
+                auto& ov = state.views[1 - panel_idx];
+                ov.zoom = v.zoom;
+                ov.fit  = false;
+            }
+        }
+    }
+
+    // 드래그 시작
+    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        roi.dragging   = true;
+        roi.drag_panel = panel_idx;
+        ImVec2 mp = ImGui::GetMousePos();
+        roi.drag_sx = mp.x;
+        roi.drag_sy = mp.y;
+    }
+
+    if (!roi.dragging || roi.drag_panel != panel_idx) return;
+
+    ImVec2 curr = ImGui::GetMousePos();
+    float rx0 = std::min(roi.drag_sx, curr.x);
+    float ry0 = std::min(roi.drag_sy, curr.y);
+    float rx1 = std::max(roi.drag_sx, curr.x);
+    float ry1 = std::max(roi.drag_sy, curr.y);
+
+    // 드래그 중 사각형 표시
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    dl->AddRectFilled(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
+                      IM_COL32(100, 200, 255, 30));
+    dl->AddRect(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
+                IM_COL32(100, 200, 255, 220), 0.0f, 0, 1.5f);
+
+    if (!ImGui::IsMouseReleased(ImGuiMouseButton_Left)) return;
+
+    roi.dragging = false;
+
+    // 너무 작은 드래그 무시
+    if ((rx1 - rx0) < 3.0f || (ry1 - ry0) < 3.0f) return;
+
+    // 화면 좌표 → 이미지 픽셀 좌표 변환
+    const ViewportState& vp = state.views[panel_idx];
+    float zoom    = vp.zoom;
+    float half_vw = view_w * 0.5f;
+    float half_vh = view_h * 0.5f;
+    float half_iw = img_w  * 0.5f;
+    float half_ih = img_h  * 0.5f;
+
+    auto s2ix = [&](float sx) {
+        return (sx - widget_pos.x - half_vw) / zoom - vp.pan_x + half_iw;
+    };
+    auto s2iy = [&](float sy) {
+        return (sy - widget_pos.y - half_vh) / zoom - vp.pan_y + half_ih;
+    };
+
+    float ix0 = s2ix(rx0), iy0 = s2iy(ry0);
+    float ix1 = s2ix(rx1), iy1 = s2iy(ry1);
+
+    roi.x = std::max(0, (int)std::floor(ix0));
+    roi.y = std::max(0, (int)std::floor(iy0));
+    roi.w = std::min((int)std::ceil(ix1), img_w) - roi.x;
+    roi.h = std::min((int)std::ceil(iy1), img_h) - roi.y;
+
+    if (roi.w > 0 && roi.h > 0) {
+        roi.has_roi   = true;
+        roi.panel_idx = panel_idx;
+        state.show_roi_stats = true;
+    }
+}
+
+// ─── ROI overlay drawing ──────────────────────────────────────────────────────
+
+void ImagePanel::render_roi_overlay(const AppState& state, int panel_idx,
+                                     ImVec2 widget_pos, int view_w, int view_h,
+                                     int img_w, int img_h)
+{
+    const auto& roi = state.roi;
+    if (!roi.has_roi && !roi.dragging) return;
+
+    const ViewportState& vp = state.views[panel_idx];
+    float zoom    = vp.zoom;
+    float half_vw = view_w * 0.5f;
+    float half_vh = view_h * 0.5f;
+    float half_iw = img_w  * 0.5f;
+    float half_ih = img_h  * 0.5f;
+
+    // 이미지 픽셀 → 화면 좌표
+    auto ix2s = [&](float ix) {
+        return widget_pos.x + (ix + vp.pan_x - half_iw) * zoom + half_vw;
+    };
+    auto iy2s = [&](float iy) {
+        return widget_pos.y + (iy + vp.pan_y - half_ih) * zoom + half_vh;
+    };
+
+    if (roi.has_roi) {
+        float sx0 = ix2s(roi.x);
+        float sy0 = iy2s(roi.y);
+        float sx1 = ix2s(roi.x + roi.w);
+        float sy1 = iy2s(roi.y + roi.h);
+
+        // Clip to widget bounds
+        float wx0 = widget_pos.x, wy0 = widget_pos.y;
+        float wx1 = wx0 + view_w,  wy1 = wy0 + view_h;
+        float cx0 = std::max(sx0, wx0), cy0 = std::max(sy0, wy0);
+        float cx1 = std::min(sx1, wx1), cy1 = std::min(sy1, wy1);
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        if (cx1 > cx0 && cy1 > cy0) {
+            dl->AddRectFilled(ImVec2(cx0, cy0), ImVec2(cx1, cy1),
+                              IM_COL32(100, 200, 255, 25));
+        }
+        dl->AddRect(ImVec2(sx0, sy0), ImVec2(sx1, sy1),
+                    IM_COL32(100, 200, 255, 220), 0.0f, 0, 1.5f);
+
+        // ROI 크기 레이블 표시
+        char label[64];
+        std::snprintf(label, sizeof(label), "%d x %d", roi.w, roi.h);
+        dl->AddText(ImVec2(sx0 + 3, sy0 + 3), IM_COL32(100, 200, 255, 220), label);
+    }
+}
+
+// ─── Overlay/Blend render ─────────────────────────────────────────────────────
+
+void ImagePanel::render_overlay(AppState& state, DiffRenderer& /*diff_renderer*/)
+{
+    int idx_a = state.swap_images ? 1 : 0;
+    int idx_b = state.swap_images ? 0 : 1;
+    const ImageEntry& imgA = state.images[idx_a];
+    const ImageEntry& imgB = state.images[idx_b];
+    ViewportState&    vp   = state.views[0];
+
+    if (!imgA.loaded || !imgB.loaded) {
+        ImGui::TextDisabled("(overlay: need two images)");
+        return;
+    }
+
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    int pw = std::max(1, (int)avail.x);
+    int ph = std::max(1, (int)avail.y);
+
+    if (vp.fit) viewport_fit(vp, imgA.width, imgA.height, pw, ph);
+    viewport_clamp_pan(vp, imgA.width, imgA.height, pw, ph);
+
+    if (!fbo_.ensure(pw, ph)) return;
+
+    fbo_.bind();
+    glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Bind both textures
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, imgA.texture_id);
+    if (vp.zoom >= 1.0f) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    } else {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    }
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, imgB.texture_id);
+    if (vp.zoom >= 1.0f) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    } else {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    }
+
+    int blend_mode = (state.overlay.mode == OverlayState::Mode::Curtain) ? 1 : 0;
+
+    blend_shader_.use();
+    blend_shader_.set_int  ("u_texA",        0);
+    blend_shader_.set_int  ("u_texB",        1);
+    blend_shader_.set_vec2 ("u_image_size",  (float)imgA.width, (float)imgA.height);
+    blend_shader_.set_vec2 ("u_view_size",   (float)pw, (float)ph);
+    blend_shader_.set_float("u_zoom",        vp.zoom);
+    blend_shader_.set_vec2 ("u_pan",         vp.pan_x, vp.pan_y);
+    blend_shader_.set_int  ("u_channel",     (int)state.channel_mode);
+    blend_shader_.set_int  ("u_blend_mode",  blend_mode);
+    blend_shader_.set_float("u_alpha",       state.overlay.alpha);
+    blend_shader_.set_float("u_curtain_x",   state.overlay.curtain_x);
+
+    quad_.draw();
+    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, 0);
+    fbo_.unbind();
+
+    ImTextureID tex = static_cast<ImTextureID>(fbo_.tex_id);
+    ImGui::Image(tex, avail, ImVec2(0,0), ImVec2(1,1));
+
+    ImVec2 widget_pos = ImGui::GetItemRectMin();
+
+    // Curtain 모드: 마우스 드래그로 구분선 조정
+    if (state.overlay.mode == OverlayState::Mode::Curtain) {
+        float curtain_sx = widget_pos.x + state.overlay.curtain_x * pw;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddLine(ImVec2(curtain_sx, widget_pos.y),
+                    ImVec2(curtain_sx, widget_pos.y + ph),
+                    IM_COL32(255, 255, 255, 200), 2.0f);
+
+        // 구분선 레이블
+        char lbl[16];
+        std::snprintf(lbl, sizeof(lbl), "A | B");
+        dl->AddText(ImVec2(curtain_sx + 4, widget_pos.y + 4),
+                    IM_COL32(255, 255, 255, 200), lbl);
+
+        // 마우스로 커튼 드래그
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+            float mx = ImGui::GetMousePos().x;
+            state.overlay.curtain_x = std::clamp((mx - widget_pos.x) / pw, 0.0f, 1.0f);
+        }
+    } else {
+        // Blend 모드: 마우스 팬
+        handle_mouse_pan(state, 0);
+    }
+
+    if (state.roi.active) {
+        handle_roi_drag(state, 0, widget_pos, pw, ph,
+                        imgA.width, imgA.height);
+    } else if (state.overlay.mode != OverlayState::Mode::Curtain) {
+        handle_mouse_right_select(state, 0, widget_pos, pw, ph,
+                                   imgA.width, imgA.height);
+    }
+
+    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                      (float)pw, (float)ph,
+                      (float)imgA.width, (float)imgA.height,
+                      vp.pan_x, vp.pan_y, vp.zoom,
+                      IM_COL32(150, 255, 150, 200));
+
+    if (state.roi.has_roi || state.roi.dragging) {
+        render_roi_overlay(state, 0, widget_pos, pw, ph,
+                           imgA.width, imgA.height);
+    }
+
+    render_pathfinder(state, 0, widget_pos, pw, ph);
 }

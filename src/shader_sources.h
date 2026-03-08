@@ -185,4 +185,66 @@ void main() {
 }
 )GLSL";
 
+// ─── Overlay/Blend fragment shader ───────────────────────────────────────────
+// u_blend_mode: 0=Alpha blend, 1=Curtain (left=A, right=B)
+// u_alpha: blend factor 0=A only, 1=B only
+// u_curtain_x: curtain position in screen UV [0,1]
+constexpr const char* BLEND_FRAG_SRC = R"GLSL(
+#version 150
+
+uniform sampler2D u_texA;
+uniform sampler2D u_texB;
+uniform vec2  u_image_size;
+uniform vec2  u_view_size;
+uniform float u_zoom;
+uniform vec2  u_pan;
+uniform int   u_channel;
+uniform int   u_blend_mode;   // 0=blend, 1=curtain
+uniform float u_alpha;        // blend factor
+uniform float u_curtain_x;   // curtain position [0,1] in screen UV
+
+in  vec2 v_uv;
+out vec4 out_color;
+
+void main() {
+    vec2 screen_px = v_uv * u_view_size;
+    vec2 img_px    = (screen_px - u_view_size * 0.5) / u_zoom
+                     - u_pan + u_image_size * 0.5;
+    vec2 uv = img_px / u_image_size;
+
+    vec4 bg = vec4(0.15, 0.15, 0.15, 1.0);
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        out_color = bg;
+        return;
+    }
+
+    vec4 colA = texture(u_texA, uv);
+    vec4 colB = texture(u_texB, uv);
+
+    vec4 result;
+    if (u_blend_mode == 1) {
+        // Curtain: left=A, right=B
+        result = (v_uv.x < u_curtain_x) ? colA : colB;
+    } else {
+        // Alpha blend
+        result = mix(colA, colB, u_alpha);
+    }
+
+    if (u_channel == 1) result = vec4(vec3(result.r), result.a);
+    else if (u_channel == 2) result = vec4(vec3(result.g), result.a);
+    else if (u_channel == 3) result = vec4(vec3(result.b), result.a);
+
+    // Pixel grid at high zoom (>= 16x)
+    if (u_zoom >= 16.0) {
+        vec2 frac_px = fract(img_px);
+        vec2 grid_dist = min(frac_px, 1.0 - frac_px);
+        float line_w = 1.0 / u_zoom;
+        float grid = smoothstep(line_w, 0.0, min(grid_dist.x, grid_dist.y));
+        result.rgb = mix(result.rgb, vec3(0.5), grid * 0.4);
+    }
+
+    out_color = result;
+}
+)GLSL";
+
 } // namespace shaders

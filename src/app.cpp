@@ -154,14 +154,18 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 
     // ── Close popups ──────────────────────────────────────────────────────────
     case SDL_SCANCODE_ESCAPE:
-        if (state.show_hotkey_help) { state.show_hotkey_help = false; break; }
-        if (state.show_histogram)   { state.show_histogram   = false; break; }
-        if (state.show_hline_cut)   { state.show_hline_cut   = false; break; }
-        if (state.show_vline_cut)   { state.show_vline_cut   = false; break; }
-        if (state.show_stats)       { state.show_stats       = false; break; }
-        if (state.show_info)        { state.show_info        = false; break; }
-        if (state.show_pixel_info)  { state.show_pixel_info  = false; break; }
-        if (state.show_save_dialog) { state.show_save_dialog = false; break; }
+        if (state.show_hotkey_help)  { state.show_hotkey_help  = false; break; }
+        if (state.show_histogram)    { state.show_histogram    = false; break; }
+        if (state.show_hline_cut)    { state.show_hline_cut    = false; break; }
+        if (state.show_vline_cut)    { state.show_vline_cut    = false; break; }
+        if (state.show_stats)        { state.show_stats        = false; break; }
+        if (state.show_roi_stats)    { state.show_roi_stats    = false; break; }
+        if (state.show_scatter_plot) { state.show_scatter_plot = false; break; }
+        if (state.show_info)         { state.show_info         = false; break; }
+        if (state.show_pixel_info)   { state.show_pixel_info   = false; break; }
+        if (state.show_save_dialog)  { state.show_save_dialog  = false; break; }
+        if (state.roi.active)        { state.roi.active        = false; break; }
+        if (state.overlay.active)    { state.overlay.active    = false; break; }
         break;
 
     // ── Zoom ──────────────────────────────────────────────────────────────────
@@ -278,10 +282,14 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         state.diff.amplify = 1.0f;
         break;
 
-    // ── Open Image (native dialog) ───────────────────────────────────────────
+    // ── Open Image (native dialog) / Overlay 모드 ────────────────────────────
     case SDL_SCANCODE_O:
-        if (shift && (ctrl || gui))
+        if (shift && (ctrl || gui)) {
             open_open_file_dialog(state, state.active_panel);
+        } else if (!ctrl && !shift && !gui) {
+            // O 단독: Overlay/Blend 모드 토글
+            state.overlay.active = !state.overlay.active;
+        }
         break;
 
     // ── Viewport sync / Statistics / Save ────────────────────────────────────
@@ -358,6 +366,50 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
                 state.show_histogram  = false;
                 state.show_hline_cut  = false;
                 state.show_stats      = false;
+            }
+        }
+        break;
+
+    // ── ROI 모드 (Ctrl+E) ─────────────────────────────────────────────────────
+    case SDL_SCANCODE_E:
+        if (ctrl) {
+            state.roi.active = !state.roi.active;
+            if (!state.roi.active) {
+                // ROI 모드 해제 시 ROI 초기화
+                state.roi.has_roi  = false;
+                state.roi.dragging = false;
+            }
+        }
+        break;
+
+    // ── Scatter Plot (Ctrl+T) ─────────────────────────────────────────────────
+    case SDL_SCANCODE_T:
+        if (ctrl) {
+            state.show_scatter_plot = !state.show_scatter_plot;
+        }
+        break;
+
+    // ── 시퀀스 탐색 (N = 다음, Shift+N = 이전) ────────────────────────────────
+    // 실제 로드는 main_window.cpp에서 처리 (여기서는 플래그만 설정)
+    case SDL_SCANCODE_N:
+        // seq_nav_dir: +1 = next, -1 = prev — AppState에 임시 필드 추가 필요
+        // 간단히: sequences[active_panel].current_index를 변경하고
+        //         main_window.cpp에서 감지하여 로드
+        {
+            int ap = state.active_panel;
+            auto& seq = state.sequences[ap];
+            if (!seq.files.empty() && seq.current_index >= 0) {
+                int n_files = (int)seq.files.size();
+                if (shift) {
+                    seq.current_index = (seq.current_index - 1 + n_files) % n_files;
+                } else {
+                    seq.current_index = (seq.current_index + 1) % n_files;
+                }
+                // 새 파일 로드 요청: open_state 재사용
+                state.open_state.opened_path  = seq.files[seq.current_index];
+                state.open_state.open_target  = ap;
+                state.open_state.open_pending = true;
+                state.open_state.clear_other  = false;
             }
         }
         break;

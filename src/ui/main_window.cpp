@@ -657,6 +657,27 @@ void MainWindow::render_menubar(AppState& state) {
             if (state.show_stats) { state.show_histogram = false; state.show_hline_cut = false; state.show_vline_cut = false; }
         }
         ImGui::Separator();
+        if (ImGui::MenuItem("ROI Stats", "Ctrl+E", state.show_roi_stats)) {
+            state.roi.active = !state.roi.active;
+            state.show_roi_stats = state.roi.active;
+            if (!state.roi.active) { state.roi.has_roi = false; }
+        }
+        if (ImGui::MenuItem("Scatter Plot", "Ctrl+T", state.show_scatter_plot)) {
+            state.show_scatter_plot = !state.show_scatter_plot;
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Overlay/Blend", "O", state.overlay.active)) {
+            state.overlay.active = !state.overlay.active;
+        }
+        if (state.overlay.active) {
+            ImGui::PushItemWidth(150.0f);
+            ImGui::SliderFloat("##blend_alpha", &state.overlay.alpha, 0.0f, 1.0f, "Blend: %.2f");
+            ImGui::PopItemWidth();
+            bool is_curtain = (state.overlay.mode == OverlayState::Mode::Curtain);
+            if (ImGui::MenuItem("  Blend mode",   nullptr, !is_curtain)) state.overlay.mode = OverlayState::Mode::Blend;
+            if (ImGui::MenuItem("  Curtain mode", nullptr,  is_curtain)) state.overlay.mode = OverlayState::Mode::Curtain;
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem("Hotkey Reference", "Ctrl+Shift+H", state.show_hotkey_help)) {
             state.show_hotkey_help = !state.show_hotkey_help;
         }
@@ -755,6 +776,14 @@ static void render_hotkey_help_window(AppState& state) {
         { "Analysis", "Ctrl+L",                    "Toggle H-Line Cut" },
         { "Analysis", "Ctrl+Y",                    "Toggle V-Line Cut" },
         { "Analysis", "Ctrl+S",                    "Toggle statistics window" },
+        { "Analysis", "Ctrl+E",                    "Toggle ROI selection mode (left-drag to select)" },
+        { "Analysis", "Ctrl+T",                    "Toggle Scatter Plot (A vs B pixel values)" },
+        // Overlay
+        { "Overlay", "O",                          "Toggle Overlay/Blend comparison mode" },
+        { "Overlay", "Curtain mode",               "Left-drag to move divider; mode in menu" },
+        // Sequence
+        { "Sequence", "N",                         "Next image in directory sequence" },
+        { "Sequence", "Shift+N",                   "Previous image in directory sequence" },
         // Diff
         { "Diff", "Ctrl+D",                        "Disable diff mode" },
         { "Diff", "Ctrl+3",                        "Diff: Pixel Absolute" },
@@ -838,6 +867,12 @@ void MainWindow::render(AppState& state) {
             state.views[target].fit   = true;
             state.views[target].pan_x = 0.0f;
             state.views[target].pan_y = 0.0f;
+
+            // 시퀀스 스캔: 새 이미지 로드 시 디렉토리 탐색
+            int cur_idx = -1;
+            state.sequences[target].files = scan_image_directory(
+                state.images[target].path, cur_idx);
+            state.sequences[target].current_index = cur_idx;
         }
         state.open_state.opened_path.clear();
         state.open_state.open_pending = false;
@@ -907,8 +942,9 @@ void MainWindow::render(AppState& state) {
     }
 
     // ── Layout: determine panel sizes ─────────────────────────────────────────
-    bool two_images = state.images[0].loaded && state.images[1].loaded;
-    bool diff_mode  = (state.diff.mode != DiffState::Mode::None);
+    bool two_images   = state.images[0].loaded && state.images[1].loaded;
+    bool diff_mode    = (state.diff.mode != DiffState::Mode::None);
+    bool overlay_mode = state.overlay.active && two_images;
 
     // Reserve statusbar height when UI is visible
     static constexpr float STATUSBAR_H = 24.0f;
@@ -927,7 +963,15 @@ void MainWindow::render(AppState& state) {
     PanelBorderRect panel_rects[3];
     int panel_rect_count = 0;
 
-    if (two_images && diff_mode) {
+    if (overlay_mode) {
+        // ── 1-panel: Overlay/Blend ───────────────────────────────────────────
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::BeginChild("##PanelOverlay", ImVec2(0.0f, panel_h), false, child_flags);
+        { ImVec2 p = ImGui::GetWindowPos(); panel_rects[panel_rect_count++] = {p, ImVec2(p.x + content.x, p.y + panel_h), IM_COL32(150, 255, 150, 200)}; }
+        s_panel_left.render(state, 0, diff_renderer_);
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+    } else if (two_images && diff_mode) {
         // ── 3-panel: A | B | Diff ────────────────────────────────────────────
         float third_w = std::floor(content.x / 3.0f);
 
@@ -1047,6 +1091,8 @@ void MainWindow::render(AppState& state) {
     render_hline_cut_window(state);
     render_vline_cut_window(state);
     render_stats_window(state);
+    render_roi_stats_window(state);
+    render_scatter_plot_window(state);
     render_hotkey_help_window(state);
 
     // ── Open Images window ────────────────────────────────────────────────────

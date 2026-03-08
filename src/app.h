@@ -97,6 +97,39 @@ struct OpenDialogState {
     bool  clear_other  = false;   // remove other slot when loading single image
 };
 
+// ─── ROI (Region of Interest) state ──────────────────────────────────────────
+
+struct RoiState {
+    bool active  = false;   // Ctrl+E: ROI 선택 모드 ON/OFF
+    bool has_roi = false;   // 유효한 ROI가 선택됨
+    int  x = 0, y = 0;     // 이미지 픽셀 좌표 (top-left)
+    int  w = 0, h = 0;     // ROI 크기 (픽셀)
+    int  panel_idx = 0;    // ROI가 그려진 패널 인덱스
+
+    // 드래그 중 임시 상태
+    bool  dragging  = false;
+    float drag_sx   = 0.0f; // 드래그 시작 화면 좌표
+    float drag_sy   = 0.0f;
+    int   drag_panel = 0;
+};
+
+// ─── Image Sequence Navigation state ─────────────────────────────────────────
+
+struct SequenceState {
+    std::vector<std::string> files;    // 디렉토리 내 이미지 파일 목록 (정렬됨)
+    int                      current_index = -1;  // 현재 파일 인덱스 (-1=시퀀스 없음)
+};
+
+// ─── Overlay / Blend comparison state ────────────────────────────────────────
+
+struct OverlayState {
+    bool  active    = false;   // O 키: Overlay 모드 ON/OFF
+    float alpha     = 0.5f;   // 0=A만, 1=B만
+    enum class Mode { Blend, Curtain } mode = Mode::Blend;
+    float curtain_x = 0.5f;   // Curtain 모드: 구분선 위치 [0,1] (화면 비율)
+    bool  curtain_dragging = false;
+};
+
 
 struct CliOptions {
     std::string     image_a;
@@ -149,6 +182,13 @@ struct AppState {
     StatsSaveDialog  stats_save;
     OpenDialogState  open_state;
     SDL_Window* window = nullptr;     // main SDL window (for file dialogs)
+
+    // ─── New feature state ────────────────────────────────────────────────────
+    RoiState     roi;                   // ROI 선택 상태
+    bool         show_roi_stats = false; // ROI 통계 창 표시
+    SequenceState sequences[2];         // [0]=A, [1]=B 시퀀스 탐색
+    OverlayState overlay;               // Overlay/Blend 비교 모드
+    bool         show_scatter_plot = false; // Scatter Plot 창 표시
 };
 
 // ─── Function declarations ────────────────────────────────────────────────────

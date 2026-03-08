@@ -251,3 +251,94 @@ void ImageCache::evict_lru() {
     free_image(it->image);
     entries_.erase(it);
 }
+
+// ─── Directory image sequence scanning ────────────────────────────────────────
+
+#include <filesystem>
+#include <cctype>
+#include <string>
+#include <vector>
+
+// Natural sort 비교: 숫자 부분을 수치로 비교
+static int natural_compare(const std::string& a, const std::string& b) {
+    size_t i = 0, j = 0;
+    while (i < a.size() && j < b.size()) {
+        if (std::isdigit((unsigned char)a[i]) && std::isdigit((unsigned char)b[j])) {
+            // 숫자 부분 파싱
+            size_t ni = i, nj = j;
+            while (ni < a.size() && std::isdigit((unsigned char)a[ni])) ++ni;
+            while (nj < b.size() && std::isdigit((unsigned char)b[nj])) ++nj;
+            // 앞 0 제거
+            size_t si = i, sj = j;
+            while (si < ni - 1 && a[si] == '0') ++si;
+            while (sj < nj - 1 && b[sj] == '0') ++sj;
+            size_t la2 = ni - si, lb2 = nj - sj;
+            if (la2 != lb2) return (la2 < lb2) ? -1 : 1;
+            int cmp = a.substr(si, la2).compare(b.substr(sj, lb2));
+            if (cmp != 0) return cmp;
+            i = ni; j = nj;
+        } else {
+            char ca = std::tolower((unsigned char)a[i]);
+            char cb = std::tolower((unsigned char)b[j]);
+            if (ca != cb) return (ca < cb) ? -1 : 1;
+            ++i; ++j;
+        }
+    }
+    if (i < a.size()) return 1;
+    if (j < b.size()) return -1;
+    return 0;
+}
+
+static bool is_image_ext(const std::string& ext) {
+    for (int k = 0; SUPPORTED_IMG_EXTS[k]; ++k) {
+        if (ext == SUPPORTED_IMG_EXTS[k]) return true;
+    }
+    return false;
+}
+
+std::vector<std::string> scan_image_directory(const std::string& current_path,
+                                               int& current_out)
+{
+    current_out = -1;
+    if (current_path.empty()) return {};
+
+    namespace fs = std::filesystem;
+    fs::path p(current_path);
+    fs::path dir = p.parent_path();
+    if (dir.empty()) dir = ".";
+
+    std::vector<std::string> result;
+    std::string canonical_cur;
+    try {
+        canonical_cur = fs::canonical(p).string();
+    } catch (...) {
+        canonical_cur = current_path;
+    }
+
+    try {
+        for (const auto& entry : fs::directory_iterator(dir)) {
+            if (!entry.is_regular_file()) continue;
+            std::string ext = entry.path().extension().string();
+            // 소문자로 변환
+            for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+            if (!is_image_ext(ext)) continue;
+            result.push_back(entry.path().string());
+        }
+    } catch (...) {
+        return {};
+    }
+
+    // Natural sort
+    std::sort(result.begin(), result.end(), [](const std::string& a, const std::string& b) {
+        return natural_compare(a, b) < 0;
+    });
+
+    // 현재 파일 인덱스 찾기
+    for (int i = 0; i < (int)result.size(); ++i) {
+        std::string can;
+        try { can = fs::canonical(result[i]).string(); } catch (...) { can = result[i]; }
+        if (can == canonical_cur) { current_out = i; break; }
+    }
+
+    return result;
+}

@@ -98,3 +98,27 @@ bool export_linecut_csv(const LineCutData& data, const std::string& path);
 // extra: optional diff metrics (may be nullptr for single-image stats)
 bool export_stats_csv(const ImageStats& stats, const std::string& path,
                       const DiffExtraStats* extra = nullptr);
+
+// ─── ROI statistics ───────────────────────────────────────────────────────────
+
+// ROI 영역 통계 계산 (rx,ry: top-left, rw,rh: 크기, 이미지 픽셀 좌표)
+ImageStats compute_roi_stats(const ImageEntry& img, int rx, int ry, int rw, int rh);
+ImageStats compute_roi_diff_stats(const ImageEntry& a, const ImageEntry& b,
+                                   int rx, int ry, int rw, int rh,
+                                   DiffExtraStats& extra);
+
+// ─── Scatter Plot data ────────────────────────────────────────────────────────
+
+struct ScatterPlotData {
+    // 샘플링된 픽셀 쌍: (A_value, B_value) each channel normalized [0,1]
+    std::vector<float> r_a, r_b;  // R channel
+    std::vector<float> g_a, g_b;  // G channel
+    std::vector<float> b_a, b_b;  // B channel
+    int total_pixels = 0;
+    int sampled      = 0;
+    bool valid       = false;
+};
+
+// max_samples: 성능을 위해 픽셀을 랜덤 샘플링 (0 = 모두)
+ScatterPlotData extract_scatter_plot(const ImageEntry& a, const ImageEntry& b,
+                                     int max_samples = 20000);

@@ -98,9 +98,52 @@ cmake --build build  → 오류 없음 (경고만)
 - SDL3에서 `SDL_MapRGBA` 인자: `SDL_PixelFormat` enum → `SDL_GetPixelFormatDetails()`로 `const SDL_PixelFormatDetails*` 획득 필요
 - `ImTextureID`(uint64_t)와 `uintptr_t`(uint32_t on x86?) 캐스트 — `static_cast<ImTextureID>` 사용
 
-## 다음 작업 (Phase 5+)
-- [ ] 파일 열기 다이얼로그 (SDL_ShowOpenFileDialog)
-- [ ] Overlay (Swipe) 비교 모드
-- [ ] 히스토그램 패널
-- [ ] 설정 파일 저장/로딩
-- [ ] 단위 테스트
+## [완료] Phase 5: 추가 분석 기능 구현 (2026-03-05)
+
+### 구현 내용
+
+#### 1. ROI (Region of Interest) 선택 + 영역 통계
+- [x] `src/app.h`: `RoiState` 구조체 추가 (active, has_roi, x/y/w/h, dragging 등)
+- [x] `src/chart_export.h/cpp`: `compute_roi_stats()`, `compute_roi_diff_stats()` 구현
+- [x] `src/ui/image_panel.cpp`: ROI 드래그 선택 (`handle_roi_drag`), ROI 오버레이 표시 (`render_roi_overlay`)
+- [x] `src/ui/chart_windows.h/cpp`: `render_roi_stats_window()` 구현 (A/B/Diff 통계 테이블)
+- [x] `src/app.cpp`: `Ctrl+E` → ROI 모드 토글, ESC → ROI 모드 해제
+- [x] `src/ui/main_window.cpp`: View 메뉴에 ROI Stats 항목, 창 렌더링 호출
+- [x] `src/ui/statusbar.cpp`: ROI 모드 표시, ROI 좌표/크기 표시
+
+#### 2. 이미지 시퀀스 탐색 (N/Shift+N)
+- [x] `src/app.h`: `SequenceState` 구조체 추가 (files 벡터, current_index)
+- [x] `src/app.h`: `AppState`에 `sequences[2]` 추가
+- [x] `src/image_loader.h/cpp`: `scan_image_directory()` 구현 (natural sort)
+- [x] `src/ui/main_window.cpp`: 이미지 로드 시 자동 시퀀스 스캔
+- [x] `src/app.cpp`: `N` → 다음 프레임, `Shift+N` → 이전 프레임
+- [x] `src/ui/statusbar.cpp`: `A [3/24]` 형식으로 현재/전체 프레임 수 표시
+
+#### 3. Overlay/Blend 비교 모드 (O 키)
+- [x] `src/app.h`: `OverlayState` 구조체 추가 (active, alpha, mode: Blend/Curtain)
+- [x] `src/shader_sources.h`: `BLEND_FRAG_SRC` 셰이더 추가 (blend + curtain)
+- [x] `src/ui/image_panel.h/cpp`: `render_overlay()` 구현 (blend_shader_)
+- [x] `src/app.cpp`: `O` → Overlay 모드 토글
+- [x] `src/ui/main_window.cpp`: Overlay 활성 시 1-panel 레이아웃 (blend 패널)
+- [x] `src/ui/main_window.cpp`: View 메뉴에 Overlay 설정 (슬라이더, Blend/Curtain 선택)
+- [x] `src/ui/statusbar.cpp`: Overlay 모드 표시 (모드 + alpha%)
+
+#### 4. Scatter Plot (Ctrl+T)
+- [x] `src/chart_export.h/cpp`: `ScatterPlotData` 구조체 + `extract_scatter_plot()` 구현
+- [x] `src/ui/chart_windows.h/cpp`: `render_scatter_plot_window()` 구현
+- [x] `src/app.h`: `AppState`에 `show_scatter_plot` 추가
+- [x] `src/app.cpp`: `Ctrl+T` → Scatter Plot 토글
+- [x] `src/ui/main_window.cpp`: View 메뉴에 Scatter Plot 항목, 창 렌더링 호출
+
+### 단축키 정리
+| 기능 | 단축키 |
+|------|--------|
+| ROI 모드 토글 | Ctrl+E |
+| Overlay 토글 | O |
+| Scatter Plot 토글 | Ctrl+T |
+| 다음 시퀀스 프레임 | N |
+| 이전 시퀀스 프레임 | Shift+N |
+
+### 빌드 결과
+- cmake --build → 오류 없음 (링커 경고만)
+- `./bin/av --version` → av 0.1.0 정상 출력

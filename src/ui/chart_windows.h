@@ -6,3 +6,5 @@ void render_histogram_window(AppState& state);
 void render_hline_cut_window(AppState& state);
 void render_vline_cut_window(AppState& state);
 void render_stats_window(AppState& state);
+void render_roi_stats_window(AppState& state);
+void render_scatter_plot_window(AppState& state);

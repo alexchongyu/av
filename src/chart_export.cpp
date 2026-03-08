@@ -178,13 +178,13 @@ ImageStats compute_diff_stats(const ImageEntry& imgA, const ImageEntry& imgB,
         std::vector<float> diff_buf(npix * 4, 0.0f);
         for (int i = 0; i < npix; ++i)
             for (int c = 0; c < 3; ++c)
-                diff_buf[i*4+c] = std::fabsf(imgA.pixels_f32[i*4+c] - imgB.pixels_f32[i*4+c]);
+                diff_buf[i*4+c] = std::fabs(imgA.pixels_f32[i*4+c] - imgB.pixels_f32[i*4+c]);
         for (int c = 0; c < 3; ++c) {
             st.ch[c] = compute_channel_stats_f32(diff_buf.data(), npix, c);
             // MSE, PSNR, MAE, MaxError for diff stats
             double mse = 0.0, mae = 0.0, maxe = 0.0;
             for (int i = 0; i < npix; ++i) {
-                double d = std::fabsf(imgA.pixels_f32[i*4+c] - imgB.pixels_f32[i*4+c]);
+                double d = std::fabs(imgA.pixels_f32[i*4+c] - imgB.pixels_f32[i*4+c]);
                 mse += d * d; mae += d;
                 if (d > maxe) maxe = d;
             }
@@ -274,17 +274,17 @@ HistogramData extract_diff_histogram(const ImageEntry& imgA, const ImageEntry& i
     if (use_hdr) {
         float max_v = 1e-6f;
         for (int p = 0; p < npix; ++p) {
-            float dr = std::fabsf(imgA.pixels_f32[p*4+0] - imgB.pixels_f32[p*4+0]);
-            float dg = std::fabsf(imgA.pixels_f32[p*4+1] - imgB.pixels_f32[p*4+1]);
-            float db = std::fabsf(imgA.pixels_f32[p*4+2] - imgB.pixels_f32[p*4+2]);
+            float dr = std::fabs(imgA.pixels_f32[p*4+0] - imgB.pixels_f32[p*4+0]);
+            float dg = std::fabs(imgA.pixels_f32[p*4+1] - imgB.pixels_f32[p*4+1]);
+            float db = std::fabs(imgA.pixels_f32[p*4+2] - imgB.pixels_f32[p*4+2]);
             if (dr > max_v) max_v = dr;
             if (dg > max_v) max_v = dg;
             if (db > max_v) max_v = db;
         }
         for (int p = 0; p < npix; ++p) {
-            d.r[std::clamp((int)(std::fabsf(imgA.pixels_f32[p*4+0] - imgB.pixels_f32[p*4+0]) / max_v * 255.0f), 0, 255)]++;
-            d.g[std::clamp((int)(std::fabsf(imgA.pixels_f32[p*4+1] - imgB.pixels_f32[p*4+1]) / max_v * 255.0f), 0, 255)]++;
-            d.b[std::clamp((int)(std::fabsf(imgA.pixels_f32[p*4+2] - imgB.pixels_f32[p*4+2]) / max_v * 255.0f), 0, 255)]++;
+            d.r[std::clamp((int)(std::fabs(imgA.pixels_f32[p*4+0] - imgB.pixels_f32[p*4+0]) / max_v * 255.0f), 0, 255)]++;
+            d.g[std::clamp((int)(std::fabs(imgA.pixels_f32[p*4+1] - imgB.pixels_f32[p*4+1]) / max_v * 255.0f), 0, 255)]++;
+            d.b[std::clamp((int)(std::fabs(imgA.pixels_f32[p*4+2] - imgB.pixels_f32[p*4+2]) / max_v * 255.0f), 0, 255)]++;
         }
     } else if (use_u8) {
         for (int p = 0; p < npix; ++p) {
@@ -417,9 +417,9 @@ LineCutData extract_diff_hline_cut(const ImageEntry& imgA, const ImageEntry& img
         for (int x = 0; x < n; ++x) {
             int ia = (row * imgA.width + x) * 4;
             int ib = (row * imgB.width + x) * 4;
-            d.r[x] = std::fabsf(imgA.pixels_f32[ia+0] - imgB.pixels_f32[ib+0]);
-            d.g[x] = std::fabsf(imgA.pixels_f32[ia+1] - imgB.pixels_f32[ib+1]);
-            d.b[x] = std::fabsf(imgA.pixels_f32[ia+2] - imgB.pixels_f32[ib+2]);
+            d.r[x] = std::fabs(imgA.pixels_f32[ia+0] - imgB.pixels_f32[ib+0]);
+            d.g[x] = std::fabs(imgA.pixels_f32[ia+1] - imgB.pixels_f32[ib+1]);
+            d.b[x] = std::fabs(imgA.pixels_f32[ia+2] - imgB.pixels_f32[ib+2]);
             if (d.r[x] > max_v) max_v = d.r[x];
             if (d.g[x] > max_v) max_v = d.g[x];
             if (d.b[x] > max_v) max_v = d.b[x];
@@ -467,9 +467,9 @@ LineCutData extract_diff_vline_cut(const ImageEntry& imgA, const ImageEntry& img
         for (int y = 0; y < n; ++y) {
             int ia = (y * imgA.width + col) * 4;
             int ib = (y * imgB.width + col) * 4;
-            d.r[y] = std::fabsf(imgA.pixels_f32[ia+0] - imgB.pixels_f32[ib+0]);
-            d.g[y] = std::fabsf(imgA.pixels_f32[ia+1] - imgB.pixels_f32[ib+1]);
-            d.b[y] = std::fabsf(imgA.pixels_f32[ia+2] - imgB.pixels_f32[ib+2]);
+            d.r[y] = std::fabs(imgA.pixels_f32[ia+0] - imgB.pixels_f32[ib+0]);
+            d.g[y] = std::fabs(imgA.pixels_f32[ia+1] - imgB.pixels_f32[ib+1]);
+            d.b[y] = std::fabs(imgA.pixels_f32[ia+2] - imgB.pixels_f32[ib+2]);
             if (d.r[y] > max_v) max_v = d.r[y];
             if (d.g[y] > max_v) max_v = d.g[y];
             if (d.b[y] > max_v) max_v = d.b[y];
@@ -847,4 +847,157 @@ bool export_stats_csv(const ImageStats& stats, const std::string& path,
     }
 
     return f.good();
+}
+
+// ─── ROI statistics ────────────────────────────────────────────────────────────
+
+ImageStats compute_roi_stats(const ImageEntry& img, int rx, int ry, int rw, int rh)
+{
+    ImageStats st;
+    if (!img.loaded) return st;
+
+    rx = std::max(0, rx); ry = std::max(0, ry);
+    int rx2 = std::min(rx + rw, img.width);
+    int ry2 = std::min(ry + rh, img.height);
+    rw = rx2 - rx; rh = ry2 - ry;
+    if (rw <= 0 || rh <= 0) return st;
+
+    int npix = rw * rh;
+
+    if (img.is_hdr && !img.pixels_f32.empty()) {
+        std::vector<float> buf(npix * 4, 0.0f);
+        for (int y = 0; y < rh; ++y) {
+            const float* src = img.pixels_f32.data() + ((ry + y) * img.width + rx) * 4;
+            float* dst = buf.data() + y * rw * 4;
+            std::copy(src, src + rw * 4, dst);
+        }
+        for (int c = 0; c < 3; ++c)
+            st.ch[c] = compute_channel_stats_f32(buf.data(), npix, c);
+    } else if (!img.pixels.empty()) {
+        std::vector<uint8_t> buf(npix * 4, 0);
+        for (int y = 0; y < rh; ++y) {
+            const uint8_t* src = img.pixels.data() + ((ry + y) * img.width + rx) * 4;
+            uint8_t* dst = buf.data() + y * rw * 4;
+            std::copy(src, src + rw * 4, dst);
+        }
+        for (int c = 0; c < 3; ++c)
+            st.ch[c] = compute_channel_stats_u8(buf.data(), npix, c);
+    } else return st;
+
+    st.valid = true;
+    return st;
+}
+
+ImageStats compute_roi_diff_stats(const ImageEntry& a, const ImageEntry& b,
+                                   int rx, int ry, int rw, int rh,
+                                   DiffExtraStats& extra)
+{
+    ImageStats st;
+    if (!a.loaded || !b.loaded) return st;
+
+    rx = std::max(0, rx); ry = std::max(0, ry);
+    int rx2 = std::min({rx + rw, a.width, b.width});
+    int ry2 = std::min({ry + rh, a.height, b.height});
+    rw = rx2 - rx; rh = ry2 - ry;
+    if (rw <= 0 || rh <= 0) return st;
+
+    int npix = rw * rh;
+    bool use_hdr = a.is_hdr && b.is_hdr && !a.pixels_f32.empty() && !b.pixels_f32.empty();
+    bool use_u8  = !a.pixels.empty() && !b.pixels.empty();
+
+    if (use_hdr) {
+        std::vector<float> diff_buf(npix * 4, 0.0f);
+        for (int y = 0; y < rh; ++y) {
+            for (int x = 0; x < rw; ++x) {
+                int ia = ((ry+y)*a.width + (rx+x)) * 4;
+                int ib = ((ry+y)*b.width + (rx+x)) * 4;
+                int id = (y*rw+x) * 4;
+                for (int c = 0; c < 3; ++c)
+                    diff_buf[id+c] = std::fabs(a.pixels_f32[ia+c] - b.pixels_f32[ib+c]);
+            }
+        }
+        for (int c = 0; c < 3; ++c) {
+            st.ch[c] = compute_channel_stats_f32(diff_buf.data(), npix, c);
+            double mse=0, mae=0, maxe=0;
+            for (int i = 0; i < npix; ++i) {
+                double d = diff_buf[i*4+c];
+                mse+=d*d; mae+=d; if(d>maxe) maxe=d;
+            }
+            extra.mse[c]=mse/npix; extra.mae[c]=mae/npix; extra.max_error[c]=maxe;
+            extra.psnr[c] = (extra.mse[c]>1e-15)
+                ? 20.0*std::log10(1.0)-10.0*std::log10(extra.mse[c])
+                : std::numeric_limits<double>::infinity();
+        }
+    } else if (use_u8) {
+        std::vector<uint8_t> diff_buf(npix * 4, 0);
+        for (int y = 0; y < rh; ++y) {
+            for (int x = 0; x < rw; ++x) {
+                int ia = ((ry+y)*a.width + (rx+x)) * 4;
+                int ib = ((ry+y)*b.width + (rx+x)) * 4;
+                int id = (y*rw+x) * 4;
+                for (int c = 0; c < 3; ++c)
+                    diff_buf[id+c] = static_cast<uint8_t>(
+                        std::abs((int)a.pixels[ia+c] - (int)b.pixels[ib+c]));
+            }
+        }
+        for (int c = 0; c < 3; ++c) {
+            st.ch[c] = compute_channel_stats_u8(diff_buf.data(), npix, c);
+            double mse=0, mae=0, maxe=0;
+            for (int i = 0; i < npix; ++i) {
+                double d = diff_buf[i*4+c];
+                mse+=d*d; mae+=d; if(d>maxe) maxe=d;
+            }
+            extra.mse[c]=mse/npix; extra.mae[c]=mae/npix; extra.max_error[c]=maxe;
+            extra.psnr[c] = (extra.mse[c]>1e-6)
+                ? 20.0*std::log10(255.0)-10.0*std::log10(extra.mse[c])
+                : std::numeric_limits<double>::infinity();
+        }
+    } else return st;
+
+    st.valid = true;
+    return st;
+}
+
+// ─── Scatter Plot extraction ───────────────────────────────────────────────────
+
+ScatterPlotData extract_scatter_plot(const ImageEntry& a, const ImageEntry& b,
+                                     int max_samples)
+{
+    ScatterPlotData sp;
+    if (!a.loaded || !b.loaded) return sp;
+
+    int npix = std::min(a.width * a.height, b.width * b.height);
+    if (npix <= 0) return sp;
+
+    sp.total_pixels = npix;
+    int step = 1;
+    if (max_samples > 0 && npix > max_samples)
+        step = (npix + max_samples - 1) / max_samples;
+
+    int n = (npix + step - 1) / step;
+    sp.r_a.reserve(n); sp.r_b.reserve(n);
+    sp.g_a.reserve(n); sp.g_b.reserve(n);
+    sp.b_a.reserve(n); sp.b_b.reserve(n);
+
+    bool use_hdr = a.is_hdr && b.is_hdr && !a.pixels_f32.empty() && !b.pixels_f32.empty();
+    bool use_u8  = !a.pixels.empty() && !b.pixels.empty();
+
+    if (use_hdr) {
+        for (int i = 0; i < npix; i += step) {
+            sp.r_a.push_back(a.pixels_f32[i*4+0]); sp.r_b.push_back(b.pixels_f32[i*4+0]);
+            sp.g_a.push_back(a.pixels_f32[i*4+1]); sp.g_b.push_back(b.pixels_f32[i*4+1]);
+            sp.b_a.push_back(a.pixels_f32[i*4+2]); sp.b_b.push_back(b.pixels_f32[i*4+2]);
+        }
+    } else if (use_u8) {
+        constexpr float inv255 = 1.0f / 255.0f;
+        for (int i = 0; i < npix; i += step) {
+            sp.r_a.push_back(a.pixels[i*4+0]*inv255); sp.r_b.push_back(b.pixels[i*4+0]*inv255);
+            sp.g_a.push_back(a.pixels[i*4+1]*inv255); sp.g_b.push_back(b.pixels[i*4+1]*inv255);
+            sp.b_a.push_back(a.pixels[i*4+2]*inv255); sp.b_b.push_back(b.pixels[i*4+2]*inv255);
+        }
+    } else return sp;
+
+    sp.sampled = static_cast<int>(sp.r_a.size());
+    sp.valid   = true;
+    return sp;
 }

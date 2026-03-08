@@ -199,32 +199,57 @@ endif()
 
 # ── Linux AppImage ────────────────────────────────────────────────────────────
 if(UNIX AND NOT APPLE)
-    set(APPIMAGE_DIR "${CMAKE_BINARY_DIR}/AppImage")
-    set(LINUXDEPLOY  "${APPIMAGE_DIR}/linuxdeploy-x86_64.AppImage")
+    # 아키텍처 감지: uname -m 결과를 cmake 변수로
+    execute_process(
+        COMMAND uname -m
+        OUTPUT_VARIABLE HOST_ARCH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    # aarch64 → aarch64, x86_64 → x86_64 (linuxdeploy 바이너리 이름과 동일)
+    if(HOST_ARCH STREQUAL "aarch64" OR HOST_ARCH STREQUAL "arm64")
+        set(LD_ARCH "aarch64")
+    else()
+        set(LD_ARCH "x86_64")
+    endif()
 
-    # linuxdeploy 자동 다운로드
+    set(APPIMAGE_DIR   "${CMAKE_BINARY_DIR}/AppImage")
+    set(LINUXDEPLOY    "${APPIMAGE_DIR}/linuxdeploy-${LD_ARCH}.AppImage")
+    set(LD_DOWNLOAD_URL
+        "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${LD_ARCH}.AppImage")
+    set(APPIMAGE_OUT   "${CMAKE_SOURCE_DIR}/bin/av-${LD_ARCH}.AppImage")
+
+    # linuxdeploy 다운로드 (없을 때만)
     add_custom_command(
-        OUTPUT "${LINUXDEPLOY}"
+        OUTPUT  "${LINUXDEPLOY}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${APPIMAGE_DIR}"
-        COMMAND curl -fSL -o "${LINUXDEPLOY}"
-            "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+        COMMAND ${CMAKE_COMMAND} -E echo
+                "Downloading linuxdeploy for ${LD_ARCH} ..."
+        COMMAND curl -fSL --retry 3 --retry-delay 2
+                -o "${LINUXDEPLOY}" "${LD_DOWNLOAD_URL}"
         COMMAND chmod +x "${LINUXDEPLOY}"
-        COMMENT "Downloading linuxdeploy..."
+        COMMENT "Downloading linuxdeploy-${LD_ARCH}.AppImage"
+        VERBATIM
     )
 
     add_custom_target(appimage
         DEPENDS av "${LINUXDEPLOY}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/bin"
         COMMAND ${CMAKE_COMMAND} -E remove_directory "${APPIMAGE_DIR}/AppDir"
         COMMAND ${CMAKE_COMMAND} -E env
-            OUTPUT="${CMAKE_SOURCE_DIR}/bin/av-x86_64.AppImage"
-            "${LINUXDEPLOY}"
-                --appdir "${APPIMAGE_DIR}/AppDir"
-                --executable $<TARGET_FILE:av>
-                --desktop-file "${CMAKE_SOURCE_DIR}/packaging/av.desktop"
-                --icon-file "${CMAKE_SOURCE_DIR}/packaging/av.svg"
-                --output appimage
-        COMMENT "Building AppImage -> bin/av-x86_64.AppImage"
+                "OUTPUT=${APPIMAGE_OUT}"
+                "ARCH=${LD_ARCH}"
+                "${LINUXDEPLOY}"
+                    --appdir "${APPIMAGE_DIR}/AppDir"
+                    --executable $<TARGET_FILE:av>
+                    --desktop-file "${CMAKE_SOURCE_DIR}/packaging/av.desktop"
+                    --icon-file "${CMAKE_SOURCE_DIR}/packaging/av.svg"
+                    --output appimage
+        COMMENT "Building AppImage → ${APPIMAGE_OUT}"
+        VERBATIM
     )
+
+    message(STATUS "AppImage target configured (arch=${LD_ARCH})"
+            " — run: cmake --build . --target appimage")
 endif()
 
 message(STATUS "av build configured — C++20, OpenGL 3.3 Core")

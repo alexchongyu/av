@@ -54,3 +54,15 @@ private:
 
 // Global cache used by the application.
 extern ImageCache g_image_cache;
+
+// ─── Directory sequence scanning ─────────────────────────────────────────────
+
+// 지원 이미지 확장자 목록 (소문자)
+static const char* const SUPPORTED_IMG_EXTS[] = {
+    ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".pgm", ".ppm", ".hdr", nullptr
+};
+
+// 경로에서 디렉토리 내 이미지 파일 목록을 natural sort로 반환.
+// current_path와 동일 파일의 인덱스를 current_out에 설정.
+std::vector<std::string> scan_image_directory(const std::string& current_path,
+                                               int& current_out);

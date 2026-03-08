@@ -170,9 +170,9 @@ static std::vector<uint8_t> compute_diff_cpu(const ImageEntry& imgA,
             get_pixel_f32(imgA, x, y, ar, ag, ab);
             get_pixel_f32(imgB, x, y, br, bg, bb);
 
-            float dr = std::fabsf(ar - br);
-            float dg = std::fabsf(ag - bg);
-            float db = std::fabsf(ab - bb);
+            float dr = std::fabs(ar - br);
+            float dg = std::fabs(ag - bg);
+            float db = std::fabs(ab - bb);
 
             float or_, og, ob;
 

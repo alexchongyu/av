@@ -304,17 +304,17 @@ void render_histogram_window(AppState& state) {
         if (use_hdr) {
             float max_v = 1e-6f;
             for (int p = 0; p < npix; ++p) {
-                float dr = std::fabsf(imgA.pixels_f32[p*4+0] - imgB.pixels_f32[p*4+0]);
-                float dg = std::fabsf(imgA.pixels_f32[p*4+1] - imgB.pixels_f32[p*4+1]);
-                float db = std::fabsf(imgA.pixels_f32[p*4+2] - imgB.pixels_f32[p*4+2]);
+                float dr = std::fabs(imgA.pixels_f32[p*4+0] - imgB.pixels_f32[p*4+0]);
+                float dg = std::fabs(imgA.pixels_f32[p*4+1] - imgB.pixels_f32[p*4+1]);
+                float db = std::fabs(imgA.pixels_f32[p*4+2] - imgB.pixels_f32[p*4+2]);
                 if (dr > max_v) max_v = dr;
                 if (dg > max_v) max_v = dg;
                 if (db > max_v) max_v = db;
             }
             for (int p = 0; p < npix; ++p) {
-                int br = std::clamp((int)(std::fabsf(imgA.pixels_f32[p*4+0] - imgB.pixels_f32[p*4+0]) / max_v * 255.0f), 0, 255);
-                int bg = std::clamp((int)(std::fabsf(imgA.pixels_f32[p*4+1] - imgB.pixels_f32[p*4+1]) / max_v * 255.0f), 0, 255);
-                int bb = std::clamp((int)(std::fabsf(imgA.pixels_f32[p*4+2] - imgB.pixels_f32[p*4+2]) / max_v * 255.0f), 0, 255);
+                int br = std::clamp((int)(std::fabs(imgA.pixels_f32[p*4+0] - imgB.pixels_f32[p*4+0]) / max_v * 255.0f), 0, 255);
+                int bg = std::clamp((int)(std::fabs(imgA.pixels_f32[p*4+1] - imgB.pixels_f32[p*4+1]) / max_v * 255.0f), 0, 255);
+                int bb = std::clamp((int)(std::fabs(imgA.pixels_f32[p*4+2] - imgB.pixels_f32[p*4+2]) / max_v * 255.0f), 0, 255);
                 hist_r[br]++; hist_g[bg]++; hist_b[bb]++;
             }
         } else if (use_u8) {
@@ -557,9 +557,9 @@ void render_hline_cut_window(AppState& state) {
                 for (int x = 0; x < n; ++x) {
                     int ia = (row * imgA.width + x) * 4;
                     int ib = (row * imgB.width + x) * 4;
-                    rv[x] = std::fabsf(imgA.pixels_f32[ia+0] - imgB.pixels_f32[ib+0]);
-                    gv[x] = std::fabsf(imgA.pixels_f32[ia+1] - imgB.pixels_f32[ib+1]);
-                    bv[x] = std::fabsf(imgA.pixels_f32[ia+2] - imgB.pixels_f32[ib+2]);
+                    rv[x] = std::fabs(imgA.pixels_f32[ia+0] - imgB.pixels_f32[ib+0]);
+                    gv[x] = std::fabs(imgA.pixels_f32[ia+1] - imgB.pixels_f32[ib+1]);
+                    bv[x] = std::fabs(imgA.pixels_f32[ia+2] - imgB.pixels_f32[ib+2]);
                     if (rv[x] > max_v) max_v = rv[x];
                     if (gv[x] > max_v) max_v = gv[x];
                     if (bv[x] > max_v) max_v = bv[x];
@@ -809,9 +809,9 @@ void render_vline_cut_window(AppState& state) {
                 for (int y = 0; y < n; ++y) {
                     int ia = (y * imgA.width + col) * 4;
                     int ib = (y * imgB.width + col) * 4;
-                    rv[y] = std::fabsf(imgA.pixels_f32[ia+0] - imgB.pixels_f32[ib+0]);
-                    gv[y] = std::fabsf(imgA.pixels_f32[ia+1] - imgB.pixels_f32[ib+1]);
-                    bv[y] = std::fabsf(imgA.pixels_f32[ia+2] - imgB.pixels_f32[ib+2]);
+                    rv[y] = std::fabs(imgA.pixels_f32[ia+0] - imgB.pixels_f32[ib+0]);
+                    gv[y] = std::fabs(imgA.pixels_f32[ia+1] - imgB.pixels_f32[ib+1]);
+                    bv[y] = std::fabs(imgA.pixels_f32[ia+2] - imgB.pixels_f32[ib+2]);
                     if (rv[y] > max_v) max_v = rv[y];
                     if (gv[y] > max_v) max_v = gv[y];
                     if (bv[y] > max_v) max_v = bv[y];
@@ -1048,4 +1048,229 @@ void render_stats_window(AppState& state) {
 
     ImGui::End();
     if (state.font_large) ImGui::PopFont();
+}
+
+// ─── render_roi_stats_window ──────────────────────────────────────────────────
+
+void render_roi_stats_window(AppState& state)
+{
+    if (!state.show_roi_stats) return;
+
+    const auto& roi = state.roi;
+
+    ImGui::SetNextWindowSize(ImVec2(600, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.92f);
+
+    if (state.font_large) ImGui::PushFont(state.font_large);
+
+    bool open = true;
+    char title[64];
+    if (roi.has_roi)
+        std::snprintf(title, sizeof(title), "ROI Statistics  [%d,%d  %dx%d]",
+                      roi.x, roi.y, roi.w, roi.h);
+    else
+        std::snprintf(title, sizeof(title), "ROI Statistics  (no ROI selected)");
+
+    if (!ImGui::Begin(title, &open)) {
+        ImGui::End();
+        if (state.font_large) ImGui::PopFont();
+        if (!open) state.show_roi_stats = false;
+        return;
+    }
+
+    if (!roi.has_roi) {
+        ImGui::TextColored(ImVec4(1,0.8f,0.3f,1), "Ctrl+E 로 ROI 모드 ON → 패널 위에서 좌클릭 드래그");
+        ImGui::End();
+        if (state.font_large) ImGui::PopFont();
+        if (!open) state.show_roi_stats = false;
+        return;
+    }
+
+    // ROI 정보
+    ImGui::Text("ROI: (%d, %d)  size %d x %d  = %s px",
+        roi.x, roi.y, roi.w, roi.h,
+        fmt_comma((int64_t)roi.w * roi.h).c_str());
+    ImGui::Separator();
+
+    bool any = false;
+    for (int i = 0; i < 2; ++i) {
+        const ImageEntry& img = state.images[i];
+        if (!img.loaded) continue;
+        any = true;
+        bool is_hdr = img.is_hdr;
+        ImageStats st = compute_roi_stats(img, roi.x, roi.y, roi.w, roi.h);
+        if (st.valid) {
+            ImU32 col = (i == 0) ? IM_COL32(255, 220, 50, 255) : IM_COL32(50, 220, 255, 255);
+            const char* lbl = (i == 0) ? "Image A (ROI)" : "Image B (ROI)";
+            draw_stats_table(lbl, col, st, is_hdr);
+            ImGui::Spacing();
+        }
+    }
+
+    bool both = state.images[0].loaded && state.images[1].loaded;
+    if (both) {
+        any = true;
+        bool is_hdr = state.images[0].is_hdr && state.images[1].is_hdr;
+        DiffExtraStats extra;
+        ImageStats st = compute_roi_diff_stats(state.images[0], state.images[1],
+                                                roi.x, roi.y, roi.w, roi.h, extra);
+        if (st.valid) {
+            draw_stats_table("ROI Diff |A-B|", IM_COL32(0, 255, 200, 255), st, is_hdr, &extra);
+        }
+    }
+
+    if (!any)
+        ImGui::TextDisabled("(no image loaded)");
+
+    ImGui::End();
+    if (state.font_large) ImGui::PopFont();
+    if (!open) state.show_roi_stats = false;
+}
+
+// ─── render_scatter_plot_window ───────────────────────────────────────────────
+
+void render_scatter_plot_window(AppState& state)
+{
+    if (!state.show_scatter_plot) return;
+    if (!state.images[0].loaded || !state.images[1].loaded) return;
+
+    {
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowSize(
+            ImVec2(vp->WorkSize.x * 0.5f, vp->WorkSize.y * 0.7f),
+            ImGuiCond_Appearing);
+    }
+
+    bool open = true;
+    if (!ImGui::Begin("Scatter Plot  (A vs B)", &open)) {
+        ImGui::End();
+        if (!open) state.show_scatter_plot = false;
+        return;
+    }
+
+    // 채널 선택 UI
+    static int ch_sel = 0;  // 0=R, 1=G, 2=B
+    ImGui::Text("Channel:");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("R##sp", ch_sel == 0)) ch_sel = 0;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("G##sp", ch_sel == 1)) ch_sel = 1;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("B##sp", ch_sel == 2)) ch_sel = 2;
+
+    ImGui::SameLine();
+    ImGui::TextDisabled("|  X=A, Y=B");
+
+    // 데이터 추출 (캐시)
+    static ScatterPlotData sp_data;
+    static int last_imgA_w = -1, last_imgA_h = -1;
+    static int last_imgB_w = -1, last_imgB_h = -1;
+
+    bool needs_update = (last_imgA_w != state.images[0].width ||
+                         last_imgA_h != state.images[0].height ||
+                         last_imgB_w != state.images[1].width ||
+                         last_imgB_h != state.images[1].height);
+
+    if (needs_update || !sp_data.valid) {
+        sp_data = extract_scatter_plot(state.images[0], state.images[1], 20000);
+        last_imgA_w = state.images[0].width;
+        last_imgA_h = state.images[0].height;
+        last_imgB_w = state.images[1].width;
+        last_imgB_h = state.images[1].height;
+    }
+
+    if (!sp_data.valid || sp_data.sampled == 0) {
+        ImGui::TextDisabled("(데이터 없음)");
+        ImGui::End();
+        if (!open) state.show_scatter_plot = false;
+        return;
+    }
+
+    // 채널 데이터 포인터 선택
+    const float* ax = (ch_sel == 0) ? sp_data.r_a.data() :
+                      (ch_sel == 1) ? sp_data.g_a.data() : sp_data.b_a.data();
+    const float* ay = (ch_sel == 0) ? sp_data.r_b.data() :
+                      (ch_sel == 1) ? sp_data.g_b.data() : sp_data.b_b.data();
+    int n = sp_data.sampled;
+
+    // 샘플 정보
+    ImGui::Text("Total: %s px  /  Sampled: %s",
+        fmt_comma(sp_data.total_pixels).c_str(),
+        fmt_comma(sp_data.sampled).c_str());
+
+    ImGui::Separator();
+
+    // 차트 영역 계산
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    float chart_sz = std::min(avail.x, avail.y) - 20.0f;
+    if (chart_sz < 80.0f) chart_sz = 80.0f;
+
+    ImVec2 origin = ImGui::GetCursorScreenPos();
+    float ox = origin.x + 40.0f;  // x축 레이블 공간
+    float oy = origin.y;
+    float cw = chart_sz - 40.0f;
+    float ch_h = chart_sz - 20.0f;
+
+    // 차트 배경
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    draw_chart_bg(dl, ImVec2(ox, oy), cw, ch_h);
+
+    // 대각선 (perfect match line)
+    dl->AddLine(ImVec2(ox, oy + ch_h), ImVec2(ox + cw, oy),
+                IM_COL32(80, 80, 80, 200), 1.0f);
+
+    // 점 그리기
+    ImU32 dot_col[3] = {
+        IM_COL32(255, 80, 80, 120),
+        IM_COL32(80, 255, 80, 120),
+        IM_COL32(80, 130, 255, 120)
+    };
+    ImU32 dot_c = dot_col[ch_sel];
+
+    // 성능을 위해 화면 해상도 기반으로 점 크기 결정
+    float dot_r = (n > 5000) ? 1.0f : 1.5f;
+
+    for (int i = 0; i < n; ++i) {
+        float px = ox + std::clamp(ax[i], 0.0f, 1.0f) * cw;
+        float py = oy + ch_h * (1.0f - std::clamp(ay[i], 0.0f, 1.0f));
+        dl->AddCircleFilled(ImVec2(px, py), dot_r, dot_c);
+    }
+
+    // 축 레이블
+    static const char* ch_names_sp[3] = {"R", "G", "B"};
+    char x_lbl[32], y_lbl[32];
+    std::snprintf(x_lbl, sizeof(x_lbl), "A (%s)", ch_names_sp[ch_sel]);
+    std::snprintf(y_lbl, sizeof(y_lbl), "B (%s)", ch_names_sp[ch_sel]);
+
+    dl->AddText(ImVec2(ox + cw * 0.5f - 15.0f, oy + ch_h + 4.0f),
+                IM_COL32(200, 200, 200, 200), x_lbl);
+    // Y축 레이블 (간단히 텍스트로)
+    dl->AddText(ImVec2(origin.x, oy + ch_h * 0.5f - 6.0f),
+                IM_COL32(200, 200, 200, 200), y_lbl);
+
+    // 0/1 눈금 표시
+    ImU32 tick_col = IM_COL32(120, 120, 120, 180);
+    char tick[8];
+    // X축
+    for (float t : {0.0f, 0.25f, 0.5f, 0.75f, 1.0f}) {
+        float px = ox + t * cw;
+        dl->AddLine(ImVec2(px, oy + ch_h), ImVec2(px, oy + ch_h + 4), tick_col);
+        std::snprintf(tick, sizeof(tick), "%.2f", t);
+        dl->AddText(ImVec2(px - 10.0f, oy + ch_h + 6.0f),
+                    IM_COL32(150, 150, 150, 200), tick);
+    }
+    // Y축
+    for (float t : {0.0f, 0.25f, 0.5f, 0.75f, 1.0f}) {
+        float py = oy + ch_h * (1.0f - t);
+        dl->AddLine(ImVec2(ox - 4, py), ImVec2(ox, py), tick_col);
+        std::snprintf(tick, sizeof(tick), "%.2f", t);
+        dl->AddText(ImVec2(ox - 32.0f, py - 6.0f),
+                    IM_COL32(150, 150, 150, 200), tick);
+    }
+
+    // ImGui가 이 영역을 처리할 수 있도록 더미 커서 이동
+    ImGui::Dummy(ImVec2(chart_sz, chart_sz));
+
+    ImGui::End();
+    if (!open) state.show_scatter_plot = false;
 }

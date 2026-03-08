@@ -329,12 +329,12 @@ OpenGL 프레임워크는 운영체제마다 링크 대상이 다르다.
     table.header([플랫폼], [링크 타겟], [비고]),
     [macOS],   [`OpenGL.framework`],         [Deployment target 12.0, arm64],
     [Linux],   [`libGL`, `libdl`],           [Mesa 또는 NVIDIA 드라이버],
-    [Windows], [`opengl32.lib`],             [MSVC 또는 MinGW],
+    [Windows], [`opengl32.lib`],             [MSVC / clang-cl (ClangCL), STBI_WINDOWS_UTF8 경로 지원],
   ),
   caption: [플랫폼별 OpenGL 링킹],
 ) <tab:link>
 
-macOS에서는 `CMAKE_OSX_DEPLOYMENT_TARGET`을 12.0으로, 아키텍처를 `arm64`로 설정한다. 빌드 완료 후 바이너리는 자동으로 `~/.local/bin/av`에 복사된다.
+macOS에서는 `CMAKE_OSX_DEPLOYMENT_TARGET`을 12.0으로, 아키텍처를 `arm64`로 설정한다. macOS/Linux에서는 `~/.local/bin/av`에, Windows에서는 `%LOCALAPPDATA%\av\`에 자동 복사된다.
 
 == 빌드 명령
 
@@ -363,6 +363,15 @@ cmake --build build -j$(sysctl -n hw.ncpu)
 ```
 
 빌드가 완료되면 `build/av` 실행 파일이 생성되며, 포스트 빌드 스크립트에 의해 `~/.local/bin/av`로 자동 복사된다.
+
+=== Windows (Visual Studio 2022 + ClangCL)
+
+```bat
+cmake -B build -G "Visual Studio 17 2022" -T ClangCL
+cmake --build build --config Release -j %NUMBER_OF_PROCESSORS%
+```
+
+빌드 스크립트 `script\build-windows.bat` 사용 가능.
 
 
 // ═══════════════════════════════════════════════════════
@@ -522,7 +531,7 @@ struct AppState {
     bool  show_stats      = false;
     bool  show_info       = false;
     bool  show_pixel_info = false;
-    bool  show_pathfinder = true;
+    int   pathfinder_mode = 1;      // 0=hidden, 1=image(P), 2=schematic(Ctrl+P)
     bool  swap_images     = false;
     int   active_panel    = 0;
     bool  quit            = false;
@@ -562,7 +571,7 @@ struct AppState {
     [`show_vline_cut`],   [V-Line Cut 창 표시 여부 (`Ctrl+Y`)],
     [`show_stats`],       [Statistics 창 표시 여부 (`Ctrl+S`)],
     [`show_pixel_info`],  [커서 위치 픽셀 값 풍선말 표시 (`V` 키)],
-    [`show_pathfinder`],  [미니맵 표시 여부 (`P` 키, 기본 ON)],
+    [`pathfinder_mode`],  [미니맵 모드: 0=숨김, 1=이미지(`P`), 2=배선도(`Ctrl+P`). 기본 1],
     [`swap_images`],      [A/B 이미지 교환 상태 (`Shift+Space`)],
     [`active_panel`],     [현재 포커스된 패널 인덱스 (0 또는 1)],
     [`channel_mode`],     [채널 표시 모드 (RGB, R, G, B)],
@@ -1738,7 +1747,7 @@ if (u_zoom >= 16.0) {
 #pagebreak()
 = 사용자 인터페이스
 
-Advanced Pixel Lens의 사용자 인터페이스는 SDL2 윈도우 위에 ImGui를 레이어링하여 구성된다. 메뉴바, 상태바, 팝업 등 모든 UI 요소는 ImGui로 렌더링되며, 이미지 자체는 OpenGL 텍스처로 직접 그려진다.
+Advanced Pixel Lens의 사용자 인터페이스는 SDL3 윈도우 위에 ImGui를 레이어링하여 구성된다. 메뉴바, 상태바, 팝업 등 모든 UI 요소는 ImGui로 렌더링되며, 이미지 자체는 OpenGL 텍스처로 직접 그려진다.
 
 == 패널 레이아웃 <sec-panels>
 
@@ -1819,7 +1828,7 @@ ImGui 메인 메뉴바는 네 개의 메뉴로 구성된다.
 *File 메뉴:*
 - Open Image A\... (`O`) #sym.dash.en 파일 열기 다이얼로그 (Image A)
 - Open Image B\... (`Shift+O`) #sym.dash.en 파일 열기 다이얼로그 (Image B)
-- Open Images (`Shift+Cmd+O`) #sym.dash.en Open Images 창 토글
+- Open Image (`Shift+Cmd+O`) #sym.dash.en 활성 패널용 네이티브 파일 다이얼로그 직접 호출
 - Separator
 - Save (`Shift+Cmd+S`) #sym.dash.en 컨텍스트 인식 Save 다이얼로그 토글
 - Separator
@@ -1831,7 +1840,8 @@ ImGui 메인 메뉴바는 네 개의 메뉴로 구성된다.
 - Separator
 - Sync Viewports (`S`) #sym.dash.en 체크박스 토글
 - Separator
-- Show Pathfinder (`P`) #sym.dash.en 미니맵 체크박스 토글
+- Pathfinder Image (`P`) #sym.dash.en 이미지 미니맵 토글
+- Pathfinder Schematic (`Ctrl+P`) #sym.dash.en 배선도 미니맵 토글
 - Show Image Info (`I`) #sym.dash.en 정보 팝업 체크박스 토글
 - Show Pixel Info (`V`) #sym.dash.en 커서 픽셀 값 풍선말 토글
 - Show Histogram (`Ctrl+H`) #sym.dash.en Histogram 창 토글 (상호 배타)
@@ -1948,8 +1958,12 @@ ImGui DrawList를 사용하여 각 패널의 이미지 경계를 시각적으로
 
 #v(0.5em)
 
+*모드:*
+- Mode 1 (Image, `P` 키) — 이미지 썸네일 미니맵
+- Mode 2 (Schematic, `Ctrl+P`) — 배선도 미니맵 (회색 배경 + 노란 반투명 채움)
+
 *표시 조건:*
-- `show_pathfinder = true` (기본 ON, `P` 키 토글)
+- `pathfinder_mode ≠ 0` (기본 Mode 1)
 - Fit 모드가 아닐 때 (줌 인 상태)
 
 *크기 계산:*
@@ -2531,11 +2545,12 @@ av [options] [imageA] [imageB]
     table.header[*키*][*동작*][*비고*],
     [`U`], [메뉴바 / 상태바 토글], [],
     [`I`], [이미지 정보 팝업 토글], [],
-    [`P`], [Pathfinder 미니맵 토글], [],
+    [`P`], [Pathfinder Image 미니맵 토글 (모드 0↔1)], [],
+    [`Ctrl+P`], [Pathfinder Schematic 미니맵 토글 (모드 0↔2)], [],
     [`V`], [픽셀 정보 풍선말 토글], [],
     [`R`], [이미지 시계방향 90° 회전], [모든 로드 이미지 동시],
     [`Ctrl+R`], [이미지 반시계방향 90° 회전], [모든 로드 이미지 동시],
-    [`Shift+Cmd+O`], [Open Images 창 토글], [],
+    [`Shift+Cmd+O`], [네이티브 파일 다이얼로그 열기 (활성 패널)], [],
     [`Shift+Cmd+S`], [Save 다이얼로그 토글], [컨텍스트 인식],
     [`Ctrl+H`], [Histogram 창 토글], [상호 배타적],
     [`Ctrl+L`], [H-Line Cut 창 토글], [상호 배타적],

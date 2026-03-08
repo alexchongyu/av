@@ -1,6 +1,7 @@
 #include "diff_engine.h"
 #include "shader_sources.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <iostream>

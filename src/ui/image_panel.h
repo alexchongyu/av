@@ -42,6 +42,7 @@ private:
                            ImVec2 widget_pos, int view_w, int view_h);
 
     ShaderProgram image_shader_;
+    ShaderProgram blend_shader_;  // Overlay/Blend 모드용 셰이더
     ScreenQuad    quad_;
     FBO           fbo_;
     bool          inited_         = false;
@@ -50,4 +51,16 @@ private:
     bool   drag_selecting_  = false;
     ImVec2 drag_start_      = {0.0f, 0.0f};
     int    drag_panel_idx_  = 0;
+
+    // ROI drag state - stored in AppState.roi
+    ImVec2 roi_drag_start_  = {0.0f, 0.0f};
+
+    // Helpers
+    void handle_roi_drag(AppState& state, int panel_idx,
+                         ImVec2 widget_pos, int view_w, int view_h,
+                         int img_w, int img_h);
+    void render_roi_overlay(const AppState& state, int panel_idx,
+                            ImVec2 widget_pos, int view_w, int view_h,
+                            int img_w, int img_h);
+    void render_overlay(AppState& state, DiffRenderer& diff_renderer);
 };

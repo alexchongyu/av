@@ -83,6 +83,41 @@ void StatusBar::render(const AppState& state) {
         ImGui::SameLine();
     }
 
+    // Sequence info
+    for (int i = 0; i < 2; ++i) {
+        const auto& seq = state.sequences[i];
+        if (!seq.files.empty() && seq.current_index >= 0) {
+            ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.7f, 1.0f),
+                "%s [%d/%d]", (i == 0) ? "A" : "B",
+                seq.current_index + 1, (int)seq.files.size());
+            ImGui::SameLine();
+            ImGui::TextDisabled("|");
+            ImGui::SameLine();
+        }
+    }
+
+    // ROI 모드 표시
+    if (state.roi.active) {
+        ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "ROI mode");
+        if (state.roi.has_roi)
+            ImGui::SameLine(), ImGui::TextDisabled("[%d,%d %dx%d]",
+                state.roi.x, state.roi.y, state.roi.w, state.roi.h);
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+    }
+
+    // Overlay 모드 표시
+    if (state.overlay.active) {
+        const char* mode_str = (state.overlay.mode == OverlayState::Mode::Curtain)
+            ? "Curtain" : "Blend";
+        ImGui::TextColored(ImVec4(0.6f, 1.0f, 0.6f, 1.0f),
+            "Overlay:%s  %.0f%%", mode_str, state.overlay.alpha * 100.0f);
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+    }
+
     // Sync indicator
     ImGui::TextDisabled("Sync: %s", state.sync_viewports ? "on" : "off");
     ImGui::SameLine();
