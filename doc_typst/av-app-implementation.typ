@@ -584,13 +584,18 @@ struct AppState {
     [`stats_save`],       [`StatsSaveDialog` 상태 구조체],
     [`open_state`],       [`OpenDialogState` 상태 구조체],
     [`window`],           [네이티브 파일 다이얼로그용 SDL 윈도우 포인터],
+    [`roi`],              [`RoiState` — ROI 선택 모드 상태 (`Ctrl+E`)],
+    [`show_roi_stats`],   [ROI 통계 창 표시 여부],
+    [`sequences[2]`],     [`SequenceState[2]` — A/B 패널 시퀀스 탐색 상태],
+    [`overlay`],          [`OverlayState` — Overlay/Blend 비교 모드 상태 (`O`)],
+    [`show_scatter_plot`],[Scatter Plot 창 표시 여부 (`Ctrl+T`)],
   ),
   caption: [AppState 주요 필드],
 ) <tab:app-state>
 
 == 다이얼로그 관련 구조체
 
-v0.2에서 파일 열기·저장 다이얼로그 시스템을 지원하기 위한 구조체 4종이 추가되었다.
+v0.2에서 파일 열기·저장 다이얼로그 시스템을 지원하기 위한 구조체 4종이 추가되었다. v0.3에서는 ROI, 시퀀스 탐색, Overlay, Scatter Plot을 위한 구조체 3종이 추가되었다 (@sec-phase5-structs).
 
 === SaveItemState
 
@@ -676,6 +681,62 @@ struct OpenDialogState {
 ```
 
 SDL3의 비동기 파일 다이얼로그 콜백이 `opened_path`와 `open_pending`을 설정하면, 메인 루프에서 이를 감지하여 실제 이미지 로딩을 처리한다.
+
+== Phase 5 상태 구조체 <sec-phase5-structs>
+
+v0.3에서 분석 기능 확장을 위한 상태 구조체 3종이 추가되었다.
+
+=== RoiState
+
+ROI(Region of Interest) 선택 모드의 모든 상태를 보관한다.
+
+```cpp
+struct RoiState {
+    bool active   = false;  // Ctrl+E: ROI 선택 모드 ON/OFF
+    bool has_roi  = false;  // 유효한 ROI가 선택됨
+    int  x = 0, y = 0;     // 이미지 픽셀 좌표 (top-left)
+    int  w = 0, h = 0;     // ROI 크기 (픽셀)
+    int  panel_idx = 0;    // ROI가 그려진 패널 인덱스
+
+    bool  dragging   = false;
+    float drag_sx    = 0.0f; // 드래그 시작 화면 좌표
+    float drag_sy    = 0.0f;
+    int   drag_panel = 0;
+};
+```
+
+#v(0.5em)
+
+=== SequenceState
+
+패널별 이미지 시퀀스 탐색 상태를 보관한다. `AppState::sequences[2]`로 A/B 패널 각각 독립적으로 관리된다.
+
+```cpp
+struct SequenceState {
+    std::vector<std::string> files;          // 디렉토리 내 이미지 목록 (natural sort)
+    int                      current_index = -1;  // 현재 파일 인덱스 (-1=시퀀스 없음)
+};
+```
+
+이미지가 로드될 때 `scan_image_directory()`가 호출되어 동일 디렉토리의 이미지 파일 목록을 natural sort 순서로 채운다. `N` / `Shift+N` 키로 `current_index`를 증감하면 `open_state`에 다음 파일 경로가 주입된다.
+
+#v(0.5em)
+
+=== OverlayState
+
+Overlay/Blend 비교 모드의 상태를 보관한다. `O` 키로 토글되며, 두 패널을 하나의 블렌드 패널로 합성한다.
+
+```cpp
+struct OverlayState {
+    bool  active   = false;  // O 키: Overlay 모드 ON/OFF
+    float alpha    = 0.5f;   // 0=A만, 1=B만
+    enum class Mode { Blend, Curtain } mode = Mode::Blend;
+    float curtain_x        = 0.5f;   // Curtain 구분선 위치 [0,1]
+    bool  curtain_dragging = false;
+};
+```
+
+`Mode::Blend`는 alpha 가중치로 A/B를 혼합하고, `Mode::Curtain`은 화면을 수직으로 나누어 좌측에 A, 우측에 B를 표시한다.
 
 == 데이터 흐름
 
@@ -2556,10 +2617,29 @@ av [options] [imageA] [imageB]
     [`Ctrl+L`], [H-Line Cut 창 토글], [상호 배타적],
     [`Ctrl+Y`], [V-Line Cut 창 토글], [상호 배타적],
     [`Ctrl+S`], [Statistics 창 토글], [상호 배타적],
+    [`Ctrl+E`], [ROI 선택 모드 토글], [ESC로 해제],
+    [`O`], [Overlay/Blend 비교 모드 토글], [ESC로 해제],
+    [`Ctrl+T`], [Scatter Plot 창 토글], [],
     [`Q`], [애플리케이션 종료], [],
   ),
   caption: [UI 토글 단축키],
 ) <tab-keys-ui>
+
+#v(0.8em)
+
+=== 시퀀스 탐색
+
+#figure(
+  table(
+    columns: (2fr, 3fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*키*][*동작*],
+    [`N`], [활성 패널의 다음 시퀀스 프레임 로드],
+    [`Shift+N`], [활성 패널의 이전 시퀀스 프레임 로드],
+  ),
+  caption: [시퀀스 탐색 단축키],
+) <tab-keys-seq>
 
 #v(0.8em)
 
@@ -2628,6 +2708,30 @@ av --zoom=2 --no-sync -bc ff0000 0000ff 00ff00 a.jpg b.jpg
 + SSIM 히트맵 로딩 완료 대기 (상태바에 `SSIM: computing...` 표시)
 + 상태바에서 SSIM 점수 확인 (≥0.99: 초록, ≥0.90: 노랑, #sym.lt 0.90: 빨강)
 + `+` 키 반복으로 고배율 줌 진입 후 세부 차이 분석
+
+=== 시나리오 4: ROI 영역 집중 분석
+
++ `av ref.png output.png` 실행
++ `Ctrl+E`로 ROI 선택 모드 활성화 (상태바에 `[ROI]` 표시)
++ 비교할 영역을 마우스 드래그로 선택 (노란 점선 사각형 오버레이 표시)
++ ROI Stats 창에서 A/B/Diff의 Mean, Std, Min, Max 수치 비교
++ `Ctrl+S`로 전체 Statistics와 비교하여 문제 영역을 좁혀 확인
+
+=== 시나리오 5: 비디오 프레임 시퀀스 비교
+
++ `av frame_0001.png` 실행 (동일 디렉토리에 다수 프레임 존재)
++ 상태바 `[1/120]` 형식으로 전체 프레임 수 확인
++ `N` 키로 다음 프레임, `Shift+N`으로 이전 프레임 탐색
++ `O` 키로 Overlay 모드 활성화 후 인접 프레임 블렌드 비교
++ View 메뉴 Overlay 슬라이더로 alpha 조정하여 전환 분석
+
+=== 시나리오 6: Scatter Plot 색 분포 분석
+
++ `av original.png processed.png` 실행
++ `Ctrl+T`로 Scatter Plot 창 열기
++ R/G/B 채널 각각의 A vs B 픽셀 분포 확인
++ 점군이 y=x 대각선에서 벗어난 정도로 색 왜곡 정도 파악
++ ROI 선택 후 특정 영역의 색 분포만 추출하여 분석
 
 
 // ──────────────────────────────────────────────
@@ -2708,15 +2812,239 @@ SDL_SetWindowIcon(window, icon);
 
 
 // ──────────────────────────────────────────────
+// Ch 11 — Phase 5: 분석 기능 확장
+// ──────────────────────────────────────────────
+
+#pagebreak()
+= Phase 5: 분석 기능 확장
+
+v0.3에서 네 가지 고급 분석 기능이 추가되었다: ROI 통계, 이미지 시퀀스 탐색, Overlay/Blend 비교 모드, Scatter Plot 시각화.
+
+== ROI (Region of Interest) 선택 + 영역 통계 <sec-roi>
+
+ROI 모드는 `Ctrl+E`로 활성화되며, 이미지 패널에서 마우스 드래그로 관심 영역을 선택한 뒤 해당 영역의 통계를 별도 창에 표시한다.
+
+=== ROI 드래그 선택 흐름
+
+```
+Ctrl+E → roi.active = true
+좌클릭 드래그 → handle_roi_drag():
+    drag_sx/sy = 시작 화면 좌표
+    매 프레임: x/y/w/h = screen_to_image(drag_sx,sy, cur_sx,sy)
+    mouse up → has_roi = true
+ESC → roi.active = false, has_roi = false
+```
+
+드래그 시 이미지 좌표계로 변환하기 위해 `screen_to_image()` 변환을 적용한다. 뷰포트의 줌·팬 상태에 관계없이 항상 이미지 픽셀 좌표로 ROI가 저장된다.
+
+=== ROI 오버레이 렌더링
+
+선택된 ROI는 ImGui `DrawList`를 사용하여 노란 점선 사각형(`ImVec4(1,1,0,0.8)`)으로 패널 위에 오버레이 렌더링된다. ROI 모드가 활성화된 동안 상태바에 `[ROI]` 레이블과 좌표/크기가 표시된다.
+
+#v(0.5em)
+
+=== compute\_roi\_stats
+
+```cpp
+ImageStats compute_roi_stats(const ImageEntry& img,
+                              int rx, int ry, int rw, int rh);
+ImageStats compute_roi_diff_stats(const ImageEntry& a, const ImageEntry& b,
+                                   int rx, int ry, int rw, int rh,
+                                   DiffExtraStats& extra);
+```
+
+`chart_export.cpp`에 구현되어 있으며, 지정 영역의 픽셀을 순회하여 Mean, Std, Min, Max를 채널별로 계산한다. `render_roi_stats_window()`가 A/B/Diff 3열 테이블로 결과를 표시한다.
+
+=== 상태바 표시
+
+ROI 활성 시 상태바는 다음 정보를 표시한다:
+
+#figure(
+  table(
+    columns: (2fr, 3fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*항목*][*예시*],
+    [ROI 모드 레이블], [`[ROI]`],
+    [ROI 좌표+크기], [`ROI: (120, 80) 200x150`],
+  ),
+  caption: [ROI 활성 시 상태바 표시],
+) <tab-roi-statusbar>
+
+== 이미지 시퀀스 탐색 <sec-sequence>
+
+이미지 파일을 열면 `scan_image_directory()`가 동일 디렉토리 내 이미지 파일 목록을 자동 스캔하여 `SequenceState.files`에 저장한다. 이후 `N` / `Shift+N` 키로 시퀀스를 탐색할 수 있다.
+
+=== scan\_image\_directory
+
+```cpp
+std::vector<std::string> scan_image_directory(
+    const std::string& current_path,
+    int& current_out);  // 현재 파일의 인덱스를 출력
+```
+
+지원 확장자(`.png`, `.jpg`, `.jpeg`, `.bmp`, `.tga`, `.pgm`, `.ppm`, `.hdr`)에 해당하는 파일을 열거하고 natural sort (파일명의 숫자 부분을 수치로 비교)로 정렬한다. 이로써 `frame_002.png`이 `frame_10.png`보다 앞에 오는 문제가 해결된다.
+
+=== 탐색 키 처리
+
+`N` / `Shift+N` 키 처리는 `app.cpp`의 `handle_keyboard()`에 구현되어 있다:
+
+```cpp
+case SDL_SCANCODE_N: {
+    auto& seq = state.sequences[ap];
+    if (!seq.files.empty() && seq.current_index >= 0) {
+        int n = (int)seq.files.size();
+        if (shift) seq.current_index = (seq.current_index - 1 + n) % n;
+        else       seq.current_index = (seq.current_index + 1) % n;
+        state.open_state.opened_path  = seq.files[seq.current_index];
+        state.open_state.open_target  = ap;
+        state.open_state.open_pending = true;
+        state.open_state.clear_other  = false;
+    }
+}
+```
+
+`open_pending` 플래그를 통해 기존 이미지 로딩 파이프라인을 재사용하므로, 캐싱과 색 관리가 자동으로 적용된다.
+
+=== 상태바 시퀀스 표시
+
+시퀀스가 스캔되면 상태바의 패널 레이블에 현재/전체 인덱스가 추가된다:
+
+#figure(
+  table(
+    columns: (2fr, 3fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*상황*][*표시 예시*],
+    [시퀀스 없음], [`A: frame_001.png`],
+    [시퀀스 3번째/24개], [`A [3/24]: frame_003.png`],
+  ),
+  caption: [상태바 시퀀스 인덱스 표시],
+) <tab-seq-statusbar>
+
+== Overlay/Blend 비교 모드 <sec-overlay>
+
+`O` 키로 활성화되며, 두 이미지 패널 대신 단일 블렌드 패널 하나를 렌더링한다. 두 가지 서브 모드를 지원한다.
+
+=== Blend 모드
+
+Alpha 가중치 `overlay.alpha ∈ [0, 1]`로 A/B 텍스처를 혼합한다:
+
+```glsl
+// BLEND_FRAG_SRC (blend + curtain dual-mode shader)
+uniform float u_alpha;
+uniform int   u_mode;       // 0=Blend, 1=Curtain
+uniform float u_curtain_x;  // Curtain 구분선 위치 [0,1]
+
+vec4 colorA = texture(u_texA, v_uv);
+vec4 colorB = texture(u_texB, v_uv);
+if (u_mode == 0) {
+    out_color = mix(colorA, colorB, u_alpha);
+} else {
+    out_color = (v_uv.x < u_curtain_x) ? colorA : colorB;
+}
+```
+
+View 메뉴에 alpha 슬라이더(0→1)와 Blend/Curtain 라디오 버튼이 제공된다.
+
+=== Curtain 모드
+
+화면을 수직으로 분할하여 좌측(`u_uv.x < curtain_x`)은 A, 우측은 B를 표시한다. `curtain_x`는 마우스 드래그로 조정 가능하다.
+
+=== 레이아웃 전환
+
+Overlay 활성 시 `main_window.cpp`의 레이아웃 로직이 2-panel 배치 대신 단일 `ImagePanel`을 전체 너비로 렌더링한다. 비활성화하면 원래 side-by-side 레이아웃으로 돌아온다.
+
+=== 상태바 표시
+
+Overlay 활성 시 상태바에 현재 모드와 alpha 비율이 표시된다:
+
+#figure(
+  table(
+    columns: (2fr, 3fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*모드*][*표시 예시*],
+    [Blend 모드], [`[Overlay: Blend 50%]`],
+    [Curtain 모드], [`[Overlay: Curtain]`],
+  ),
+  caption: [Overlay 모드 상태바 표시],
+) <tab-overlay-statusbar>
+
+== Scatter Plot <sec-scatter>
+
+`Ctrl+T`로 토글하는 Scatter Plot 창은 A/B 이미지의 대응 픽셀 값 분포를 채널별로 시각화하여 색 왜곡, 감마 차이, 채도 변화 등을 직관적으로 파악할 수 있게 한다.
+
+=== extract\_scatter\_plot
+
+```cpp
+struct ScatterPlotData {
+    std::vector<float> r_a, r_b;  // R channel 샘플
+    std::vector<float> g_a, g_b;  // G channel 샘플
+    std::vector<float> b_a, b_b;  // B channel 샘플
+    int  total_pixels = 0;
+    int  sampled      = 0;
+    bool valid        = false;
+};
+
+ScatterPlotData extract_scatter_plot(const ImageEntry& a,
+                                     const ImageEntry& b,
+                                     int max_samples = 20000);
+```
+
+이미지 전체 픽셀을 `max_samples` 개수로 랜덤 샘플링하여 정규화된 `[0,1]` 범위의 (A값, B값) 쌍을 추출한다. A와 B의 크기가 다를 경우 작은 이미지 크기 기준으로 처리한다.
+
+=== 시각화
+
+`render_scatter_plot_window()`는 `ImDrawList`를 사용하여 R/G/B 채널별 산점도를 그린다:
+
+#figure(
+  table(
+    columns: (1.5fr, 3.5fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*요소*][*설명*],
+    [그리드], [0.25 간격 밝은 회색 격자선],
+    [y=x 기준선], [점군이 완벽히 일치할 때 놓이는 대각선 (회색)],
+    [R 채널 점], [빨간색 (`ImVec4(1, 0.3, 0.3, 0.5)`)],
+    [G 채널 점], [초록색 (`ImVec4(0.3, 1, 0.3, 0.5)`)],
+    [B 채널 점], [파란색 (`ImVec4(0.3, 0.5, 1, 0.5)`)],
+    [축 레이블], [X = A값, Y = B값, 범위 \[0,1\]],
+    [샘플 수], [창 하단에 `n=20000 / 1,048,576 pixels` 표시],
+  ),
+  caption: [Scatter Plot 시각화 요소],
+) <tab-scatter-elements>
+
+점군이 y=x 대각선에 밀집할수록 두 이미지가 동일하다는 것을 의미한다. 기울기나 곡선 패턴은 감마 보정이나 톤 매핑 차이를 나타낸다.
+
+== Linux AppImage 아키텍처 자동 감지 <sec-appimage-arch>
+
+v0.3에서 `CMakeLists.txt`의 AppImage 빌드 타겟이 호스트 아키텍처를 자동으로 감지하여 적합한 `linuxdeploy` 바이너리를 다운로드한다.
+
+```cmake
+execute_process(COMMAND uname -m OUTPUT_VARIABLE HOST_ARCH ...)
+if(HOST_ARCH STREQUAL "aarch64" OR HOST_ARCH STREQUAL "arm64")
+    set(LD_ARCH "aarch64")
+else()
+    set(LD_ARCH "x86_64")
+endif()
+set(LINUXDEPLOY "${APPIMAGE_DIR}/linuxdeploy-${LD_ARCH}.AppImage")
+set(APPIMAGE_OUT "${CMAKE_SOURCE_DIR}/bin/av-${LD_ARCH}.AppImage")
+```
+
+출력 파일은 `bin/av-aarch64.AppImage` 또는 `bin/av-x86_64.AppImage`로 생성된다.
+
+
+// ──────────────────────────────────────────────
 // 마무리 페이지
 // ──────────────────────────────────────────────
 
 #pagebreak()
 #align(center + horizon)[
   #text(size: 11pt, fill: luma(120))[
-    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.2 \
+    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.3 \
     #v(0.3em)
-    2026\-02\-28 \
+    2026\-03\-08 \
     #v(0.3em)
     이 문서는 av 이미지 뷰어/비교기의 완전한 구현 참조 문서입니다.
   ]
