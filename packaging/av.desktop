@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=av
+Comment=Image viewer and comparison tool
+Exec=av %F
+Icon=av
+Type=Application
+Categories=Graphics;Viewer;
+MimeType=image/png;image/jpeg;image/bmp;image/tiff;image/webp;
+Terminal=false
+StartupNotify=true

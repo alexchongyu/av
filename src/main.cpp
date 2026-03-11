@@ -1,0 +1,363 @@
+#include "app.h"
+#include "image_loader.h"
+#include "viewport.h"
+#include "ui/main_window.h"
+
+#include <glad/gl.h>
+#include <SDL3/SDL.h>
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_opengl3.h>
+
+#include <iostream>
+#include <cstdio>
+#include <cmath>
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+static constexpr const char* APP_TITLE   = "Advanced Pixel Lens";
+static constexpr int         GL_MAJOR    = 3;
+static constexpr int         GL_MINOR    = 3;
+static constexpr const char* GLSL_VER   = "#version 150";
+
+// ─── Procedural app icon (128×128 RGBA) ───────────────────────────────────────
+
+static SDL_Surface* create_app_icon() {
+    constexpr int SIZE = 128;
+    constexpr int CR   = 14;   // corner radius
+
+    SDL_Surface* surf = SDL_CreateSurface(SIZE, SIZE, SDL_PIXELFORMAT_RGBA8888);
+    if (!surf) return nullptr;
+
+    SDL_LockSurface(surf);
+
+    const uint8_t BG_R = 26, BG_G = 31, BG_B = 46;  // #1a1f2e dark navy
+    const SDL_PixelFormatDetails* fmt = SDL_GetPixelFormatDetails(surf->format);
+
+    auto set_px = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+        if (x < 0 || x >= SIZE || y < 0 || y >= SIZE) return;
+        auto* row = reinterpret_cast<uint32_t*>(
+            static_cast<uint8_t*>(surf->pixels) + y * surf->pitch);
+        row[x] = SDL_MapRGBA(fmt, nullptr, r, g, b, a);
+    };
+
+    // 1. Fill background
+    for (int y = 0; y < SIZE; ++y)
+        for (int x = 0; x < SIZE; ++x)
+            set_px(x, y, BG_R, BG_G, BG_B, 255);
+
+    // 2. Round corners (mask to transparent)
+    for (int y = 0; y < CR; ++y) {
+        for (int x = 0; x < CR; ++x) {
+            float dx = static_cast<float>(x - CR), dy = static_cast<float>(y - CR);
+            if (dx*dx + dy*dy > static_cast<float>(CR*CR)) set_px(x, y, 0, 0, 0, 0);
+        }
+        for (int x = SIZE-CR; x < SIZE; ++x) {
+            float dx = static_cast<float>(x - (SIZE-1-CR)), dy = static_cast<float>(y - CR);
+            if (dx*dx + dy*dy > static_cast<float>(CR*CR)) set_px(x, y, 0, 0, 0, 0);
+        }
+    }
+    for (int y = SIZE-CR; y < SIZE; ++y) {
+        for (int x = 0; x < CR; ++x) {
+            float dx = static_cast<float>(x - CR), dy = static_cast<float>(y - (SIZE-1-CR));
+            if (dx*dx + dy*dy > static_cast<float>(CR*CR)) set_px(x, y, 0, 0, 0, 0);
+        }
+        for (int x = SIZE-CR; x < SIZE; ++x) {
+            float dx = static_cast<float>(x - (SIZE-1-CR)), dy = static_cast<float>(y - (SIZE-1-CR));
+            if (dx*dx + dy*dy > static_cast<float>(CR*CR)) set_px(x, y, 0, 0, 0, 0);
+        }
+    }
+
+    // 3. 3×3 colour grid
+    constexpr int MARGIN = 10;
+    constexpr int GAP    = 2;
+    constexpr int CELL   = (SIZE - 2*MARGIN - 2*GAP) / 3;  // ~34
+    const uint8_t COLORS[9][3] = {
+        {255,  60, 200},  // magenta
+        { 40, 220, 255},  // cyan
+        {255, 220,  30},  // yellow
+        {255,  70,  70},  // red
+        { 70, 220,  90},  // green
+        { 70, 120, 255},  // blue
+        {255, 155,  30},  // orange
+        { 30, 220, 175},  // mint
+        {190,  70, 255},  // violet
+    };
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            int ci  = row * 3 + col;
+            int gx0 = MARGIN + col * (CELL + GAP);
+            int gy0 = MARGIN + row * (CELL + GAP);
+            for (int dy = 0; dy < CELL; ++dy)
+                for (int dx = 0; dx < CELL; ++dx)
+                    set_px(gx0+dx, gy0+dy,
+                           COLORS[ci][0], COLORS[ci][1], COLORS[ci][2], 230);
+        }
+    }
+
+    // 4. Magnifier glass (bottom-right overlay)
+    constexpr int LX = 80, LY = 80, LR = 28;
+    // Lens ring (white, ~3px thick)
+    for (int y = LY-LR-2; y <= LY+LR+2; ++y) {
+        for (int x = LX-LR-2; x <= LX+LR+2; ++x) {
+            float dx = static_cast<float>(x - LX), dy2 = static_cast<float>(y - LY);
+            float d  = std::sqrt(dx*dx + dy2*dy2);
+            if (d >= static_cast<float>(LR-1) && d <= static_cast<float>(LR+1))
+                set_px(x, y, 255, 255, 255, 210);
+        }
+    }
+    // Handle (thick line, ~45° toward bottom-right)
+    int hx_start = LX + static_cast<int>(LR * 0.707f);
+    int hy_start = LY + static_cast<int>(LR * 0.707f);
+    for (int i = 0; i <= 12; ++i) {
+        int hx = hx_start + i;
+        int hy = hy_start + i;
+        for (int t = -1; t <= 1; ++t) {
+            set_px(hx+t, hy,   255, 255, 255, 220);
+            set_px(hx,   hy+t, 255, 255, 255, 220);
+        }
+    }
+
+    SDL_UnlockSurface(surf);
+    return surf;
+}
+
+// ─── Cleanup helper ───────────────────────────────────────────────────────────
+struct SdlCleanup {
+    SDL_Window*   window   = nullptr;
+    SDL_GLContext gl_ctx   = nullptr;
+    bool          imgui_gl = false;
+    bool          imgui_sdl = false;
+
+    ~SdlCleanup() {
+        if (imgui_gl)  { ImGui_ImplOpenGL3_Shutdown(); }
+        if (imgui_sdl) { ImGui_ImplSDL3_Shutdown(); }
+        if (ImGui::GetCurrentContext()) {
+            ImGui::DestroyContext();
+        }
+        if (gl_ctx)  { SDL_GL_DestroyContext(gl_ctx); }
+        if (window)  { SDL_DestroyWindow(window); }
+        SDL_Quit();
+    }
+};
+
+// ─── main ─────────────────────────────────────────────────────────────────────
+
+int main(int argc, char* argv[]) {
+    // ── Parse CLI ─────────────────────────────────────────────────────────────
+    CliOptions cli = parse_cli(argc, argv);
+
+    // ── SDL3 init ─────────────────────────────────────────────────────────────
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        std::cerr << "SDL_Init failed: " << SDL_GetError() << "\n";
+        return 2;
+    }
+
+    SdlCleanup cleanup;
+
+    // OpenGL context attributes
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_MAJOR);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_MINOR);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,   0);
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
+#ifdef __APPLE__
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,
+                        SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+#endif
+
+    // Create window — borderless by default (U key reveals UI overlay)
+    SDL_WindowFlags win_flags = SDL_WINDOW_OPENGL |
+                                SDL_WINDOW_RESIZABLE |
+                                SDL_WINDOW_BORDERLESS |
+                                SDL_WINDOW_HIGH_PIXEL_DENSITY |
+                                SDL_WINDOW_MAXIMIZED;
+    if (cli.fullscreen) {
+        win_flags |= SDL_WINDOW_FULLSCREEN;
+    }
+
+    SDL_Window* window = SDL_CreateWindow(APP_TITLE,
+                                          cli.win_w, cli.win_h,
+                                          win_flags);
+    if (!window) {
+        std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << "\n";
+        return 2;
+    }
+    cleanup.window = window;
+
+    // Set procedural app icon
+    if (SDL_Surface* icon = create_app_icon()) {
+        SDL_SetWindowIcon(window, icon);
+        SDL_DestroySurface(icon);
+    }
+
+    // ── OpenGL context ────────────────────────────────────────────────────────
+    SDL_GLContext gl_ctx = SDL_GL_CreateContext(window);
+    if (!gl_ctx) {
+        std::cerr << "SDL_GL_CreateContext failed: " << SDL_GetError() << "\n";
+        return 2;
+    }
+    cleanup.gl_ctx = gl_ctx;
+
+    SDL_GL_MakeCurrent(window, gl_ctx);
+    SDL_GL_SetSwapInterval(1);  // vsync
+
+    // ── glad ──────────────────────────────────────────────────────────────────
+    if (!gladLoadGL(reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress))) {
+        std::cerr << "gladLoadGL failed\n";
+        return 2;
+    }
+    std::cout << "OpenGL " << glGetString(GL_VERSION)
+              << "  GLSL " << glGetString(GL_SHADING_LANGUAGE_VERSION) << "\n";
+    std::cout << "Renderer: " << glGetString(GL_RENDERER) << "\n";
+
+    // ── ImGui ─────────────────────────────────────────────────────────────────
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.IniFilename  = "av_imgui.ini";
+
+    // Style
+    ImGui::StyleColorsDark();
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding     = 4.0f;
+    style.FrameRounding      = 3.0f;
+    style.ScrollbarRounding  = 3.0f;
+    style.GrabRounding       = 3.0f;
+    style.TabRounding        = 3.0f;
+    style.WindowBorderSize   = 0.0f;
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
+
+    if (!ImGui_ImplSDL3_InitForOpenGL(window, gl_ctx)) {
+        std::cerr << "ImGui_ImplSDL3_InitForOpenGL failed\n";
+        return 2;
+    }
+    cleanup.imgui_sdl = true;
+
+    if (!ImGui_ImplOpenGL3_Init(GLSL_VER)) {
+        std::cerr << "ImGui_ImplOpenGL3_Init failed\n";
+        return 2;
+    }
+    cleanup.imgui_gl = true;
+
+    // ── Application state ─────────────────────────────────────────────────────
+    AppState state;
+    apply_cli_options(state, cli);
+    state.window = window;
+
+    // ── Fonts ─────────────────────────────────────────────────────────────────
+    // Keep ProggyClean 13px as default (for existing UI elements)
+    io.Fonts->AddFontDefault();
+    // Roboto-Medium 26px for Image Info popup and Pixel Balloon
+    state.font_large = io.Fonts->AddFontFromFileTTF(
+        IMGUI_FONT_DIR "/Roboto-Medium.ttf", 26.0f);
+    if (!state.font_large)
+        state.font_large = io.Fonts->Fonts[0];  // fallback to default
+    // Roboto-Medium 18px for Save/Open dialogs
+    state.font_medium = io.Fonts->AddFontFromFileTTF(
+        IMGUI_FONT_DIR "/Roboto-Medium.ttf", 18.0f);
+    if (!state.font_medium)
+        state.font_medium = io.Fonts->Fonts[0];  // fallback to default
+
+    // Load images from CLI
+    if (!cli.image_a.empty()) {
+        if (!load_image(cli.image_a, state.images[0])) {
+            std::cerr << "Failed to load image A: " << cli.image_a << "\n";
+        }
+    }
+    if (!cli.image_b.empty()) {
+        if (!load_image(cli.image_b, state.images[1])) {
+            std::cerr << "Failed to load image B: " << cli.image_b << "\n";
+        }
+    }
+
+    // ── Main window setup ─────────────────────────────────────────────────────
+    MainWindow main_window;
+    if (!main_window.init()) {
+        std::cerr << "MainWindow init failed\n";
+        return 2;
+    }
+
+    // ── Event loop ────────────────────────────────────────────────────────────
+    while (!state.quit) {
+        // Process events
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            ImGui_ImplSDL3_ProcessEvent(&event);
+
+            if (event.type == SDL_EVENT_QUIT) {
+                state.quit = true;
+            } else if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+                if (event.window.windowID == SDL_GetWindowID(window)) {
+                    state.quit = true;
+                }
+            } else if (event.type == SDL_EVENT_KEY_DOWN) {
+                bool ctrl  = (event.key.mod & SDL_KMOD_CTRL)  != 0;
+                bool shift = (event.key.mod & SDL_KMOD_SHIFT) != 0;
+                bool alt   = (event.key.mod & SDL_KMOD_ALT)   != 0;
+                bool gui   = (event.key.mod & SDL_KMOD_GUI)   != 0;
+                // Global shortcuts (Cmd/Ctrl combos) always pass through;
+                // plain keys deferred to ImGui when it wants keyboard
+                if (!io.WantCaptureKeyboard || ctrl || gui) {
+                    handle_keyboard(state,
+                                    static_cast<int>(event.key.scancode),
+                                    ctrl, shift, alt, gui);
+                }
+            } else if (event.type == SDL_EVENT_DROP_FILE) {
+                const char* dropped = event.drop.data;
+                if (dropped) {
+                    if (!state.images[0].loaded) {
+                        load_image(dropped, state.images[0]);
+                    } else {
+                        load_image(dropped, state.images[1]);
+                    }
+                }
+            }
+        }
+
+        // ── Window size ───────────────────────────────────────────────────────
+        int fb_w = 0, fb_h = 0;
+        SDL_GetWindowSizeInPixels(window, &fb_w, &fb_h);
+
+        // ── Fit viewports if flagged ───────────────────────────────────────────
+        for (int i = 0; i < 2; ++i) {
+            auto& vp  = state.views[i];
+            auto& img = state.images[i];
+            if (vp.fit && img.loaded && fb_w > 0 && fb_h > 0) {
+                int pw;
+                bool both = state.images[0].loaded && state.images[1].loaded;
+                if (both && state.diff.mode != DiffState::Mode::None)
+                    pw = fb_w / 3;   // 3-panel: A | B | Diff
+                else if (both)
+                    pw = fb_w / 2;   // 2-panel: A | B
+                else
+                    pw = fb_w;       // 1-panel
+                viewport_fit(vp, img.width, img.height, pw, fb_h);
+            }
+        }
+
+        // ── ImGui frame ───────────────────────────────────────────────────────
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
+
+        main_window.render(state);
+
+        // ── Render ────────────────────────────────────────────────────────────
+        ImGui::Render();
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, fb_w, fb_h);
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        SDL_GL_SwapWindow(window);
+    }
+
+    // Cleanup happens via SdlCleanup RAII destructor
+    return 0;
+}
