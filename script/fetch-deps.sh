@@ -52,21 +52,26 @@ echo ""
 echo "==> [2/3] AppImage 빌드 도구 다운로드 (linuxdeploy, appimagetool)"
 mkdir -p "$TOOLS_TMP"
 
-for arch in x86_64 aarch64; do
-    for tool in linuxdeploy appimagetool; do
-        dest="$TOOLS_TMP/${tool}-${arch}.AppImage"
-        if [[ "$tool" == "linuxdeploy" ]]; then
-            url="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${arch}.AppImage"
-        else
-            url="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${arch}.AppImage"
-        fi
-        if [[ ! -f "$dest" ]]; then
-            echo "    다운로드: ${tool}-${arch}"
-            curl -fSL --retry 3 --retry-delay 2 -o "$dest" "$url"
-        else
-            echo "    존재: ${tool}-${arch}"
-        fi
-    done
+# "파일명 URL" 형식으로 나열 (bash 3.2 호환)
+TOOL_LIST=(
+    "linuxdeploy-x86_64.AppImage   https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+    "linuxdeploy-aarch64.AppImage  https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-aarch64.AppImage"
+    "appimagetool-x86_64.AppImage  https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+    "appimagetool-aarch64.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-aarch64.AppImage"
+    "runtime-x86_64                https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64"
+    "runtime-aarch64               https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-aarch64"
+)
+
+for entry in "${TOOL_LIST[@]}"; do
+    filename="${entry%% *}"
+    url="${entry##* }"
+    dest="$TOOLS_TMP/$filename"
+    if [[ ! -f "$dest" ]]; then
+        echo "    다운로드: $filename"
+        curl -fSL --retry 3 --retry-delay 2 -o "$dest" "$url"
+    else
+        echo "    존재: $filename"
+    fi
 done
 
 tar czf "$TOOLS_ARCHIVE" -C "$TOOLS_TMP" .
