@@ -25,8 +25,10 @@ esac
 
 LINUXDEPLOY="$WORK_DIR/linuxdeploy-${LD_ARCH}.AppImage"
 APPIMAGETOOL="$WORK_DIR/appimagetool-${LD_ARCH}.AppImage"
+RUNTIME_FILE="$WORK_DIR/runtime-${LD_ARCH}"
 LD_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${LD_ARCH}.AppImage"
 AT_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${LD_ARCH}.AppImage"
+RT_URL="https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-${LD_ARCH}"
 OUTPUT="$BIN_DIR/av-${LD_ARCH}.AppImage"
 BINARY="$BIN_DIR/av"
 
@@ -67,12 +69,15 @@ mkdir -p "$WORK_DIR"
 
 TOOLS_ARCHIVE="$PROJECT_ROOT/av-appimage-tools.tar.gz"
 
-for tool_name in linuxdeploy appimagetool; do
-    if [[ "$tool_name" == "linuxdeploy" ]]; then
-        tool_path="$LINUXDEPLOY"; tool_url="$LD_URL"
-    else
-        tool_path="$APPIMAGETOOL"; tool_url="$AT_URL"
-    fi
+# "tool_name|tool_path|tool_url|archive_entry" 형식 (bash 3.2 호환)
+TOOLS_INFO=(
+    "linuxdeploy|$LINUXDEPLOY|$LD_URL|linuxdeploy-${LD_ARCH}.AppImage"
+    "appimagetool|$APPIMAGETOOL|$AT_URL|appimagetool-${LD_ARCH}.AppImage"
+    "runtime|$RUNTIME_FILE|$RT_URL|runtime-${LD_ARCH}"
+)
+
+for entry in "${TOOLS_INFO[@]}"; do
+    IFS='|' read -r tool_name tool_path tool_url archive_entry <<< "$entry"
 
     if [[ -f "$tool_path" ]]; then
         echo "    존재: $tool_name"
@@ -81,17 +86,11 @@ for tool_name in linuxdeploy appimagetool; do
 
     # av-appimage-tools.tar.gz 에서 추출 시도 (오프라인 머신용)
     if [[ -f "$TOOLS_ARCHIVE" ]]; then
-        archive_entry="${tool_name}-${LD_ARCH}.AppImage"
-        if tar tf "$TOOLS_ARCHIVE" "./$archive_entry" &>/dev/null || \
-           tar tf "$TOOLS_ARCHIVE" "$archive_entry" &>/dev/null; then
+        if tar xzf "$TOOLS_ARCHIVE" -C "$WORK_DIR/" "./$archive_entry" 2>/dev/null || \
+           tar xzf "$TOOLS_ARCHIVE" -C "$WORK_DIR/" "$archive_entry" 2>/dev/null; then
             echo "    추출: $tool_name  (av-appimage-tools.tar.gz)"
-            tar xzf "$TOOLS_ARCHIVE" -C "$WORK_DIR/" \
-                --strip-components=0 "./$archive_entry" 2>/dev/null || \
-            tar xzf "$TOOLS_ARCHIVE" -C "$WORK_DIR/" "$archive_entry" 2>/dev/null || true
-            if [[ -f "$WORK_DIR/$archive_entry" ]]; then
-                chmod +x "$WORK_DIR/$archive_entry"
-                continue
-            fi
+            chmod +x "$tool_path" 2>/dev/null || true
+            continue
         fi
     fi
 
@@ -99,12 +98,11 @@ for tool_name in linuxdeploy appimagetool; do
     if command -v curl &>/dev/null; then
         echo "    다운로드: $tool_name"
         curl -fSL --retry 3 --retry-delay 2 -o "$tool_path" "$tool_url"
-        chmod +x "$tool_path"
+        chmod +x "$tool_path" 2>/dev/null || true
     else
         echo "오류: $tool_name 을 찾을 수 없습니다."
-        echo "      인터넷이 되는 머신에서 먼저 실행하세요:"
-        echo "        bash script/fetch-deps.sh"
-        echo "      생성된 av-appimage-tools.tar.gz 를 이 머신으로 복사하세요."
+        echo "      인터넷이 되는 머신에서: bash script/fetch-deps.sh"
+        echo "      생성된 av-appimage-tools.tar.gz 를 이 머신에 복사하세요."
         exit 1
     fi
 done
@@ -204,7 +202,7 @@ chmod +x "$APPDIR/AppRun"
 
 # appimagetool로 최종 패키징
 mkdir -p "$BIN_DIR"
-ARCH="$LD_ARCH" "$APPIMAGETOOL" "$APPDIR" "$OUTPUT"
+ARCH="$LD_ARCH" "$APPIMAGETOOL" --runtime-file "$RUNTIME_FILE" "$APPDIR" "$OUTPUT"
 
 # ── 결과 ─────────────────────────────────────────────────────────────────────
 if [[ -f "$OUTPUT" ]]; then
