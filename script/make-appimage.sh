@@ -65,9 +65,7 @@ echo ""
 echo "── [2/5] 빌드 도구 준비..."
 mkdir -p "$WORK_DIR"
 
-if ! command -v curl &>/dev/null; then
-    echo "오류: curl 필요 → sudo apt install curl"; exit 1
-fi
+TOOLS_ARCHIVE="$PROJECT_ROOT/av-appimage-tools.tar.gz"
 
 for tool_name in linuxdeploy appimagetool; do
     if [[ "$tool_name" == "linuxdeploy" ]]; then
@@ -75,12 +73,39 @@ for tool_name in linuxdeploy appimagetool; do
     else
         tool_path="$APPIMAGETOOL"; tool_url="$AT_URL"
     fi
-    if [[ ! -f "$tool_path" ]]; then
+
+    if [[ -f "$tool_path" ]]; then
+        echo "    존재: $tool_name"
+        continue
+    fi
+
+    # av-appimage-tools.tar.gz 에서 추출 시도 (오프라인 머신용)
+    if [[ -f "$TOOLS_ARCHIVE" ]]; then
+        archive_entry="${tool_name}-${LD_ARCH}.AppImage"
+        if tar tf "$TOOLS_ARCHIVE" "./$archive_entry" &>/dev/null || \
+           tar tf "$TOOLS_ARCHIVE" "$archive_entry" &>/dev/null; then
+            echo "    추출: $tool_name  (av-appimage-tools.tar.gz)"
+            tar xzf "$TOOLS_ARCHIVE" -C "$WORK_DIR/" \
+                --strip-components=0 "./$archive_entry" 2>/dev/null || \
+            tar xzf "$TOOLS_ARCHIVE" -C "$WORK_DIR/" "$archive_entry" 2>/dev/null || true
+            if [[ -f "$WORK_DIR/$archive_entry" ]]; then
+                chmod +x "$WORK_DIR/$archive_entry"
+                continue
+            fi
+        fi
+    fi
+
+    # 인터넷에서 다운로드 시도
+    if command -v curl &>/dev/null; then
         echo "    다운로드: $tool_name"
         curl -fSL --retry 3 --retry-delay 2 -o "$tool_path" "$tool_url"
         chmod +x "$tool_path"
     else
-        echo "    존재: $tool_name"
+        echo "오류: $tool_name 을 찾을 수 없습니다."
+        echo "      인터넷이 되는 머신에서 먼저 실행하세요:"
+        echo "        bash script/fetch-deps.sh"
+        echo "      생성된 av-appimage-tools.tar.gz 를 이 머신으로 복사하세요."
+        exit 1
     fi
 done
 echo ""
