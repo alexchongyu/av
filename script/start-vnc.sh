@@ -36,7 +36,11 @@ fi
 mkdir -p "$LOCAL_DIR"
 for deb in "$DEBS_DIR"/*.deb; do
     pkg=$(dpkg-deb -f "$deb" Package)
-    if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
+    # tigervnc 관련 패키지는 항상 추출 (버전 불일치 방지)
+    if [[ "$pkg" == tigervnc-* ]]; then
+        echo "    추출 (강제): $pkg"
+        dpkg-deb -x "$deb" "$LOCAL_DIR/"
+    elif dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
         echo "    스킵 (설치됨): $pkg"
     else
         echo "    추출: $pkg"
@@ -101,23 +105,23 @@ else
     XKB_DIR="$LOCAL_DIR/usr/share/X11/xkb"
     [[ ! -d "$XKB_DIR" ]] && XKB_DIR="/usr/share/X11/xkb"
 
+    # 번들된 라이브러리 우선 사용 (시스템 라이브러리 버전 불일치 방지)
+    export LD_LIBRARY_PATH="$LOCAL_DIR/usr/lib/x86_64-linux-gnu:$LOCAL_DIR/usr/lib:${LD_LIBRARY_PATH:-}"
+
+    XVNC_ARGS=(
+        "${VNC_DISPLAY}"
+        -geometry "$VNC_GEOMETRY"
+        -depth "$VNC_DEPTH"
+        -rfbport "$VNC_PORT"
+        -xkbdir "$XKB_DIR"
+        -fp "$LOCAL_DIR/usr/share/fonts/X11/misc/,$LOCAL_DIR/usr/share/fonts/X11/Type1/"
+    )
+
     if [[ -f "$HOME/.vnc/passwd" ]]; then
-        "$XVNC" "${VNC_DISPLAY}" \
-            -geometry "$VNC_GEOMETRY" \
-            -depth "$VNC_DEPTH" \
-            -rfbauth "$HOME/.vnc/passwd" \
-            -rfbport "$VNC_PORT" \
-            -xkbdir "$XKB_DIR" \
-            -fp "$LOCAL_DIR/usr/share/fonts/X11/misc/,$LOCAL_DIR/usr/share/fonts/X11/Type1/" \
+        "$XVNC" "${XVNC_ARGS[@]}" -rfbauth "$HOME/.vnc/passwd" \
             &>/tmp/Xvnc${VNC_DISPLAY}.log &
     else
-        "$XVNC" "${VNC_DISPLAY}" \
-            -geometry "$VNC_GEOMETRY" \
-            -depth "$VNC_DEPTH" \
-            -SecurityTypes None \
-            -rfbport "$VNC_PORT" \
-            -xkbdir "$XKB_DIR" \
-            -fp "$LOCAL_DIR/usr/share/fonts/X11/misc/,$LOCAL_DIR/usr/share/fonts/X11/Type1/" \
+        "$XVNC" "${XVNC_ARGS[@]}" -SecurityTypes None \
             &>/tmp/Xvnc${VNC_DISPLAY}.log &
     fi
 
