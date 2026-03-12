@@ -166,6 +166,9 @@ echo ""
 # ── [5/5] 커스텀 AppRun 작성 후 appimagetool로 패키징 ────────────────────────
 echo "── [5/5] AppRun 작성 및 패키징..."
 
+# linuxdeploy가 AppRun을 심볼릭 링크로 만들 수 있으므로 반드시 먼저 제거
+rm -f "$APPDIR/AppRun"
+
 # 커스텀 AppRun: Mesa 소프트웨어 렌더러 우선 사용 (X11 포워딩, VM 등 호환)
 # GPU 렌더링 강제: AV_HARDWARE_GL=1 ./av-x86_64.AppImage
 cat > "$APPDIR/AppRun" <<'APPRUN_EOF'
