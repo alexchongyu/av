@@ -166,37 +166,28 @@ echo ""
 # ── [5/5] 커스텀 AppRun 작성 후 appimagetool로 패키징 ────────────────────────
 echo "── [5/5] AppRun 작성 및 패키징..."
 
-# 커스텀 AppRun: 하드웨어 GL 실패 시 자동으로 소프트웨어 렌더러 폴백
+# 커스텀 AppRun: Mesa 소프트웨어 렌더러 우선 사용 (X11 포워딩, VM 등 호환)
+# GPU 렌더링 강제: AV_HARDWARE_GL=1 ./av-x86_64.AppImage
 cat > "$APPDIR/AppRun" <<'APPRUN_EOF'
 #!/bin/bash
 HERE="$(dirname "$(readlink -f "$0")")"
 
+# FUSE 없는 환경에서도 동작 (extract-and-run 모드)
+export APPIMAGE_EXTRACT_AND_RUN=1
+
 # 번들된 라이브러리 우선 사용
 export LD_LIBRARY_PATH="$HERE/usr/lib:${LD_LIBRARY_PATH:-}"
 
-# 번들된 Mesa DRI 드라이버 경로 설정
+# 번들된 Mesa DRI 드라이버 경로 (swrast_dri.so)
 export LIBGL_DRIVERS_PATH="$HERE/usr/lib/dri:${LIBGL_DRIVERS_PATH:-}"
 
-# 이미 소프트웨어 모드로 재실행된 경우 → 바로 실행
-if [[ "${_AV_SW_RENDER:-}" == "1" ]]; then
+# 기본: Mesa 소프트웨어 렌더러 사용 (X11 포워딩, VM, GPU 없는 환경 모두 동작)
+# GPU 렌더링 강제: AV_HARDWARE_GL=1 ./av-x86_64.AppImage
+if [[ "${AV_HARDWARE_GL:-}" != "1" ]]; then
     export LIBGL_ALWAYS_SOFTWARE=1
-    exec "$HERE/usr/bin/av" "$@"
 fi
 
-# 1차 시도: 하드웨어 렌더링
-tmplog=$(mktemp /tmp/av_XXXXXX.log)
-"$HERE/usr/bin/av" "$@" 2>"$tmplog"
-exit_code=$?
-
-# OpenGL/GLX 관련 오류 감지 → 소프트웨어 렌더링으로 재실행
-if [[ $exit_code -ne 0 ]] && \
-   grep -qE "GLX|fbConfig|X Error.*BadValue|No matching|OpenGL|glXCreate" "$tmplog" 2>/dev/null; then
-    rm -f "$tmplog"
-    exec env _AV_SW_RENDER=1 "$0" "$@"
-fi
-
-rm -f "$tmplog"
-exit $exit_code
+exec "$HERE/usr/bin/av" "$@"
 APPRUN_EOF
 chmod +x "$APPDIR/AppRun"
 
