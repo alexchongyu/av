@@ -75,15 +75,27 @@ LOCK_FILE="/tmp/.X${VNC_DISPLAY#:}-lock"
 if [[ -f "$LOCK_FILE" ]]; then
     echo "    Xvnc 이미 실행 중 (display=${VNC_DISPLAY})"
 else
-    XVNC="$LOCAL_DIR/usr/bin/Xvnc"
-    if [[ ! -f "$XVNC" ]]; then
-        XVNC="$(command -v Xvnc 2>/dev/null || true)"
-    fi
+    # Xvnc 위치 탐색 (패키지마다 경로가 다를 수 있음)
+    XVNC=""
+    for candidate in \
+        "$LOCAL_DIR/usr/bin/Xvnc" \
+        "$LOCAL_DIR/usr/lib/xorg/Xvnc" \
+        "$LOCAL_DIR/usr/libexec/Xvnc" \
+        "$(find "$LOCAL_DIR" -name "Xvnc" -type f 2>/dev/null | head -1)" \
+        "$(command -v Xvnc 2>/dev/null || true)"; do
+        if [[ -n "$candidate" && -f "$candidate" ]]; then
+            XVNC="$candidate"
+            break
+        fi
+    done
 
-    if [[ -z "$XVNC" || ! -f "$XVNC" ]]; then
+    if [[ -z "$XVNC" ]]; then
         echo "오류: Xvnc 바이너리를 찾을 수 없습니다."
+        echo "      찾은 파일 목록:"
+        find "$LOCAL_DIR" -name "Xvnc*" 2>/dev/null || echo "      (없음)"
         exit 1
     fi
+    echo "    Xvnc: $XVNC"
 
     # Xvnc 실행 (xkb 경로 명시)
     XKB_DIR="$LOCAL_DIR/usr/share/X11/xkb"
