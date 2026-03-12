@@ -49,26 +49,9 @@ for deb in "$DEBS_DIR"/*.deb; do
 done
 echo ""
 
-# ── [2/4] VNC 비밀번호 설정 ───────────────────────────────────────────────────
-echo "── [2/4] VNC 비밀번호..."
+# ── [2/4] VNC 인증 설정 (비밀번호 없음) ──────────────────────────────────────
+echo "── [2/4] VNC 인증: 없음 (로컬 전용)"
 mkdir -p "$HOME/.vnc"
-
-VNCPASSWD="$LOCAL_DIR/usr/bin/vncpasswd"
-if [[ ! -f "$VNCPASSWD" ]]; then
-    # 시스템에 설치된 vncpasswd 사용
-    VNCPASSWD="$(command -v vncpasswd 2>/dev/null || true)"
-fi
-
-if [[ ! -f "$HOME/.vnc/passwd" ]]; then
-    if [[ -n "$VNCPASSWD" && -f "$VNCPASSWD" ]]; then
-        echo "    VNC 비밀번호를 설정하세요 (최소 6자):"
-        "$VNCPASSWD" "$HOME/.vnc/passwd"
-    else
-        echo "    vncpasswd 없음 — 비밀번호 없이 실행 (로컬 전용)"
-    fi
-else
-    echo "    기존 비밀번호 사용: $HOME/.vnc/passwd"
-fi
 echo ""
 
 # ── [3/4] Xvnc 시작 ──────────────────────────────────────────────────────────
@@ -117,13 +100,8 @@ else
         -fp "$LOCAL_DIR/usr/share/fonts/X11/misc/,$LOCAL_DIR/usr/share/fonts/X11/Type1/"
     )
 
-    if [[ -f "$HOME/.vnc/passwd" ]]; then
-        "$XVNC" "${XVNC_ARGS[@]}" -rfbauth "$HOME/.vnc/passwd" \
-            &>/tmp/Xvnc${VNC_DISPLAY}.log &
-    else
-        "$XVNC" "${XVNC_ARGS[@]}" -SecurityTypes None \
-            &>/tmp/Xvnc${VNC_DISPLAY}.log &
-    fi
+    "$XVNC" "${XVNC_ARGS[@]}" -SecurityTypes None \
+        &>/tmp/Xvnc${VNC_DISPLAY}.log &
 
     sleep 2
 
