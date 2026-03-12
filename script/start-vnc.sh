@@ -66,9 +66,11 @@ ${LD_LIBRARY_PATH:-}"
 XKB="$LOCAL/usr/share/X11/xkb"
 [[ ! -d "$XKB" ]] && XKB="/usr/share/X11/xkb"
 
-# 폰트 경로
+# 폰트 경로 (없으면 -fp 옵션 제외)
 FONT_PATH="$LOCAL/usr/share/fonts/X11/misc"
 [[ ! -d "$FONT_PATH" ]] && FONT_PATH="/usr/share/fonts/X11/misc"
+FP_OPT=()
+[[ -d "$FONT_PATH" ]] && FP_OPT=(-fp "$FONT_PATH")
 
 if [[ -f "$HOME/.vnc/passwd" ]]; then
     "$XVNC" "$VNC_DISPLAY" \
@@ -77,7 +79,7 @@ if [[ -f "$HOME/.vnc/passwd" ]]; then
         -geometry 1920x1080 \
         -depth 24 \
         -xkbdir "$XKB" \
-        -fp "$FONT_PATH" \
+        "${FP_OPT[@]}" \
         &>/tmp/Xvnc.log &
 else
     "$XVNC" "$VNC_DISPLAY" \
@@ -86,7 +88,7 @@ else
         -geometry 1920x1080 \
         -depth 24 \
         -xkbdir "$XKB" \
-        -fp "$FONT_PATH" \
+        "${FP_OPT[@]}" \
         &>/tmp/Xvnc.log &
 fi
 
