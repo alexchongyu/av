@@ -49,9 +49,22 @@ for deb in "$DEBS_DIR"/*.deb; do
 done
 echo ""
 
-# ── [2/4] VNC 인증 설정 (비밀번호 없음) ──────────────────────────────────────
-echo "── [2/4] VNC 인증: 없음 (로컬 전용)"
+# ── [2/4] VNC 비밀번호 설정 ───────────────────────────────────────────────────
+echo "── [2/4] VNC 비밀번호 설정..."
 mkdir -p "$HOME/.vnc"
+
+VNC_PASSWORD="${VNC_PASSWORD:-avview}"   # 기본 비밀번호: avview (환경변수로 변경 가능)
+
+VNCPASSWD="$(find "$LOCAL_DIR" -name "vncpasswd" -type f 2>/dev/null | head -1)"
+[[ -z "$VNCPASSWD" ]] && VNCPASSWD="$(command -v vncpasswd 2>/dev/null || true)"
+
+if [[ -n "$VNCPASSWD" && -f "$VNCPASSWD" ]]; then
+    echo "$VNC_PASSWORD" | "$VNCPASSWD" -f > "$HOME/.vnc/passwd"
+    chmod 600 "$HOME/.vnc/passwd"
+    echo "    비밀번호: $VNC_PASSWORD"
+else
+    echo "    vncpasswd 없음 — SecurityTypes None 사용"
+fi
 echo ""
 
 # ── [3/4] Xvnc 시작 ──────────────────────────────────────────────────────────
@@ -100,8 +113,13 @@ else
         -fp "$LOCAL_DIR/usr/share/fonts/X11/misc/,$LOCAL_DIR/usr/share/fonts/X11/Type1/"
     )
 
-    "$XVNC" "${XVNC_ARGS[@]}" -SecurityTypes None \
-        &>/tmp/Xvnc${VNC_DISPLAY}.log &
+    if [[ -f "$HOME/.vnc/passwd" ]]; then
+        "$XVNC" "${XVNC_ARGS[@]}" -rfbauth "$HOME/.vnc/passwd" \
+            &>/tmp/Xvnc${VNC_DISPLAY}.log &
+    else
+        "$XVNC" "${XVNC_ARGS[@]}" -SecurityTypes None \
+            &>/tmp/Xvnc${VNC_DISPLAY}.log &
+    fi
 
     sleep 2
 
