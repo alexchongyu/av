@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEBS_DIR="$HOME/tigervnc-debs"
-LOCAL="$HOME/vnc_local"
+LOCAL="$HOME/local"
 VNC_DISPLAY=":1"
 VNC_PORT="5901"
 VNC_PASS="avview"
