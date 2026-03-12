@@ -60,6 +60,17 @@ for name in sdl3 glad imgui stb; do
     fi
 done
 
+# ── 스테일 CMakeCache 제거 (다른 머신에서 만들어진 캐시) ─────────────────────────────
+CACHE_FILE="$BUILD_DIR/CMakeCache.txt"
+if [[ -f "$CACHE_FILE" ]]; then
+    CACHED_SRC=$(grep "^CMAKE_HOME_DIRECTORY" "$CACHE_FILE" 2>/dev/null | cut -d= -f2 || true)
+    if [[ -n "$CACHED_SRC" && "$CACHED_SRC" != "$PROJECT_ROOT" ]]; then
+        echo "==> 다른 머신의 캐시 감지 ($CACHED_SRC) — 캐시 삭제 후 재configure"
+        rm -f "$CACHE_FILE"
+        rm -rf "$BUILD_DIR/CMakeFiles"
+    fi
+fi
+
 # ── CMake Configure (오프라인 모드) ───────────────────────────────────────────────
 echo ""
 echo "── cmake configure (오프라인 모드)..."
