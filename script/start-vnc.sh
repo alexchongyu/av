@@ -13,24 +13,27 @@ VNC_PORT="5901"
 VNC_PASS="avview"
 APPIMAGE="$PROJECT_ROOT/bin/av-x86_64.AppImage"
 
-# ── [1/4] 패키지 추출 ─────────────────────────────────────────────────────────
-echo "[1/4] 패키지 추출..."
-if [[ ! -d "$DEBS_DIR" ]] || [[ -z "$(ls "$DEBS_DIR"/*.deb 2>/dev/null)" ]]; then
-    echo "오류: $DEBS_DIR 에 .deb 파일이 없습니다."
-    exit 1
-fi
-mkdir -p "$LOCAL"
-for deb in "$DEBS_DIR"/*.deb; do
-    dpkg-deb -x "$deb" "$LOCAL/" 2>/dev/null
-done
-
-# Xvnc 위치 탐색
+# ── [1/4] Xvnc 바이너리 확인 (이미 설치된 경우 추출 생략) ─────────────────────
+echo "[1/4] Xvnc 확인..."
 XVNC=$(find "$LOCAL" -name "Xvnc" -type f 2>/dev/null | head -1)
 VNCPASSWD=$(find "$LOCAL" -name "vncpasswd" -type f 2>/dev/null | head -1)
+
 if [[ -z "$XVNC" ]]; then
-    echo "오류: Xvnc 바이너리를 찾을 수 없습니다."
-    echo "추출된 파일 목록:"
-    find "$LOCAL/usr/bin" -type f 2>/dev/null | head -20
+    echo "    Xvnc 없음 → .deb 추출 시도..."
+    if [[ ! -d "$DEBS_DIR" ]] || [[ -z "$(ls "$DEBS_DIR"/*.deb 2>/dev/null)" ]]; then
+        echo "오류: $DEBS_DIR 에 .deb 파일도 없습니다."
+        exit 1
+    fi
+    mkdir -p "$LOCAL"
+    for deb in "$DEBS_DIR"/*.deb; do
+        dpkg-deb -x "$deb" "$LOCAL/" 2>/dev/null || true
+    done
+    XVNC=$(find "$LOCAL" -name "Xvnc" -type f 2>/dev/null | head -1)
+    VNCPASSWD=$(find "$LOCAL" -name "vncpasswd" -type f 2>/dev/null | head -1)
+fi
+
+if [[ -z "$XVNC" ]]; then
+    echo "오류: Xvnc 바이너리를 찾을 수 없습니다. ($LOCAL)"
     exit 1
 fi
 echo "    Xvnc: $XVNC"
