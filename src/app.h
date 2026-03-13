@@ -48,6 +48,15 @@ struct DiffState {
     bool  ssim_computing = false;
     std::vector<uint8_t> ssim_pixels;  // RGBA8 falsecolor heatmap for software mode
     int   ssim_w = 0, ssim_h = 0;     // heatmap dimensions
+
+    // PSNR cache (auto-computed when diff mode active + both images loaded)
+    float psnr_db       = -1.0f;      // overall PSNR (avg of channels), -1 = not computed
+    bool  psnr_computed  = false;
+
+    // Tolerance-based diff highlighting
+    int   threshold              = 0;   // 0=disabled; diff > threshold => highlight
+    int   threshold_exceed_count = 0;   // pixels exceeding threshold (cache)
+    int   threshold_total_count  = 0;   // total compared pixels
 };
 
 struct SaveItemState {
@@ -203,6 +212,21 @@ struct AppState {
     bool         show_scatter_plot = false; // Scatter Plot 창 표시
     bool         windowed_mode = false;    // W key: windowed (title bar) mode
     ContextSaveState context_save;         // right-click context menu save state
+
+    // ─── Feature: Crosshair Overlay (M key) ─────────────────────────────────
+    bool show_crosshair = false;
+
+    // ─── Feature: Histogram Compare ─────────────────────────────────────────
+    bool histogram_compare = false;
+
+    // ─── Feature: Slideshow ─────────────────────────────────────────────────
+    struct SlideshowState {
+        bool  active    = false;
+        float interval  = 3.0f;   // seconds
+        float countdown = 0.0f;
+        int   panel     = 0;      // which panel's sequence to advance
+    };
+    SlideshowState slideshow;
 };
 
 // ─── Function declarations ────────────────────────────────────────────────────

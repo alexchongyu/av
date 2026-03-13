@@ -71,7 +71,7 @@ CliOptions parse_cli(int argc, char* argv[]) {
             print_help(argv[0]);
             std::exit(0);
         } else if (arg == "--version") {
-            std::cout << "av 0.1.0\n";
+            std::cout << "av 0.11\n";
             std::exit(0);
         } else if (arg == "--diff-mode") {
             std::string m = next();
@@ -171,6 +171,7 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         if (state.show_info)         { state.show_info         = false; break; }
         if (state.show_pixel_info)   { state.show_pixel_info   = false; break; }
         if (state.show_save_dialog)  { state.show_save_dialog  = false; break; }
+        if (state.show_crosshair)    { state.show_crosshair    = false; break; }
         if (state.roi.active)        { state.roi.active        = false; break; }
         if (state.overlay.active)    { state.overlay.active    = false; break; }
         break;
@@ -209,6 +210,13 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
             else if (key_num == 4) state.diff.mode = DiffState::Mode::PixelRelative;
             else if (key_num == 5) state.diff.mode = DiffState::Mode::FalseColor;
             else if (key_num == 6) state.diff.mode = DiffState::Mode::SSIM;
+            else if (key_num == 7) {
+                // Ctrl+7: tolerance diff — set threshold to 1 if disabled, or toggle off
+                if (state.diff.threshold == 0)
+                    state.diff.threshold = 1;
+                else
+                    state.diff.threshold = 0;
+            }
             break;
         }
         int key_num = (scancode == SDL_SCANCODE_0) ? 0 : (scancode - SDL_SCANCODE_1 + 1);
@@ -267,14 +275,30 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         if (state.sync_viewports) viewport_pan(vB, +step, 0.0f);
         break;
     case SDL_SCANCODE_K:
-    case SDL_SCANCODE_UP:
         viewport_pan(vA, 0.0f, +step);
         if (state.sync_viewports) viewport_pan(vB, 0.0f, +step);
         break;
+    case SDL_SCANCODE_UP:
+        if (shift && state.slideshow.active) {
+            state.slideshow.interval = std::min(10.0f, state.slideshow.interval + 1.0f);
+            state.slideshow.countdown = std::min(state.slideshow.countdown, state.slideshow.interval);
+        } else {
+            viewport_pan(vA, 0.0f, +step);
+            if (state.sync_viewports) viewport_pan(vB, 0.0f, +step);
+        }
+        break;
     case SDL_SCANCODE_J:
-    case SDL_SCANCODE_DOWN:
         viewport_pan(vA, 0.0f, -step);
         if (state.sync_viewports) viewport_pan(vB, 0.0f, -step);
+        break;
+    case SDL_SCANCODE_DOWN:
+        if (shift && state.slideshow.active) {
+            state.slideshow.interval = std::max(0.5f, state.slideshow.interval - 1.0f);
+            state.slideshow.countdown = std::min(state.slideshow.countdown, state.slideshow.interval);
+        } else {
+            viewport_pan(vA, 0.0f, -step);
+            if (state.sync_viewports) viewport_pan(vB, 0.0f, -step);
+        }
         break;
 
     // ── Diff mode ─────────────────────────────────────────────────────────────
@@ -282,15 +306,30 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         if (ctrl) state.diff.mode = DiffState::Mode::None;
         break;
 
-    // ── Diff amplify ──────────────────────────────────────────────────────────
+    // ── Diff amplify / Tolerance threshold ──────────────────────────────────
     case SDL_SCANCODE_LEFTBRACKET:
-        state.diff.amplify = std::max(0.5f, state.diff.amplify - 0.5f);
+        if (shift) {
+            // Shift+[: threshold -1
+            state.diff.threshold = std::max(0, state.diff.threshold - 1);
+        } else {
+            state.diff.amplify = std::max(0.5f, state.diff.amplify - 0.5f);
+        }
         break;
     case SDL_SCANCODE_RIGHTBRACKET:
-        state.diff.amplify = std::min(100.0f, state.diff.amplify + 0.5f);
+        if (shift) {
+            // Shift+]: threshold +1
+            state.diff.threshold = std::min(255, state.diff.threshold + 1);
+        } else {
+            state.diff.amplify = std::min(100.0f, state.diff.amplify + 0.5f);
+        }
         break;
     case SDL_SCANCODE_BACKSLASH:
-        state.diff.amplify = 1.0f;
+        if (ctrl) {
+            // Ctrl+\: reset threshold
+            state.diff.threshold = 0;
+        } else {
+            state.diff.amplify = 1.0f;
+        }
         break;
 
     // ── Open Image (native dialog) / Overlay 모드 ────────────────────────────
@@ -426,6 +465,24 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
                     SDL_SetWindowBordered(state.window, false);
                     SDL_MaximizeWindow(state.window);
                 }
+            }
+        }
+        break;
+
+    // ── Crosshair overlay 토글 (M) ─────────────────────────────────────────────
+    case SDL_SCANCODE_M:
+        if (!ctrl && !shift && !gui) {
+            state.show_crosshair = !state.show_crosshair;
+        }
+        break;
+
+    // ── Slideshow 자동 재생 (A) ─────────────────────────────────────────────
+    case SDL_SCANCODE_A:
+        if (!ctrl && !shift && !gui) {
+            state.slideshow.active = !state.slideshow.active;
+            if (state.slideshow.active) {
+                state.slideshow.countdown = state.slideshow.interval;
+                state.slideshow.panel = state.active_panel;
             }
         }
         break;

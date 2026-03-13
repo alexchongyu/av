@@ -73,7 +73,7 @@
 #align(center)[
   #text(size: 20pt, weight: "bold")[av #text(size: 12pt, weight: "regular", fill: luma(80))[\u{2014} Advanced Pixel Lens Cheat Sheet]]
   #v(0.15em)
-  #text(size: 8pt, fill: luma(120))[v0.4 \u{2014} 2026\-03\-13]
+  #text(size: 8pt, fill: luma(120))[v0.11 \u{2014} 2026\-03\-13]
 ]
 
 #v(0.3em)
@@ -155,6 +155,9 @@ av [image_a] [image_b] [options]
   [#key("Ctrl+4")], [Relative diff],
   [#key("Ctrl+5")], [False color],
   [#key("Ctrl+6")], [SSIM],
+  [#key("Ctrl+7")], [Tolerance diff 토글],
+  [#key("Shift+]") / #key("Shift+[")], [Threshold +1 / \-1],
+  [#key("Ctrl+\\")], [Threshold 리셋],
 )
 
 *Diff 증폭*
@@ -206,6 +209,9 @@ av [image_a] [image_b] [options]
   [#key("Ctrl+S")], [통계 (Statistics)],
   [#key("Ctrl+E")], [ROI 영역 선택],
   [#key("Ctrl+T")], [Scatter Plot],
+  [#key("M")],      [Crosshair 토글],
+  [#key("A")],      [Slideshow 자동 재생],
+  [#key("Shift+↑") / #key("Shift+↓")], [Slideshow 간격 조절],
 )
 
 *오버레이*

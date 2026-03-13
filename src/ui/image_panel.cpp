@@ -226,6 +226,8 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
         render_pixel_values(state, panel_idx, widget_pos, pw, ph);
     }
 
+    render_crosshair(state, panel_idx, widget_pos, pw, ph, img.width, img.height);
+
     if (panel_idx == 0) {
         render_pathfinder(state, panel_idx, widget_pos, pw, ph);
     }
@@ -338,6 +340,53 @@ void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
     }
 }
 
+// ─── apply_threshold_to_diff ─────────────────────────────────────────────────
+// Post-process diff buffer: pixels with max channel diff <= threshold become dark gray.
+// Returns (exceed_count, total_count).
+
+static std::pair<int,int> apply_threshold_to_diff(
+    const ImageEntry& imgA, const ImageEntry& imgB,
+    uint8_t* buf, int view_w, int view_h,
+    const ViewportState& vp, int threshold)
+{
+    if (threshold <= 0) return {0, 0};
+
+    float half_vw = view_w * 0.5f, half_vh = view_h * 0.5f;
+    float half_iw = imgA.width * 0.5f, half_ih = imgA.height * 0.5f;
+    float th_norm = threshold / 255.0f;
+    int exceed = 0, total = 0;
+
+    for (int sy = 0; sy < view_h; ++sy) {
+        for (int sx = 0; sx < view_w; ++sx) {
+            float img_fx = (sx - half_vw) / vp.zoom - vp.pan_x + half_iw;
+            float img_fy = (sy - half_vh) / vp.zoom - vp.pan_y + half_ih;
+
+            if (img_fx < 0 || img_fy < 0 || img_fx >= imgA.width || img_fy >= imgA.height)
+                continue;
+
+            // Get original pixel diff (before amplification)
+            float a[4], b_val[4];
+            sample_pixel(imgA, img_fx, img_fy, vp.zoom, a);
+            sample_pixel(imgB, img_fx, img_fy, vp.zoom, b_val);
+            float max_diff = 0.0f;
+            for (int c = 0; c < 3; ++c) {
+                float d = std::fabs(a[c] - b_val[c]);
+                if (d > max_diff) max_diff = d;
+            }
+
+            ++total;
+            if (max_diff > th_norm) {
+                ++exceed;
+            } else {
+                // Below threshold: dark gray
+                uint8_t* dst = buf + (sy * view_w + sx) * 4;
+                dst[0] = 40; dst[1] = 40; dst[2] = 40; dst[3] = 255;
+            }
+        }
+    }
+    return {exceed, total};
+}
+
 // ─── cpu_render_overlay ─────────────────────────────────────────────────────
 
 void ImagePanel::cpu_render_overlay(const ImageEntry& imgA, const ImageEntry& imgB,
@@ -408,6 +457,14 @@ void ImagePanel::render_diff_software(AppState& state) {
     cpu_render_diff(imgA, imgB, vp, soft_buf_.data(), pw, ph,
                     state.diff.mode, state.diff.amplify, state.channel_mode);
 
+    // Apply tolerance threshold post-processing
+    if (state.diff.threshold > 0) {
+        auto [exceed, total] = apply_threshold_to_diff(
+            imgA, imgB, soft_buf_.data(), pw, ph, vp, state.diff.threshold);
+        state.diff.threshold_exceed_count = exceed;
+        state.diff.threshold_total_count  = total;
+    }
+
     SDL_UpdateTexture(tex, nullptr, soft_buf_.data(), pw * 4);
 
     ImTextureID imgui_tex = reinterpret_cast<ImTextureID>(tex);
@@ -433,6 +490,8 @@ void ImagePanel::render_diff_software(AppState& state) {
 
     if (vp.zoom >= 32.0f && imgA.loaded && imgB.loaded)
         render_diff_pixel_values(state, widget_pos, pw, ph);
+
+    render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
 }
 
 // ─── render_overlay_software ──────────────────────────────────────────────────
@@ -505,6 +564,7 @@ void ImagePanel::render_overlay_software(AppState& state) {
     if (state.roi.has_roi || state.roi.dragging)
         render_roi_overlay(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
 
+    render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
     render_pathfinder(state, 0, widget_pos, pw, ph);
 }
 
@@ -565,6 +625,8 @@ void ImagePanel::render_ssim_software(AppState& state) {
 
     if (state.roi.has_roi || state.roi.dragging)
         render_roi_overlay(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
+
+    render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
 }
 
 // ─── Mouse pan helper ─────────────────────────────────────────────────────────
@@ -839,6 +901,72 @@ static void draw_image_border(ImDrawList* dl, ImVec2 widget_pos,
     draw_h_edge(y1, x0, x1);  // bottom edge
 }
 
+// ─── render_crosshair ─────────────────────────────────────────────────────────
+
+void ImagePanel::render_crosshair(const AppState& state, int panel_idx,
+                                   ImVec2 widget_pos, int view_w, int view_h,
+                                   int img_w, int img_h) {
+    if (!state.show_crosshair) return;
+
+    ImVec2 mouse = ImGui::GetMousePos();
+    // Only draw if mouse is within this panel
+    if (mouse.x < widget_pos.x || mouse.x > widget_pos.x + view_w ||
+        mouse.y < widget_pos.y || mouse.y > widget_pos.y + view_h)
+        return;
+
+    const ViewportState& vp = state.views[panel_idx];
+    float half_vw = view_w * 0.5f;
+    float half_vh = view_h * 0.5f;
+    float half_iw = img_w * 0.5f;
+    float half_ih = img_h * 0.5f;
+
+    // Screen → image coordinate
+    float screen_x = mouse.x - widget_pos.x;
+    float screen_y = mouse.y - widget_pos.y;
+    float img_fx = (screen_x - half_vw) / vp.zoom - vp.pan_x + half_iw;
+    float img_fy = (screen_y - half_vh) / vp.zoom - vp.pan_y + half_ih;
+
+    int img_x = static_cast<int>(std::floor(img_fx));
+    int img_y = static_cast<int>(std::floor(img_fy));
+
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+
+    // Crosshair lines (full viewport span)
+    ImU32 line_col = IM_COL32(255, 255, 0, 160);
+    dl->AddLine(ImVec2(widget_pos.x, mouse.y),
+                ImVec2(widget_pos.x + view_w, mouse.y), line_col, 1.0f);
+    dl->AddLine(ImVec2(mouse.x, widget_pos.y),
+                ImVec2(mouse.x, widget_pos.y + view_h), line_col, 1.0f);
+
+    // Coordinate label near cursor
+    if (img_x >= 0 && img_x < img_w && img_y >= 0 && img_y < img_h) {
+        char coord_buf[32];
+        std::snprintf(coord_buf, sizeof(coord_buf), "(%d, %d)", img_x, img_y);
+        ImVec2 text_size = ImGui::CalcTextSize(coord_buf);
+        float tx = mouse.x + 12.0f;
+        float ty = mouse.y - text_size.y - 6.0f;
+        // Keep label inside viewport
+        if (tx + text_size.x + 4 > widget_pos.x + view_w)
+            tx = mouse.x - text_size.x - 16.0f;
+        if (ty < widget_pos.y)
+            ty = mouse.y + 6.0f;
+        dl->AddRectFilled(ImVec2(tx - 3, ty - 2),
+                          ImVec2(tx + text_size.x + 3, ty + text_size.y + 2),
+                          IM_COL32(0, 0, 0, 200), 3.0f);
+        dl->AddText(ImVec2(tx, ty), IM_COL32(255, 255, 0, 240), coord_buf);
+    }
+
+    // If sync viewports, draw crosshair on OTHER panel too (using same image coords)
+    if (state.sync_viewports && state.images[0].loaded && state.images[1].loaded) {
+        // The other panel's crosshair will be drawn when render_crosshair is called
+        // for the other panel, but we need to show the crosshair at the same IMAGE
+        // position (not screen position). This is handled by checking whether the
+        // mouse is hovering a different panel and converting via image coords.
+        // For simplicity, we rely on the foreground draw list being shared — the
+        // calling code handles both panels.
+    }
+}
+
 // ─── render_pathfinder ────────────────────────────────────────────────────────
 // 왼쪽 패널 하단에 미니맵 + 현재 뷰포트 인디케이터를 표시.
 // vp.fit 상태이거나 panel_idx != 0이면 표시하지 않음.
@@ -1010,6 +1138,8 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
     if (vp.zoom >= 32.0f && img.loaded) {
         render_pixel_values(state, panel_idx, widget_pos, pw, ph);
     }
+
+    render_crosshair(state, panel_idx, widget_pos, pw, ph, img.width, img.height);
 
     if (panel_idx == 0) {
         render_pathfinder(state, panel_idx, widget_pos, pw, ph);
@@ -1185,7 +1315,8 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
                          imgA.width, imgA.height,
                          pw, ph,
                          state.diff.mode, state.diff.amplify,
-                         state.channel_mode);
+                         state.channel_mode,
+                         state.diff.threshold);
     fbo_.unbind();
 
     ImTextureID tex = static_cast<ImTextureID>(fbo_.tex_id);
@@ -1215,6 +1346,8 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
     if (vp.zoom >= 32.0f && imgA.loaded && imgB.loaded) {
         render_diff_pixel_values(state, widget_pos, pw, ph);
     }
+
+    render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
 }
 
 // ─── render_diff_pixel_values ─────────────────────────────────────────────

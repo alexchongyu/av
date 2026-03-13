@@ -26,7 +26,8 @@ public:
                 int img_w,  int img_h,
                 int view_w, int view_h,
                 DiffState::Mode mode, float amplify,
-                ChannelMode channel);
+                ChannelMode channel,
+                int threshold = 0);
 
     bool valid() const { return shader_.valid(); }
 

@@ -419,6 +419,26 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // ── Slideshow countdown ──────────────────────────────────────────────
+        if (state.slideshow.active) {
+            float dt = io.DeltaTime;
+            state.slideshow.countdown -= dt;
+            if (state.slideshow.countdown <= 0.0f) {
+                // Advance sequence
+                int ap = state.slideshow.panel;
+                auto& seq = state.sequences[ap];
+                if (!seq.files.empty() && seq.current_index >= 0) {
+                    int n_files = (int)seq.files.size();
+                    seq.current_index = (seq.current_index + 1) % n_files;
+                    state.open_state.opened_path  = seq.files[seq.current_index];
+                    state.open_state.open_target   = ap;
+                    state.open_state.open_pending  = true;
+                    state.open_state.clear_other   = false;
+                }
+                state.slideshow.countdown = state.slideshow.interval;
+            }
+        }
+
         // ── Window size ───────────────────────────────────────────────────────
         int fb_w = 0, fb_h = 0;
         SDL_GetWindowSizeInPixels(window, &fb_w, &fb_h);

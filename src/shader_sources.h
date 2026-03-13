@@ -82,6 +82,7 @@ uniform vec2  u_pan;
 uniform int   u_diff_mode;
 uniform float u_amplify;
 uniform int   u_channel;     // 0=RGB, 1=R, 2=G, 3=B
+uniform int   u_threshold;  // 0=disabled; diff > threshold/255 => highlight
 
 in  vec2 v_uv;
 out vec4 out_color;
@@ -132,6 +133,15 @@ void main() {
     }
 
     out_color = vec4(result, 1.0);
+
+    // Tolerance threshold: suppress pixels below threshold
+    if (u_threshold > 0) {
+        float th = float(u_threshold) / 255.0;
+        float max_diff = max(max(diff.r, diff.g), diff.b);
+        if (max_diff <= th) {
+            out_color = vec4(0.157, 0.157, 0.157, 1.0);  // dark gray (40/255)
+        }
+    }
 
     // Pixel grid at high zoom (>= 16x)
     if (u_zoom >= 16.0) {

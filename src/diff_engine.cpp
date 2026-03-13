@@ -41,7 +41,8 @@ void DiffRenderer::render(uintptr_t texA, uintptr_t texB,
                           int img_w,  int img_h,
                           int view_w, int view_h,
                           DiffState::Mode mode, float amplify,
-                          ChannelMode channel) {
+                          ChannelMode channel,
+                          int threshold) {
     if (!shader_.valid()) return;
 
     int diff_mode_int = 0;
@@ -67,6 +68,7 @@ void DiffRenderer::render(uintptr_t texA, uintptr_t texB,
     shader_.set_int  ("u_diff_mode",   diff_mode_int);
     shader_.set_float("u_amplify",     amplify);
     shader_.set_int  ("u_channel",    static_cast<int>(channel));
+    shader_.set_int  ("u_threshold",  threshold);
 
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);

@@ -86,6 +86,10 @@ private:
     int    drag_panel_idx_  = 0;
     int    context_panel_type_ = -1;  // last context menu target (-1=none, 0=A, 1=B, 2=Diff)
 
+    void render_crosshair(const AppState& state, int panel_idx,
+                          ImVec2 widget_pos, int view_w, int view_h,
+                          int img_w, int img_h);
+
     // ROI drag state - stored in AppState.roi
     ImVec2 roi_drag_start_  = {0.0f, 0.0f};
 

@@ -3054,13 +3054,162 @@ set(APPIMAGE_OUT "${CMAKE_SOURCE_DIR}/bin/av-${LD_ARCH}.AppImage")
 
 
 // ──────────────────────────────────────────────
+// Ch 12 — Phase 6: v0.11 기능 확장
+// ──────────────────────────────────────────────
+
+= Phase 6: v0.11 기능 확장
+
+v0.11에서 다섯 가지 신규 분석 기능과 Dynamic Window Title이 추가되었다.
+
+== Crosshair Overlay
+
+`M` 키로 토글하는 십자선(Crosshair) 오버레이이다.
+
+=== 상태 필드
+
+`AppState::show_crosshair` (bool) — 활성 시 커서 위치에 수평/수직 점선을 그린다.
+
+=== 렌더링 방식
+
+`ImagePanel::render()` 내부에서 `ImDrawList`를 사용하여 구현한다. 커서가 패널 영역 내에 있을 때, 커서의 x 좌표로 수직선, y 좌표로 수평선을 패널 전체 너비/높이에 걸쳐 그린다. 반투명 노란색(`ImVec4(1, 1, 0, 0.6)`) 1px 선을 사용한다.
+
+=== 키 바인딩
+
+#figure(
+  table(
+    columns: (1.5fr, 3fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*키*][*동작*],
+    [`M`], [Crosshair 오버레이 토글],
+    [`Escape`], [Crosshair 비활성화 (다른 팝업 해제 후)],
+  ),
+  caption: [Crosshair 키 바인딩],
+)
+
+== PSNR 자동 계산
+
+두 이미지가 로드되고 diff 모드가 활성화되면 PSNR(Peak Signal\-to\-Noise Ratio)을 자동으로 계산하여 상태바에 표시한다.
+
+=== 구현
+
+`DiffState`에 `psnr_db` (float)와 `psnr_computed` (bool) 캐시 필드가 있다. `compute_diff_stats()` 함수를 재사용하여 이미지 변경 시 한 번만 계산한다. 상태바에 `PSNR: %.2f dB` 형식으로 표시되며, 무한대(동일 이미지)일 경우 `PSNR: inf`로 표시한다.
+
+=== 캐시 무효화
+
+이미지 로드, diff 모드 변경, 이미지 회전 시 `psnr_computed = false`로 리셋되어 다음 프레임에서 재계산된다.
+
+== Tolerance Diff
+
+diff 모드에서 threshold 기반으로 유의미한 차이가 있는 픽셀만 하이라이트하는 기능이다.
+
+=== 상태 필드
+
+- `DiffState::threshold` (int, 0\~255) — 0이면 비활성, 양수면 해당 값 초과 차이만 표시
+- `DiffState::threshold_exceed_count` (int) — threshold 초과 픽셀 수 (캐시)
+- `DiffState::threshold_total_count` (int) — 비교된 전체 픽셀 수
+
+=== GPU/CPU 이중 경로
+
+OpenGL 모드에서는 셰이더 uniform `u_threshold`로 전달되어 GPU에서 처리한다. 소프트웨어 렌더러에서는 CPU 루프에서 동일한 로직을 수행한다. 두 경로 모두 threshold 이하의 차이는 검정색(0,0,0)으로, 초과 시에만 증폭된 diff 값을 표시한다.
+
+=== 키 바인딩
+
+#figure(
+  table(
+    columns: (1.5fr, 3fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*키*][*동작*],
+    [`Ctrl+7`], [Tolerance diff 토글 (threshold 0↔1)],
+    [`Shift+]`], [Threshold +1],
+    [`Shift+[`], [Threshold \-1],
+    [`Ctrl+\\`], [Threshold 리셋 (0)],
+  ),
+  caption: [Tolerance Diff 키 바인딩],
+)
+
+== Slideshow 자동 재생
+
+시퀀스 내 이미지를 자동으로 순환하는 기능이다.
+
+=== SlideshowState
+
+```cpp
+struct SlideshowState {
+    bool  active    = false;
+    float interval  = 3.0f;   // seconds
+    float countdown = 0.0f;
+    int   panel     = 0;      // which panel's sequence to advance
+};
+```
+
+=== DeltaTime 기반 카운트다운
+
+`main_window.cpp`의 render 루프에서 ImGui의 `io.DeltaTime`을 사용하여 카운트다운을 감소시킨다. 카운트다운이 0 이하가 되면 해당 패널의 시퀀스에서 다음 이미지를 로드하고 카운트다운을 `interval`로 리셋한다.
+
+=== 키 바인딩
+
+#figure(
+  table(
+    columns: (1.5fr, 3fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*키*][*동작*],
+    [`A`], [Slideshow 토글],
+    [`Shift+↑`], [간격 +1초 (최대 10초)],
+    [`Shift+↓`], [간격 \-1초 (최소 0.5초)],
+  ),
+  caption: [Slideshow 키 바인딩],
+)
+
+== Histogram Compare
+
+히스토그램 창에서 A/B 이미지의 히스토그램을 동시에 오버레이하여 비교하는 모드이다.
+
+=== compare 모드 체크박스
+
+히스토그램 창 상단에 "Compare" 체크박스를 제공한다. 체크 시 `AppState::histogram_compare` (bool)가 토글되어 두 이미지의 히스토그램이 동일 좌표계에 반투명으로 겹쳐 표시된다.
+
+=== 이중 히스토그램 오버레이
+
+단일 패널에 A 이미지의 히스토그램(실선)과 B 이미지의 히스토그램(점선 또는 반투명)을 겹쳐 그린다. 각 채널(R/G/B)별로 두 이미지의 분포 차이를 직관적으로 비교할 수 있다.
+
+== Dynamic Window Title
+
+Windowed 모드에서 SDL 창 제목에 로드된 이미지 파일명과 활성 diff 모드를 표시한다.
+
+=== 타이틀 포맷
+
+#figure(
+  table(
+    columns: (2fr, 3fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*상태*][*제목*],
+    [이미지 없음], [`av`],
+    [A만 로드], [`av — photo.png`],
+    [A+B 로드], [`av — photo.png | ref.png`],
+    [A+B + diff], [`av — photo.png | ref.png [Abs]`],
+    [Fullscreen], [`Advanced Pixel Lens` (기존 유지)],
+  ),
+  caption: [Dynamic Window Title 포맷],
+)
+
+=== 구현
+
+`main_window.cpp`의 `MainWindow::render()` 초반부에서 매 프레임 타이틀 문자열을 구성한다. 이전 프레임의 타이틀과 비교하여 변경이 있을 때만 `SDL_SetWindowTitle()`을 호출하여 불필요한 API 호출을 방지한다.
+
+`title_diff_label()` 헬퍼 함수가 `DiffState::Mode`를 짧은 라벨 문자열로 변환한다: `PixelAbsolute` → `"Abs"`, `PixelRelative` → `"Rel"`, `FalseColor` → `"FalseColor"`, `SSIM` → `"SSIM"`. diff 모드가 `None`이면 라벨을 생략한다.
+
+// ──────────────────────────────────────────────
 // 마무리 페이지
 // ──────────────────────────────────────────────
 
 #pagebreak()
 #align(center + horizon)[
   #text(size: 11pt, fill: luma(120))[
-    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.4 \
+    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.11 \
     #v(0.3em)
     2026\-03\-13 \
     #v(0.3em)

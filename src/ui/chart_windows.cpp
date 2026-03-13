@@ -334,6 +334,105 @@ void render_histogram_window(AppState& state) {
         }
     }
 
+    // ── Compare A/B overlay mode ──
+    if (state.images[0].loaded && state.images[1].loaded) {
+        ImGui::Separator();
+        ImGui::Checkbox("Compare A/B", &state.histogram_compare);
+        if (state.histogram_compare) {
+            // Build histograms for A and B
+            uint32_t hist_a[3][256]{}, hist_b[3][256]{};
+            const ImageEntry& imgA = state.images[0];
+            const ImageEntry& imgB = state.images[1];
+
+            if (!imgA.pixels.empty()) {
+                int npix = imgA.width * imgA.height;
+                for (int p = 0; p < npix; ++p) {
+                    hist_a[0][imgA.pixels[p*4+0]]++;
+                    hist_a[1][imgA.pixels[p*4+1]]++;
+                    hist_a[2][imgA.pixels[p*4+2]]++;
+                }
+            }
+            if (!imgB.pixels.empty()) {
+                int npix = imgB.width * imgB.height;
+                for (int p = 0; p < npix; ++p) {
+                    hist_b[0][imgB.pixels[p*4+0]]++;
+                    hist_b[1][imgB.pixels[p*4+1]]++;
+                    hist_b[2][imgB.pixels[p*4+2]]++;
+                }
+            }
+
+            ImGui::Text("Compare A (magenta) / B (yellow)");
+            const ImU32 col_a = IM_COL32(255, 0, 255, 120);
+            const ImU32 col_b = IM_COL32(255, 255, 0, 120);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+
+            for (int c = 0; c < 3; ++c) {
+                // Find common max (log scale)
+                float max_log = 1.0f;
+                uint32_t max_count_a = 0, max_count_b = 0;
+                for (int bin = 0; bin < 256; ++bin) {
+                    float lv_a = std::log1p((float)hist_a[c][bin]);
+                    float lv_b = std::log1p((float)hist_b[c][bin]);
+                    if (lv_a > max_log) max_log = lv_a;
+                    if (lv_b > max_log) max_log = lv_b;
+                    if (hist_a[c][bin] > max_count_a) max_count_a = hist_a[c][bin];
+                    if (hist_b[c][bin] > max_count_b) max_count_b = hist_b[c][bin];
+                }
+                ImGui::Text("  %s", ch_names[c]);
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + y_margin);
+                ImVec2 origin = ImGui::GetCursorScreenPos();
+                ImGui::Dummy(ImVec2(chart_w, ch_h));
+                draw_chart_bg(dl, origin, chart_w, ch_h);
+
+                float bar_w = chart_w / 256.0f;
+                // Draw A bars (magenta)
+                for (int bin = 0; bin < 256; ++bin) {
+                    float h_frac = std::log1p((float)hist_a[c][bin]) / max_log;
+                    float bh = h_frac * ch_h;
+                    if (bh < 0.5f) continue;
+                    float x0 = origin.x + bin * bar_w;
+                    float x1 = x0 + std::max(bar_w, 1.0f);
+                    dl->AddRectFilled(ImVec2(x0, origin.y + ch_h - bh),
+                                      ImVec2(x1, origin.y + ch_h), col_a);
+                }
+                // Draw B bars (yellow)
+                for (int bin = 0; bin < 256; ++bin) {
+                    float h_frac = std::log1p((float)hist_b[c][bin]) / max_log;
+                    float bh = h_frac * ch_h;
+                    if (bh < 0.5f) continue;
+                    float x0 = origin.x + bin * bar_w;
+                    float x1 = x0 + std::max(bar_w, 1.0f);
+                    dl->AddRectFilled(ImVec2(x0, origin.y + ch_h - bh),
+                                      ImVec2(x1, origin.y + ch_h), col_b);
+                }
+                // Y-axis labels
+                uint32_t max_count = std::max(max_count_a, max_count_b);
+                for (int t = 1; t <= 4; ++t) {
+                    float y = origin.y + ch_h * (1.0f - t * 0.25f);
+                    int64_t cnt = (t == 4) ? (int64_t)max_count
+                                           : (int64_t)std::round(std::expm1(t * 0.25f * max_log));
+                    std::string s = fmt_comma(cnt);
+                    ImVec2 ts = ImGui::CalcTextSize(s.c_str());
+                    dl->AddText(ImVec2(origin.x - ts.x - 4.0f, y - ts.y * 0.5f),
+                                IM_COL32(180, 180, 180, 200), s.c_str());
+                }
+                // X-axis labels
+                for (int ti = 0; ti < hist_x_nticks; ++ti) {
+                    int v = hist_x_ticks[ti];
+                    float x = origin.x + (float)v / 255.0f * chart_w;
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "%d", v);
+                    ImVec2 ts = ImGui::CalcTextSize(buf);
+                    dl->AddText(ImVec2(x - ts.x * 0.5f, origin.y + ch_h + 2.0f),
+                                IM_COL32(180, 180, 180, 200), buf);
+                }
+                ImGui::Dummy(ImVec2(0.0f, 16.0f));
+            }
+            // (hover tooltip for compare mode uses the existing per-section hover logic)
+        }
+        any = true;
+    }
+
     if (!any) {
         ImGui::TextDisabled("(no image loaded)");
     }

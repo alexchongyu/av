@@ -23,6 +23,16 @@
 
 namespace {
 
+static const char* title_diff_label(DiffState::Mode m) {
+    switch (m) {
+    case DiffState::Mode::PixelAbsolute: return "Abs";
+    case DiffState::Mode::PixelRelative: return "Rel";
+    case DiffState::Mode::FalseColor:    return "FalseColor";
+    case DiffState::Mode::SSIM:          return "SSIM";
+    default: return nullptr;
+    }
+}
+
 static std::string sv_path_dir(const std::string& p) {
     auto pos = path_last_sep(p);
     return (pos == std::string::npos) ? "./" : p.substr(0, pos + 1);
@@ -766,6 +776,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Display", "R",                          "Rotate image CW 90 degrees" },
         { "Display", "Ctrl+R",                     "Rotate image CCW 90 degrees" },
         { "Display", "Shift+Space",                "Swap A/B images" },
+        { "Display", "M",                          "Toggle crosshair overlay" },
         { "Display", "P",                          "Pathfinder: image minimap" },
         { "Display", "Ctrl+P",                     "Pathfinder: schematic mode" },
         // Channel
@@ -786,6 +797,9 @@ static void render_hotkey_help_window(AppState& state) {
         // Sequence
         { "Sequence", "N",                         "Next image in directory sequence" },
         { "Sequence", "Shift+N",                   "Previous image in directory sequence" },
+        { "Sequence", "A",                         "Toggle slideshow auto-play" },
+        { "Sequence", "Shift+Up",                  "Slideshow interval +1s" },
+        { "Sequence", "Shift+Down",                "Slideshow interval -1s" },
         // Diff
         { "Diff", "Ctrl+D",                        "Disable diff mode" },
         { "Diff", "Ctrl+3",                        "Diff: Pixel Absolute" },
@@ -795,6 +809,10 @@ static void render_hotkey_help_window(AppState& state) {
         { "Diff", "[",                             "Decrease diff amplify" },
         { "Diff", "]",                             "Increase diff amplify" },
         { "Diff", "\\",                            "Reset diff amplify (1.0x)" },
+        { "Diff", "Ctrl+7",                        "Toggle tolerance-based diff" },
+        { "Diff", "Shift+]",                       "Increase diff threshold (+1)" },
+        { "Diff", "Shift+[",                       "Decrease diff threshold (-1)" },
+        { "Diff", "Ctrl+\\",                       "Reset diff threshold (0)" },
         // File
         { "File", "Shift+Ctrl+O",                  "Open image file" },
         { "File", "Shift+Ctrl+S",                  "Save dialog" },
@@ -856,6 +874,31 @@ static void render_hotkey_help_window(AppState& state) {
 void MainWindow::render(AppState& state) {
     if (!inited_) return;
 
+    // ── Dynamic window title ─────────────────────────────────────────────────
+    if (state.window) {
+        static std::string prev_title;
+        std::string title;
+        if (state.windowed_mode) {
+            title = "av";
+            bool has_a = state.images[0].loaded;
+            bool has_b = state.images[1].loaded;
+            if (has_a || has_b) {
+                title += " \xe2\x80\x94 ";  // em dash
+                if (has_a) title += path_basename(state.images[0].path.c_str());
+                if (has_a && has_b) title += " | ";
+                if (has_b) title += path_basename(state.images[1].path.c_str());
+                const char* dl = title_diff_label(state.diff.mode);
+                if (dl) { title += " ["; title += dl; title += "]"; }
+            }
+        } else {
+            title = "Advanced Pixel Lens";
+        }
+        if (title != prev_title) {
+            SDL_SetWindowTitle(state.window, title.c_str());
+            prev_title = std::move(title);
+        }
+    }
+
     // ── Process pending image-open (set by SDL dialog callback) ──────────────
     if (state.open_state.open_pending && !state.open_state.opened_path.empty()) {
         int target = state.open_state.open_target;
@@ -869,6 +912,7 @@ void MainWindow::render(AppState& state) {
             state.views[target].fit   = true;
             state.views[target].pan_x = 0.0f;
             state.views[target].pan_y = 0.0f;
+            state.diff.psnr_computed  = false;  // invalidate PSNR cache
 
             // 시퀀스 스캔: 새 이미지 로드 시 디렉토리 탐색
             int cur_idx = -1;
@@ -965,6 +1009,31 @@ void MainWindow::render(AppState& state) {
             });
     }
     prev_diff_mode = state.diff.mode;
+
+    // ── PSNR auto-computation ────────────────────────────────────────────────
+    {
+        bool need_psnr = (state.diff.mode != DiffState::Mode::None) &&
+                         state.images[0].loaded && state.images[1].loaded;
+        if (need_psnr && !state.diff.psnr_computed) {
+            DiffExtraStats extra;
+            compute_diff_stats(state.images[0], state.images[1], extra);
+            // Average PSNR across RGB channels
+            double sum = 0.0;
+            int cnt = 0;
+            for (int c = 0; c < 3; ++c) {
+                if (extra.psnr[c] > 0 && extra.psnr[c] < 999.0) {
+                    sum += extra.psnr[c];
+                    ++cnt;
+                }
+            }
+            state.diff.psnr_db = (cnt > 0) ? static_cast<float>(sum / cnt) : 999.0f;
+            state.diff.psnr_computed = true;
+        }
+        if (!need_psnr) {
+            state.diff.psnr_computed = false;
+            state.diff.psnr_db = -1.0f;
+        }
+    }
 
     // ── Full-screen host window ───────────────────────────────────────────────
     const ImGuiViewport* vp = ImGui::GetMainViewport();

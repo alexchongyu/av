@@ -83,6 +83,33 @@ void StatusBar::render(const AppState& state) {
         ImGui::SameLine();
     }
 
+    // PSNR (auto-computed with diff mode)
+    if (state.diff.mode != DiffState::Mode::None && state.diff.psnr_computed && state.diff.psnr_db > 0) {
+        float p = state.diff.psnr_db;
+        ImVec4 col = (p > 40.0f) ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                   : (p > 30.0f) ? ImVec4(1.0f, 0.9f, 0.2f, 1.0f)
+                                 : ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+        if (p >= 999.0f)
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "PSNR: inf");
+        else
+            ImGui::TextColored(col, "PSNR: %.1f dB", p);
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+    }
+
+    // Tolerance threshold
+    if (state.diff.mode != DiffState::Mode::None && state.diff.threshold > 0) {
+        float pct = (state.diff.threshold_total_count > 0)
+            ? state.diff.threshold_exceed_count * 100.0f / state.diff.threshold_total_count
+            : 0.0f;
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+            "Thr: %d (%.1f%% exceed)", state.diff.threshold, pct);
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+    }
+
     // Sequence info
     for (int i = 0; i < 2; ++i) {
         const auto& seq = state.sequences[i];
@@ -113,6 +140,23 @@ void StatusBar::render(const AppState& state) {
             ? "Curtain" : "Blend";
         ImGui::TextColored(ImVec4(0.6f, 1.0f, 0.6f, 1.0f),
             "Overlay:%s  %.0f%%", mode_str, state.overlay.alpha * 100.0f);
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+    }
+
+    // Slideshow indicator
+    if (state.slideshow.active) {
+        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.8f, 1.0f),
+            "\xe2\x96\xb6 %.1fs / %.1fs", state.slideshow.countdown, state.slideshow.interval);
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+    }
+
+    // Crosshair indicator
+    if (state.show_crosshair) {
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.3f, 1.0f), "Crosshair");
         ImGui::SameLine();
         ImGui::TextDisabled("|");
         ImGui::SameLine();
