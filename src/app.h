@@ -101,6 +101,12 @@ struct OpenDialogState {
     bool  clear_other  = false;   // remove other slot when loading single image
 };
 
+struct ContextSaveState {
+    bool        save_pending = false;
+    std::string save_path;
+    int         save_target = -1;  // 0=A, 1=B, 2=Diff
+};
+
 // ─── ROI (Region of Interest) state ──────────────────────────────────────────
 
 struct RoiState {
@@ -196,6 +202,7 @@ struct AppState {
     OverlayState overlay;               // Overlay/Blend 비교 모드
     bool         show_scatter_plot = false; // Scatter Plot 창 표시
     bool         windowed_mode = false;    // W key: windowed (title bar) mode
+    ContextSaveState context_save;         // right-click context menu save state
 };
 
 // ─── Function declarations ────────────────────────────────────────────────────

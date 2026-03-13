@@ -2,6 +2,7 @@
 #include "path_utils.h"
 
 #include <stb_image_write.h>
+#include <SDL3/SDL.h>
 
 #include <cmath>
 #include <cstdint>
@@ -149,9 +150,9 @@ static void falsecolor_cpu(float t, float& r, float& g, float& b)
 
 // Returns RGBA8 diff image (pixels[0..3] = R,G,B,A per pixel).
 // SSIM falls back to PixelAbsolute.
-static std::vector<uint8_t> compute_diff_cpu(const ImageEntry& imgA,
-                                              const ImageEntry& imgB,
-                                              const DiffState&  diff)
+std::vector<uint8_t> compute_diff_cpu(const ImageEntry& imgA,
+                                       const ImageEntry& imgB,
+                                       const DiffState&  diff)
 {
     int w = std::min(imgA.width,  imgB.width);
     int h = std::min(imgA.height, imgB.height);
@@ -286,4 +287,25 @@ void perform_save(const std::string& path,
         std::string fname = (slash != std::string::npos) ? path.substr(slash + 1) : path;
         sd.status_msg = "Saved: " + fname;
     }
+}
+
+// ─── Context menu: native save dialog ────────────────────────────────────────
+
+static void SDLCALL context_save_callback(void* userdata, const char* const* filelist, int /*filter*/) {
+    auto* cs = static_cast<ContextSaveState*>(userdata);
+    if (filelist && filelist[0] && filelist[0][0] != '\0') {
+        cs->save_path    = filelist[0];
+        cs->save_pending = true;
+    }
+}
+
+void open_context_save_dialog(AppState& state, int target_type) {
+    state.context_save.save_target = target_type;
+    SDL_DialogFileFilter filters[] = {
+        {"PNG image", "png"},
+        {"BMP image", "bmp"},
+        {"PPM image", "ppm"},
+    };
+    SDL_ShowSaveFileDialog(context_save_callback, &state.context_save,
+                           state.window, filters, 3, nullptr);
 }

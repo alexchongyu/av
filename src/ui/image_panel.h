@@ -37,7 +37,10 @@ private:
     void handle_mouse_pan(AppState& state, int panel_idx);
     void handle_mouse_right_select(AppState& state, int panel_idx,
                                    ImVec2 widget_pos, int view_w, int view_h,
-                                   int img_w, int img_h);
+                                   int img_w, int img_h,
+                                   int context_type = -1);
+    void render_context_popup(AppState& state, int context_type);
+    void copy_panel_to_clipboard(AppState& state, int target_type);
     void render_pixel_values(const AppState& state, int panel_idx,
                              ImVec2 widget_pos, int view_w, int view_h);
     void render_diff_pixel_values(const AppState& state,
@@ -81,6 +84,7 @@ private:
     bool   drag_selecting_  = false;
     ImVec2 drag_start_      = {0.0f, 0.0f};
     int    drag_panel_idx_  = 0;
+    int    context_panel_type_ = -1;  // last context menu target (-1=none, 0=A, 1=B, 2=Diff)
 
     // ROI drag state - stored in AppState.roi
     ImVec2 roi_drag_start_  = {0.0f, 0.0f};

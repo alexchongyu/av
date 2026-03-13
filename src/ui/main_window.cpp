@@ -880,6 +880,25 @@ void MainWindow::render(AppState& state) {
         state.open_state.open_pending = false;
     }
 
+    // ── Process pending context-menu save (set by SDL dialog callback) ────────
+    if (state.context_save.save_pending) {
+        const auto& path = state.context_save.save_path;
+        // Determine format from extension
+        auto dot = path.rfind('.');
+        std::string ext = (dot != std::string::npos) ? path.substr(dot) : "";
+        if (ext == ".bmp")      state.image_save.format = ImageSaveDialog::Format::BMP;
+        else if (ext == ".ppm") state.image_save.format = ImageSaveDialog::Format::PPM;
+        else                    state.image_save.format = ImageSaveDialog::Format::PNG;
+
+        // Map target_type to Target enum
+        auto target = (state.context_save.save_target == 2) ? ImageSaveDialog::Target::Diff
+                    : (state.context_save.save_target == 1) ? ImageSaveDialog::Target::ImageB
+                    : ImageSaveDialog::Target::ImageA;
+        perform_save(path, target, state);
+        state.context_save.save_pending = false;
+        state.context_save.save_path.clear();
+    }
+
     // ── Upload SSIM result on main thread if ready ────────────────────────────
     if (s_ssim_ready) {
         s_ssim_ready = false;
