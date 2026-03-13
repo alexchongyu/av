@@ -8,6 +8,7 @@
 #include "../image_open.h"
 #include "../chart_export.h"
 #include "../path_utils.h"
+#include "../render_backend.h"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -882,15 +883,36 @@ void MainWindow::render(AppState& state) {
     if (s_ssim_ready) {
         s_ssim_ready = false;
         if (state.diff.ssim_texture_id) {
-            GLuint id = state.diff.ssim_texture_id;
-            glDeleteTextures(1, &id);
+            if (is_software_mode()) {
+                SDL_DestroyTexture(reinterpret_cast<SDL_Texture*>(state.diff.ssim_texture_id));
+            } else {
+                GLuint id = static_cast<GLuint>(state.diff.ssim_texture_id);
+                glDeleteTextures(1, &id);
+            }
             state.diff.ssim_texture_id = 0;
         }
         if (s_ssim_result.success && !s_ssim_result.heatmap.empty()) {
-            state.diff.ssim_texture_id = gl_upload_texture_r32f(
-                s_ssim_result.heatmap.data(),
-                s_ssim_result.w,
-                s_ssim_result.h);
+            if (is_software_mode()) {
+                // Convert float heatmap to RGBA8 for SDL texture
+                int w = s_ssim_result.w, h = s_ssim_result.h;
+                std::vector<uint8_t> rgba(static_cast<size_t>(w) * h * 4);
+                for (int i = 0; i < w * h; ++i) {
+                    uint8_t v = static_cast<uint8_t>(std::clamp(s_ssim_result.heatmap[i] * 255.0f, 0.0f, 255.0f));
+                    rgba[i*4+0] = v; rgba[i*4+1] = v; rgba[i*4+2] = v; rgba[i*4+3] = 255;
+                }
+                SDL_Surface* surf = SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32,
+                                                           rgba.data(), w * 4);
+                if (surf) {
+                    SDL_Texture* tex = SDL_CreateTextureFromSurface(g_render_ctx.sdl_renderer, surf);
+                    SDL_DestroySurface(surf);
+                    state.diff.ssim_texture_id = reinterpret_cast<uintptr_t>(tex);
+                }
+            } else {
+                state.diff.ssim_texture_id = gl_upload_texture_r32f(
+                    s_ssim_result.heatmap.data(),
+                    s_ssim_result.w,
+                    s_ssim_result.h);
+            }
         }
         state.diff.ssim_score     = s_ssim_result.score;
         state.diff.ssim_computing = false;

@@ -3,8 +3,12 @@
 #include "../app.h"
 #include "../gl_texture.h"
 #include "../diff_engine.h"
+#include "../render_backend.h"
 
+#include <SDL3/SDL.h>
 #include <imgui.h>
+#include <vector>
+#include <cstdint>
 
 // ─── ImagePanel ───────────────────────────────────────────────────────────────
 // Renders one image into an off-screen FBO, then displays it via ImGui::Image.
@@ -46,6 +50,17 @@ private:
     ScreenQuad    quad_;
     FBO           fbo_;
     bool          inited_         = false;
+
+    // Software renderer state
+    std::vector<uint8_t> soft_buf_;      // CPU render buffer (RGBA8)
+    SDL_Texture*         soft_texture_ = nullptr;
+    int                  soft_w_ = 0;
+    int                  soft_h_ = 0;
+
+    void render_single_software(AppState& state, int panel_idx);
+    void cpu_render_image(const ImageEntry& img, const ViewportState& vp,
+                          uint8_t* buf, int view_w, int view_h);
+    SDL_Texture* ensure_soft_texture(int w, int h);
 
     // Right-click drag-to-zoom state
     bool   drag_selecting_  = false;

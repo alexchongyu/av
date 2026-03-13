@@ -48,6 +48,7 @@ static void print_help(const char* prog) {
         "  -bc <A> <B> <D>      Border colours for A/B/Diff panels as 6-digit hex\n"
         "                       e.g. -bc ff00ff ffff00 00ffff   (default: magenta/yellow/cyan)\n"
         "  -d, --diff           Show pixel-absolute diff (shortcut)\n"
+        "  --software           Force SDL software renderer (no OpenGL)\n"
         "  --version            Print version and exit\n"
         "  -h, --help           Print this help\n"
         "\n";
@@ -105,6 +106,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.no_color_mgmt = true;
         } else if (arg == "-p" || arg == "--pan-step") {
             opts.pan_step = std::stoi(next());
+        } else if (arg == "--software") {
+            opts.software = true;
         } else if (arg == "-d" || arg == "--diff") {
             opts.diff_mode = DiffState::Mode::PixelAbsolute;
         } else if (arg == "-bc") {

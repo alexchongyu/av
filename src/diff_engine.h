@@ -21,7 +21,7 @@ public:
 
     // Render diff into the currently-bound FBO.
     // view_w/h: FBO dimensions. img_w/h: source image dimensions.
-    void render(GLuint texA, GLuint texB,
+    void render(uintptr_t texA, uintptr_t texB,
                 const ViewportState& view,
                 int img_w,  int img_h,
                 int view_w, int view_h,

@@ -17,7 +17,7 @@ struct ImageEntry {
     int   width    = 0;
     int   height   = 0;
     int   channels = 0;
-    unsigned int texture_id = 0;      // OpenGL texture handle (GLuint)
+    uintptr_t texture_id = 0;          // GL texture handle or SDL_Texture*
     bool  loaded   = false;
     bool  is_hdr   = false;
 };
@@ -42,7 +42,7 @@ struct DiffState {
     Mode  mode           = Mode::None;
     float amplify        = 1.0f;       // diff amplification factor
     float ssim_score     = -1.0f;      // -1 = not computed
-    unsigned int ssim_texture_id = 0;  // SSIM heatmap texture (GLuint)
+    uintptr_t ssim_texture_id = 0;     // SSIM heatmap texture (GLuint or SDL_Texture*)
     bool  ssim_computing = false;
 };
 
@@ -143,6 +143,7 @@ struct CliOptions {
     int             win_h        = 720;
     std::string     icc_profile;
     bool            no_color_mgmt = false;
+    bool            software     = false;  // --software: force SDL software renderer
     int             pan_step     = 32;     // Shift+hjkl jump size in image-pixels
     // Border colors for A / B / Diff panels (ImGui ABGR uint32, alpha=230)
     // Defaults: magenta / yellow / cyan

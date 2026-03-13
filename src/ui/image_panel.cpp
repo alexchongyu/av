@@ -1,9 +1,11 @@
 #include "image_panel.h"
 #include "../shader_sources.h"
 #include "../viewport.h"
+#include "../render_backend.h"
 
 #include <imgui.h>
 #include <glad/gl.h>
+#include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <cmath>
@@ -14,6 +16,12 @@
 // ─── init ─────────────────────────────────────────────────────────────────────
 
 bool ImagePanel::init() {
+    if (is_software_mode()) {
+        // No shaders needed in software mode
+        inited_ = true;
+        return true;
+    }
+
     if (!image_shader_.compile(shaders::VERTEX_SRC, shaders::IMAGE_FRAG_SRC)) {
         std::cerr << "[ImagePanel] image shader compile failed\n";
         return false;
@@ -34,6 +42,147 @@ bool ImagePanel::init() {
     quad_.init();
     inited_ = true;
     return true;
+}
+
+// Forward declaration
+static void draw_image_border(ImDrawList* dl, ImVec2 widget_pos,
+                               float view_w, float view_h,
+                               float img_w,  float img_h,
+                               float pan_x,  float pan_y, float zoom,
+                               ImU32 border_col);
+
+// ─── Software renderer helpers ─────────────────────────────────────────────────
+
+SDL_Texture* ImagePanel::ensure_soft_texture(int w, int h) {
+    if (soft_texture_ && soft_w_ == w && soft_h_ == h) return soft_texture_;
+    if (soft_texture_) SDL_DestroyTexture(soft_texture_);
+
+    soft_texture_ = SDL_CreateTexture(g_render_ctx.sdl_renderer,
+                                       SDL_PIXELFORMAT_RGBA32,
+                                       SDL_TEXTUREACCESS_STREAMING,
+                                       w, h);
+    soft_w_ = w;
+    soft_h_ = h;
+    soft_buf_.resize(static_cast<size_t>(w) * h * 4);
+    return soft_texture_;
+}
+
+void ImagePanel::cpu_render_image(const ImageEntry& img, const ViewportState& vp,
+                                   uint8_t* buf, int view_w, int view_h) {
+    float half_vw = view_w * 0.5f;
+    float half_vh = view_h * 0.5f;
+    float half_iw = img.width * 0.5f;
+    float half_ih = img.height * 0.5f;
+
+    const uint8_t* src = img.pixels.data();
+    int iw = img.width, ih = img.height;
+
+    for (int sy = 0; sy < view_h; ++sy) {
+        for (int sx = 0; sx < view_w; ++sx) {
+            // Inverse of shader transform: img_px = (screen_px - half_view) / zoom - pan + half_img
+            float img_fx = (sx - half_vw) / vp.zoom - vp.pan_x + half_iw;
+            float img_fy = (sy - half_vh) / vp.zoom - vp.pan_y + half_ih;
+
+            uint8_t* dst = buf + (sy * view_w + sx) * 4;
+
+            if (img_fx < 0.0f || img_fy < 0.0f ||
+                img_fx >= iw || img_fy >= ih) {
+                dst[0] = 38; dst[1] = 38; dst[2] = 38; dst[3] = 255;
+                continue;
+            }
+
+            if (vp.zoom >= 1.0f) {
+                // Nearest neighbor
+                int ix = static_cast<int>(img_fx);
+                int iy = static_cast<int>(img_fy);
+                ix = std::clamp(ix, 0, iw - 1);
+                iy = std::clamp(iy, 0, ih - 1);
+                const uint8_t* p = src + (iy * iw + ix) * 4;
+                dst[0] = p[0]; dst[1] = p[1]; dst[2] = p[2]; dst[3] = p[3];
+            } else {
+                // Bilinear interpolation
+                float fx = img_fx - 0.5f;
+                float fy = img_fy - 0.5f;
+                int x0 = static_cast<int>(std::floor(fx));
+                int y0 = static_cast<int>(std::floor(fy));
+                int x1 = x0 + 1, y1 = y0 + 1;
+                float tx = fx - x0, ty = fy - y0;
+                x0 = std::clamp(x0, 0, iw - 1); x1 = std::clamp(x1, 0, iw - 1);
+                y0 = std::clamp(y0, 0, ih - 1); y1 = std::clamp(y1, 0, ih - 1);
+                const uint8_t* p00 = src + (y0 * iw + x0) * 4;
+                const uint8_t* p10 = src + (y0 * iw + x1) * 4;
+                const uint8_t* p01 = src + (y1 * iw + x0) * 4;
+                const uint8_t* p11 = src + (y1 * iw + x1) * 4;
+                for (int c = 0; c < 4; ++c) {
+                    float top = p00[c] * (1 - tx) + p10[c] * tx;
+                    float bot = p01[c] * (1 - tx) + p11[c] * tx;
+                    dst[c] = static_cast<uint8_t>(std::clamp(top * (1 - ty) + bot * ty, 0.0f, 255.0f));
+                }
+            }
+        }
+    }
+}
+
+void ImagePanel::render_single_software(AppState& state, int panel_idx) {
+    int actual_idx = state.swap_images ? (1 - panel_idx) : panel_idx;
+    const ImageEntry& img = state.images[actual_idx];
+    ViewportState&    vp  = state.views[panel_idx];
+
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    int    pw    = std::max(1, static_cast<int>(avail.x));
+    int    ph    = std::max(1, static_cast<int>(avail.y));
+
+    if (!img.loaded || img.texture_id == 0 || img.pixels.empty()) {
+        ImGui::TextDisabled("(no image)");
+        return;
+    }
+
+    if (vp.fit) {
+        viewport_fit(vp, img.width, img.height, pw, ph);
+    }
+    viewport_clamp_pan(vp, img.width, img.height, pw, ph);
+
+    // CPU render image into buffer
+    SDL_Texture* tex = ensure_soft_texture(pw, ph);
+    if (!tex) return;
+
+    cpu_render_image(img, vp, soft_buf_.data(), pw, ph);
+
+    // Upload to SDL texture
+    SDL_UpdateTexture(tex, nullptr, soft_buf_.data(), pw * 4);
+
+    // Display via ImGui
+    ImTextureID imgui_tex = reinterpret_cast<ImTextureID>(tex);
+    ImGui::Image(imgui_tex, avail, ImVec2(0, 0), ImVec2(1, 1));
+
+    ImVec2 widget_pos = ImGui::GetItemRectMin();
+    if (state.roi.active) {
+        handle_roi_drag(state, panel_idx, widget_pos, pw, ph,
+                        img.width, img.height);
+    } else {
+        handle_mouse_pan(state, panel_idx);
+        handle_mouse_right_select(state, panel_idx, widget_pos, pw, ph,
+                                   img.width, img.height);
+    }
+
+    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                      static_cast<float>(pw), static_cast<float>(ph),
+                      static_cast<float>(img.width), static_cast<float>(img.height),
+                      vp.pan_x, vp.pan_y, vp.zoom,
+                      static_cast<ImU32>(state.border_colors[panel_idx]));
+
+    if (state.roi.has_roi || state.roi.dragging) {
+        render_roi_overlay(state, panel_idx, widget_pos, pw, ph,
+                           img.width, img.height);
+    }
+
+    if (vp.zoom >= 32.0f && img.loaded) {
+        render_pixel_values(state, panel_idx, widget_pos, pw, ph);
+    }
+
+    if (panel_idx == 0) {
+        render_pathfinder(state, panel_idx, widget_pos, pw, ph);
+    }
 }
 
 // ─── Mouse pan helper ─────────────────────────────────────────────────────────
@@ -325,7 +474,7 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
     glClear(GL_COLOR_BUFFER_BIT);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, img.texture_id);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(img.texture_id));
     // Nearest neighbor for ≥1× zoom, linear+mipmap for zoom-out
     if (vp.zoom >= 1.0f) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -725,6 +874,12 @@ void ImagePanel::render(AppState& state, int panel_idx, DiffRenderer& diff_rende
                         bool force_single) {
     if (!inited_) return;
 
+    // Software mode: simplified rendering (no GPU shaders)
+    if (is_software_mode()) {
+        render_single_software(state, panel_idx);
+        return;
+    }
+
     if (!force_single) {
         // Overlay 모드: panel_idx==0에서만 blend/curtain 렌더링
         if (state.overlay.active && panel_idx == 0 &&
@@ -927,7 +1082,7 @@ void ImagePanel::render_overlay(AppState& state, DiffRenderer& /*diff_renderer*/
 
     // Bind both textures
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, imgA.texture_id);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(imgA.texture_id));
     if (vp.zoom >= 1.0f) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -936,7 +1091,7 @@ void ImagePanel::render_overlay(AppState& state, DiffRenderer& /*diff_renderer*/
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     }
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, imgB.texture_id);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(imgB.texture_id));
     if (vp.zoom >= 1.0f) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);

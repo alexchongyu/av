@@ -1,6 +1,8 @@
 #include "image_loader.h"
+#include "render_backend.h"
 
 #include <glad/gl.h>
+#include <SDL3/SDL.h>
 #include <stb_image.h>
 
 #include <algorithm>
@@ -41,6 +43,24 @@ static GLuint upload_rgba_f32(const float* pixels, int w, int h) {
     return tex;
 }
 
+// ─── Software-mode SDL_Texture upload ─────────────────────────────────────────
+
+static uintptr_t upload_sdl_texture(const uint8_t* pixels, int w, int h) {
+    SDL_Renderer* renderer = g_render_ctx.sdl_renderer;
+    if (!renderer) return 0;
+
+    SDL_Surface* surf = SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32,
+                                               const_cast<uint8_t*>(pixels),
+                                               w * 4);
+    if (!surf) return 0;
+
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surf);
+    SDL_DestroySurface(surf);
+    if (!tex) return 0;
+
+    return reinterpret_cast<uintptr_t>(tex);
+}
+
 // ─── load_image ───────────────────────────────────────────────────────────────
 
 bool load_image(const std::string& path, ImageEntry& entry) {
@@ -64,7 +84,19 @@ bool load_image(const std::string& path, ImageEntry& entry) {
         entry.channels = 4;
         entry.pixels_f32.assign(data, data + static_cast<size_t>(w) * h * 4);
         stbi_image_free(data);
-        entry.texture_id = upload_rgba_f32(entry.pixels_f32.data(), w, h);
+
+        if (is_software_mode()) {
+            // Convert float32 to uint8 for SDL texture
+            std::vector<uint8_t> ldr(static_cast<size_t>(w) * h * 4);
+            for (size_t i = 0; i < ldr.size(); ++i) {
+                float v = std::clamp(entry.pixels_f32[i], 0.0f, 1.0f);
+                ldr[i] = static_cast<uint8_t>(v * 255.0f + 0.5f);
+            }
+            entry.pixels = std::move(ldr);
+            entry.texture_id = upload_sdl_texture(entry.pixels.data(), w, h);
+        } else {
+            entry.texture_id = upload_rgba_f32(entry.pixels_f32.data(), w, h);
+        }
     } else {
         // Force RGBA (4 channels)
         uint8_t* data = stbi_load(path.c_str(), &w, &h, &ch, 4);
@@ -78,11 +110,16 @@ bool load_image(const std::string& path, ImageEntry& entry) {
         entry.channels = 4;
         entry.pixels.assign(data, data + static_cast<size_t>(w) * h * 4);
         stbi_image_free(data);
-        entry.texture_id = upload_rgba8(entry.pixels.data(), w, h);
+
+        if (is_software_mode()) {
+            entry.texture_id = upload_sdl_texture(entry.pixels.data(), w, h);
+        } else {
+            entry.texture_id = upload_rgba8(entry.pixels.data(), w, h);
+        }
     }
 
     if (entry.texture_id == 0) {
-        std::cerr << "[image_loader] GPU upload failed for: " << path << "\n";
+        std::cerr << "[image_loader] texture upload failed for: " << path << "\n";
         return false;
     }
 
@@ -92,7 +129,12 @@ bool load_image(const std::string& path, ImageEntry& entry) {
 
 void free_image(ImageEntry& entry) {
     if (entry.texture_id) {
-        glDeleteTextures(1, &entry.texture_id);
+        if (is_software_mode()) {
+            SDL_DestroyTexture(reinterpret_cast<SDL_Texture*>(entry.texture_id));
+        } else {
+            GLuint gl_id = static_cast<GLuint>(entry.texture_id);
+            glDeleteTextures(1, &gl_id);
+        }
         entry.texture_id = 0;
     }
     entry.pixels    = {};
@@ -145,13 +187,23 @@ void rotate_image_cw(ImageEntry& entry) {
     entry.height = new_h;
 
     if (entry.texture_id) {
-        glDeleteTextures(1, &entry.texture_id);
+        if (is_software_mode())
+            SDL_DestroyTexture(reinterpret_cast<SDL_Texture*>(entry.texture_id));
+        else {
+            GLuint gl_id = static_cast<GLuint>(entry.texture_id);
+            glDeleteTextures(1, &gl_id);
+        }
         entry.texture_id = 0;
     }
-    if (!entry.pixels.empty())
-        entry.texture_id = upload_rgba8(entry.pixels.data(), new_w, new_h);
-    else if (!entry.pixels_f32.empty())
-        entry.texture_id = upload_rgba_f32(entry.pixels_f32.data(), new_w, new_h);
+    if (is_software_mode()) {
+        if (!entry.pixels.empty())
+            entry.texture_id = upload_sdl_texture(entry.pixels.data(), new_w, new_h);
+    } else {
+        if (!entry.pixels.empty())
+            entry.texture_id = upload_rgba8(entry.pixels.data(), new_w, new_h);
+        else if (!entry.pixels_f32.empty())
+            entry.texture_id = upload_rgba_f32(entry.pixels_f32.data(), new_w, new_h);
+    }
 }
 
 void rotate_image_ccw(ImageEntry& entry) {
@@ -197,13 +249,23 @@ void rotate_image_ccw(ImageEntry& entry) {
     entry.height = new_h;
 
     if (entry.texture_id) {
-        glDeleteTextures(1, &entry.texture_id);
+        if (is_software_mode())
+            SDL_DestroyTexture(reinterpret_cast<SDL_Texture*>(entry.texture_id));
+        else {
+            GLuint gl_id = static_cast<GLuint>(entry.texture_id);
+            glDeleteTextures(1, &gl_id);
+        }
         entry.texture_id = 0;
     }
-    if (!entry.pixels.empty())
-        entry.texture_id = upload_rgba8(entry.pixels.data(), new_w, new_h);
-    else if (!entry.pixels_f32.empty())
-        entry.texture_id = upload_rgba_f32(entry.pixels_f32.data(), new_w, new_h);
+    if (is_software_mode()) {
+        if (!entry.pixels.empty())
+            entry.texture_id = upload_sdl_texture(entry.pixels.data(), new_w, new_h);
+    } else {
+        if (!entry.pixels.empty())
+            entry.texture_id = upload_rgba8(entry.pixels.data(), new_w, new_h);
+        else if (!entry.pixels_f32.empty())
+            entry.texture_id = upload_rgba_f32(entry.pixels_f32.data(), new_w, new_h);
+    }
 }
 
 // ─── ImageCache ───────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 #include "app.h"
 #include "image_loader.h"
 #include "viewport.h"
+#include "render_backend.h"
 #include "ui/main_window.h"
 
 #include <glad/gl.h>
@@ -8,6 +9,7 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_opengl3.h>
+#include <imgui_impl_sdlrenderer3.h>
 
 #include <iostream>
 #include <cstdio>
@@ -123,19 +125,23 @@ static SDL_Surface* create_app_icon() {
 
 // ─── Cleanup helper ───────────────────────────────────────────────────────────
 struct SdlCleanup {
-    SDL_Window*   window   = nullptr;
-    SDL_GLContext gl_ctx   = nullptr;
-    bool          imgui_gl = false;
-    bool          imgui_sdl = false;
+    SDL_Window*   window       = nullptr;
+    SDL_GLContext  gl_ctx       = nullptr;
+    SDL_Renderer*  sdl_renderer = nullptr;
+    bool           imgui_gl     = false;
+    bool           imgui_sw     = false;
+    bool           imgui_sdl    = false;
 
     ~SdlCleanup() {
         if (imgui_gl)  { ImGui_ImplOpenGL3_Shutdown(); }
+        if (imgui_sw)  { ImGui_ImplSDLRenderer3_Shutdown(); }
         if (imgui_sdl) { ImGui_ImplSDL3_Shutdown(); }
         if (ImGui::GetCurrentContext()) {
             ImGui::DestroyContext();
         }
-        if (gl_ctx)  { SDL_GL_DestroyContext(gl_ctx); }
-        if (window)  { SDL_DestroyWindow(window); }
+        if (gl_ctx)       { SDL_GL_DestroyContext(gl_ctx); }
+        if (sdl_renderer) { SDL_DestroyRenderer(sdl_renderer); }
+        if (window)       { SDL_DestroyWindow(window); }
         SDL_Quit();
     }
 };
@@ -153,35 +159,101 @@ int main(int argc, char* argv[]) {
     }
 
     SdlCleanup cleanup;
+    bool use_software = cli.software;
 
-    // OpenGL context attributes
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_MAJOR);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_MINOR);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,   0);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
+    // ── Try OpenGL path ───────────────────────────────────────────────────────
+    SDL_Window* window = nullptr;
+
+    if (!use_software) {
+        // OpenGL context attributes
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, GL_MAJOR);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, GL_MINOR);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE,   0);
+        SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
 #ifdef __APPLE__
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,
-                        SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,
+                            SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
 #endif
 
-    // Create window — borderless by default (U key reveals UI overlay)
-    SDL_WindowFlags win_flags = SDL_WINDOW_OPENGL |
-                                SDL_WINDOW_RESIZABLE |
-                                SDL_WINDOW_BORDERLESS |
-                                SDL_WINDOW_HIGH_PIXEL_DENSITY |
-                                SDL_WINDOW_MAXIMIZED;
-    if (cli.fullscreen) {
-        win_flags |= SDL_WINDOW_FULLSCREEN;
+        // Create window — borderless by default (U key reveals UI overlay)
+        SDL_WindowFlags win_flags = SDL_WINDOW_OPENGL |
+                                    SDL_WINDOW_RESIZABLE |
+                                    SDL_WINDOW_BORDERLESS |
+                                    SDL_WINDOW_HIGH_PIXEL_DENSITY |
+                                    SDL_WINDOW_MAXIMIZED;
+        if (cli.fullscreen) {
+            win_flags |= SDL_WINDOW_FULLSCREEN;
+        }
+
+        window = SDL_CreateWindow(APP_TITLE, cli.win_w, cli.win_h, win_flags);
+        if (window) {
+            SDL_GLContext gl_ctx = SDL_GL_CreateContext(window);
+            if (gl_ctx) {
+                SDL_GL_MakeCurrent(window, gl_ctx);
+                if (gladLoadGL(reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress))) {
+                    // OpenGL success
+                    SDL_GL_SetSwapInterval(1);
+                    cleanup.gl_ctx = gl_ctx;
+                    g_render_ctx.backend    = RenderBackend::OpenGL;
+                    g_render_ctx.gl_context = gl_ctx;
+
+                    std::cout << "OpenGL " << glGetString(GL_VERSION)
+                              << "  GLSL " << glGetString(GL_SHADING_LANGUAGE_VERSION) << "\n";
+                    std::cout << "Renderer: " << glGetString(GL_RENDERER) << "\n";
+                } else {
+                    std::cerr << "[av] gladLoadGL failed — falling back to software renderer\n";
+                    SDL_GL_DestroyContext(gl_ctx);
+                    SDL_DestroyWindow(window);
+                    window = nullptr;
+                    use_software = true;
+                }
+            } else {
+                std::cerr << "[av] GL context creation failed: " << SDL_GetError()
+                          << " — falling back to software renderer\n";
+                SDL_DestroyWindow(window);
+                window = nullptr;
+                use_software = true;
+            }
+        } else {
+            std::cerr << "[av] GL window creation failed: " << SDL_GetError()
+                      << " — falling back to software renderer\n";
+            use_software = true;
+        }
     }
 
-    SDL_Window* window = SDL_CreateWindow(APP_TITLE,
-                                          cli.win_w, cli.win_h,
-                                          win_flags);
-    if (!window) {
-        std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << "\n";
-        return 2;
+    // ── Software renderer fallback ────────────────────────────────────────────
+    if (use_software) {
+        SDL_WindowFlags win_flags = SDL_WINDOW_RESIZABLE |
+                                    SDL_WINDOW_BORDERLESS |
+                                    SDL_WINDOW_HIGH_PIXEL_DENSITY |
+                                    SDL_WINDOW_MAXIMIZED;
+        if (cli.fullscreen) {
+            win_flags |= SDL_WINDOW_FULLSCREEN;
+        }
+
+        window = SDL_CreateWindow(APP_TITLE, cli.win_w, cli.win_h, win_flags);
+        if (!window) {
+            std::cerr << "SDL_CreateWindow (software) failed: " << SDL_GetError() << "\n";
+            return 2;
+        }
+
+        SDL_Renderer* renderer = SDL_CreateRenderer(window, "software");
+        if (!renderer) {
+            // Try without specifying driver name
+            renderer = SDL_CreateRenderer(window, nullptr);
+        }
+        if (!renderer) {
+            std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << "\n";
+            return 2;
+        }
+
+        cleanup.sdl_renderer     = renderer;
+        g_render_ctx.backend     = RenderBackend::Software;
+        g_render_ctx.sdl_renderer = renderer;
+
+        std::cout << "Using SDL software renderer (no OpenGL)\n";
     }
     cleanup.window = window;
 
@@ -190,26 +262,6 @@ int main(int argc, char* argv[]) {
         SDL_SetWindowIcon(window, icon);
         SDL_DestroySurface(icon);
     }
-
-    // ── OpenGL context ────────────────────────────────────────────────────────
-    SDL_GLContext gl_ctx = SDL_GL_CreateContext(window);
-    if (!gl_ctx) {
-        std::cerr << "SDL_GL_CreateContext failed: " << SDL_GetError() << "\n";
-        return 2;
-    }
-    cleanup.gl_ctx = gl_ctx;
-
-    SDL_GL_MakeCurrent(window, gl_ctx);
-    SDL_GL_SetSwapInterval(1);  // vsync
-
-    // ── glad ──────────────────────────────────────────────────────────────────
-    if (!gladLoadGL(reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress))) {
-        std::cerr << "gladLoadGL failed\n";
-        return 2;
-    }
-    std::cout << "OpenGL " << glGetString(GL_VERSION)
-              << "  GLSL " << glGetString(GL_SHADING_LANGUAGE_VERSION) << "\n";
-    std::cout << "Renderer: " << glGetString(GL_RENDERER) << "\n";
 
     // ── ImGui ─────────────────────────────────────────────────────────────────
     IMGUI_CHECKVERSION();
@@ -232,17 +284,31 @@ int main(int argc, char* argv[]) {
         style.Colors[ImGuiCol_WindowBg].w = 1.0f;
     }
 
-    if (!ImGui_ImplSDL3_InitForOpenGL(window, gl_ctx)) {
-        std::cerr << "ImGui_ImplSDL3_InitForOpenGL failed\n";
-        return 2;
-    }
-    cleanup.imgui_sdl = true;
+    if (is_software_mode()) {
+        if (!ImGui_ImplSDL3_InitForSDLRenderer(window, g_render_ctx.sdl_renderer)) {
+            std::cerr << "ImGui_ImplSDL3_InitForSDLRenderer failed\n";
+            return 2;
+        }
+        cleanup.imgui_sdl = true;
 
-    if (!ImGui_ImplOpenGL3_Init(GLSL_VER)) {
-        std::cerr << "ImGui_ImplOpenGL3_Init failed\n";
-        return 2;
+        if (!ImGui_ImplSDLRenderer3_Init(g_render_ctx.sdl_renderer)) {
+            std::cerr << "ImGui_ImplSDLRenderer3_Init failed\n";
+            return 2;
+        }
+        cleanup.imgui_sw = true;
+    } else {
+        if (!ImGui_ImplSDL3_InitForOpenGL(window, g_render_ctx.gl_context)) {
+            std::cerr << "ImGui_ImplSDL3_InitForOpenGL failed\n";
+            return 2;
+        }
+        cleanup.imgui_sdl = true;
+
+        if (!ImGui_ImplOpenGL3_Init(GLSL_VER)) {
+            std::cerr << "ImGui_ImplOpenGL3_Init failed\n";
+            return 2;
+        }
+        cleanup.imgui_gl = true;
     }
-    cleanup.imgui_gl = true;
 
     // ── Application state ─────────────────────────────────────────────────────
     AppState state;
@@ -341,7 +407,11 @@ int main(int argc, char* argv[]) {
         }
 
         // ── ImGui frame ───────────────────────────────────────────────────────
-        ImGui_ImplOpenGL3_NewFrame();
+        if (is_software_mode()) {
+            ImGui_ImplSDLRenderer3_NewFrame();
+        } else {
+            ImGui_ImplOpenGL3_NewFrame();
+        }
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
@@ -349,13 +419,20 @@ int main(int argc, char* argv[]) {
 
         // ── Render ────────────────────────────────────────────────────────────
         ImGui::Render();
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, fb_w, fb_h);
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
-        SDL_GL_SwapWindow(window);
+        if (is_software_mode()) {
+            SDL_SetRenderDrawColor(g_render_ctx.sdl_renderer, 25, 25, 25, 255);
+            SDL_RenderClear(g_render_ctx.sdl_renderer);
+            ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), g_render_ctx.sdl_renderer);
+            SDL_RenderPresent(g_render_ctx.sdl_renderer);
+        } else {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, fb_w, fb_h);
+            glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+            SDL_GL_SwapWindow(window);
+        }
     }
 
     // Cleanup happens via SdlCleanup RAII destructor

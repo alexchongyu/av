@@ -57,6 +57,7 @@ add_library(imgui_lib STATIC
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlrenderer3.cpp
 )
 target_include_directories(imgui_lib PUBLIC
     ${imgui_SOURCE_DIR}
@@ -112,6 +113,7 @@ set(AV_SOURCES
     src/ui/image_panel.cpp
     src/ui/statusbar.cpp
     src/ui/chart_windows.cpp
+    src/render_backend.cpp
 )
 
 add_executable(av ${AV_SOURCES})
@@ -160,6 +162,11 @@ else()
     target_compile_options(av PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter)
 endif()
 
+# Linux: libstdc++/libgcc 정적 링크 (오래된 배포판 호환성)
+if(UNIX AND NOT APPLE)
+    target_link_options(av PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 # Windows: stb UTF-8 경로 지원
 if(WIN32)
     target_compile_definitions(av PRIVATE STBI_WINDOWS_UTF8)
@@ -190,11 +197,6 @@ if(WIN32)
     )
 else()
     install(TARGETS av RUNTIME DESTINATION $ENV{HOME}/.local/bin)
-    add_custom_command(TARGET av POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory $ENV{HOME}/.local/bin
-        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:av> $ENV{HOME}/.local/bin/av
-        COMMENT "Installing av → ~/.local/bin/av"
-    )
 endif()
 
 # ── Linux AppImage ────────────────────────────────────────────────────────────

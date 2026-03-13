@@ -163,13 +163,49 @@ done
 
 echo ""
 
-# ── [5/5] 커스텀 AppRun 작성 후 appimagetool로 패키징 ────────────────────────
-echo "── [5/5] AppRun 작성 및 패키징..."
+# ── [5/5] glibc 번들 + 커스텀 AppRun 작성 후 appimagetool로 패키징 ─────────
+echo "── [5/5] glibc 번들 + AppRun 작성 및 패키징..."
+
+# glibc 핵심 라이브러리 번들 (오래된 배포판 호환)
+GLIBC_DEST="$APPDIR/usr/lib"
+GLIBC_LIBS=(libc.so.6 libm.so.6 libdl.so.2 libpthread.so.0 librt.so.1)
+GLIBC_SEARCH_PATHS=(
+    "/lib/${UNAME_M}-linux-gnu"
+    "/lib/x86_64-linux-gnu"
+    "/lib/aarch64-linux-gnu"
+    "/lib64"
+    "/lib"
+)
+
+echo "    glibc 번들링..."
+for lib in "${GLIBC_LIBS[@]}"; do
+    for dir in "${GLIBC_SEARCH_PATHS[@]}"; do
+        if [[ -f "$dir/$lib" ]]; then
+            cp "$dir/$lib" "$GLIBC_DEST/" 2>/dev/null || true
+            echo "      $lib  ← $dir"
+            break
+        fi
+    done
+done
+
+# ld-linux (동적 링커) 번들
+LD_LINUX=""
+for dir in "${GLIBC_SEARCH_PATHS[@]}"; do
+    LD_FOUND=$(find "$dir" -maxdepth 1 -name 'ld-linux-*.so*' -type f 2>/dev/null | head -1)
+    [[ -n "$LD_FOUND" ]] && LD_LINUX="$LD_FOUND" && break
+done
+if [[ -n "$LD_LINUX" ]]; then
+    cp "$LD_LINUX" "$GLIBC_DEST/ld-linux.so"
+    chmod +x "$GLIBC_DEST/ld-linux.so"
+    echo "      ld-linux  ← $LD_LINUX"
+else
+    echo "    경고: ld-linux을 찾을 수 없습니다"
+fi
 
 # linuxdeploy가 AppRun을 심볼릭 링크로 만들 수 있으므로 반드시 먼저 제거
 rm -f "$APPDIR/AppRun"
 
-# 커스텀 AppRun: Mesa 소프트웨어 렌더러 우선 사용 (X11 포워딩, VM 등 호환)
+# 커스텀 AppRun: 번들된 glibc + Mesa 소프트웨어 렌더러
 # GPU 렌더링 강제: AV_HARDWARE_GL=1 ./av-x86_64.AppImage
 cat > "$APPDIR/AppRun" <<'APPRUN_EOF'
 #!/bin/bash
@@ -190,7 +226,13 @@ if [[ "${AV_HARDWARE_GL:-}" != "1" ]]; then
     export LIBGL_ALWAYS_SOFTWARE=1
 fi
 
-exec "$HERE/usr/bin/av" "$@"
+# 번들된 ld-linux이 있으면 사용 (glibc 버전 불일치 해결)
+BUNDLED_LD="$HERE/usr/lib/ld-linux.so"
+if [[ -x "$BUNDLED_LD" ]]; then
+    exec "$BUNDLED_LD" --library-path "$LD_LIBRARY_PATH" "$HERE/usr/bin/av" "$@"
+else
+    exec "$HERE/usr/bin/av" "$@"
+fi
 APPRUN_EOF
 chmod +x "$APPDIR/AppRun"
 

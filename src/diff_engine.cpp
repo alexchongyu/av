@@ -1,5 +1,6 @@
 #include "diff_engine.h"
 #include "shader_sources.h"
+#include "render_backend.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +11,8 @@
 // ─── DiffRenderer ─────────────────────────────────────────────────────────────
 
 bool DiffRenderer::init() {
+    if (is_software_mode()) return true;  // No GPU shaders in software mode
+
     if (!shader_.compile(shaders::VERTEX_SRC, shaders::DIFF_FRAG_SRC)) {
         std::cerr << "[DiffRenderer] shader compilation failed\n";
         return false;
@@ -33,7 +36,7 @@ bool DiffRenderer::init() {
     return true;
 }
 
-void DiffRenderer::render(GLuint texA, GLuint texB,
+void DiffRenderer::render(uintptr_t texA, uintptr_t texB,
                           const ViewportState& view,
                           int img_w,  int img_h,
                           int view_w, int view_h,
@@ -50,9 +53,9 @@ void DiffRenderer::render(GLuint texA, GLuint texB,
     }
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, texA);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(texA));
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, texB);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(texB));
 
     shader_.use();
     shader_.set_int  ("u_texA",        0);
