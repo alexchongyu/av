@@ -761,6 +761,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Display", "I",                          "Toggle image info window" },
         { "Display", "V",                          "Toggle cursor pixel value balloon" },
         { "Display", "S",                          "Toggle viewport sync (A <-> B)" },
+        { "Display", "W",                          "Toggle windowed mode (title bar)" },
         { "Display", "Tab",                        "Switch active panel (A <-> B)" },
         { "Display", "R",                          "Rotate image CW 90 degrees" },
         { "Display", "Ctrl+R",                     "Rotate image CCW 90 degrees" },

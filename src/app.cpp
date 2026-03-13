@@ -49,6 +49,7 @@ static void print_help(const char* prog) {
         "                       e.g. -bc ff00ff ffff00 00ffff   (default: magenta/yellow/cyan)\n"
         "  -d, --diff           Show pixel-absolute diff (shortcut)\n"
         "  --software           Force SDL software renderer (no OpenGL)\n"
+        "  --windowed           Start in windowed mode (title bar + resizable)\n"
         "  --version            Print version and exit\n"
         "  -h, --help           Print this help\n"
         "\n";
@@ -108,6 +109,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.pan_step = std::stoi(next());
         } else if (arg == "--software") {
             opts.software = true;
+        } else if (arg == "--windowed") {
+            opts.windowed = true;
         } else if (arg == "-d" || arg == "--diff") {
             opts.diff_mode = DiffState::Mode::PixelAbsolute;
         } else if (arg == "-bc") {
@@ -136,6 +139,7 @@ void apply_cli_options(AppState& state, const CliOptions& opts) {
     state.sync_viewports  = opts.sync;
     state.pan_step        = opts.pan_step;
     state.border_colors   = opts.border_colors;
+    state.windowed_mode   = opts.windowed;
 }
 
 // ─── handle_keyboard ──────────────────────────────────────────────────────────
@@ -190,6 +194,10 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
             viewport_zoom_in(vA);
             if (state.sync_viewports) { vB.zoom = vA.zoom; vB.fit = false; }
         }
+        break;
+    case SDL_SCANCODE_X:
+        viewport_zoom_out(vA);
+        if (state.sync_viewports) { vB.zoom = vA.zoom; vB.fit = false; }
         break;
     case SDL_SCANCODE_0: case SDL_SCANCODE_1: case SDL_SCANCODE_2:
     case SDL_SCANCODE_3: case SDL_SCANCODE_4: case SDL_SCANCODE_5:
@@ -389,6 +397,36 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     case SDL_SCANCODE_T:
         if (ctrl) {
             state.show_scatter_plot = !state.show_scatter_plot;
+        }
+        break;
+
+    // ── Windowed mode 토글 (W) ──────────────────────────────────────────────────
+    case SDL_SCANCODE_W:
+        if (!ctrl && !shift && !gui) {
+            state.windowed_mode = !state.windowed_mode;
+            if (state.window) {
+                if (state.windowed_mode) {
+                    SDL_SetWindowBordered(state.window, true);
+                    SDL_RestoreWindow(state.window);
+                    SDL_DisplayID disp = SDL_GetDisplayForWindow(state.window);
+                    SDL_Rect usable;
+                    if (disp && SDL_GetDisplayUsableBounds(disp, &usable)) {
+                        int w = state.cli.win_w;
+                        int h = state.cli.win_h;
+                        if (w >= usable.w || h >= usable.h) {
+                            w = (int)(usable.w * 0.8f);
+                            h = (int)(usable.h * 0.8f);
+                        }
+                        SDL_SetWindowSize(state.window, w, h);
+                        SDL_SetWindowPosition(state.window,
+                                              SDL_WINDOWPOS_CENTERED,
+                                              SDL_WINDOWPOS_CENTERED);
+                    }
+                } else {
+                    SDL_SetWindowBordered(state.window, false);
+                    SDL_MaximizeWindow(state.window);
+                }
+            }
         }
         break;
 

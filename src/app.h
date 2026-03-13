@@ -148,6 +148,7 @@ struct CliOptions {
     std::string     icc_profile;
     bool            no_color_mgmt = false;
     bool            software     = false;  // --software: force SDL software renderer
+    bool            windowed     = false;  // --windowed: start with title bar + resizable
     int             pan_step     = 32;     // Shift+hjkl jump size in image-pixels
     // Border colors for A / B / Diff panels (ImGui ABGR uint32, alpha=230)
     // Defaults: magenta / yellow / cyan
@@ -194,6 +195,7 @@ struct AppState {
     SequenceState sequences[2];         // [0]=A, [1]=B 시퀀스 탐색
     OverlayState overlay;               // Overlay/Blend 비교 모드
     bool         show_scatter_plot = false; // Scatter Plot 창 표시
+    bool         windowed_mode = false;    // W key: windowed (title bar) mode
 };
 
 // ─── Function declarations ────────────────────────────────────────────────────

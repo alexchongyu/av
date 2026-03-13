@@ -215,9 +215,10 @@ int main(int argc, char* argv[]) {
         // Create window — borderless by default (U key reveals UI overlay)
         SDL_WindowFlags win_flags = SDL_WINDOW_OPENGL |
                                     SDL_WINDOW_RESIZABLE |
-                                    SDL_WINDOW_BORDERLESS |
-                                    SDL_WINDOW_HIGH_PIXEL_DENSITY |
-                                    SDL_WINDOW_MAXIMIZED;
+                                    SDL_WINDOW_HIGH_PIXEL_DENSITY;
+        if (!cli.windowed) {
+            win_flags |= SDL_WINDOW_BORDERLESS | SDL_WINDOW_MAXIMIZED;
+        }
         if (cli.fullscreen) {
             win_flags |= SDL_WINDOW_FULLSCREEN;
         }
@@ -261,9 +262,10 @@ int main(int argc, char* argv[]) {
     // ── Software renderer fallback ────────────────────────────────────────────
     if (use_software) {
         SDL_WindowFlags win_flags = SDL_WINDOW_RESIZABLE |
-                                    SDL_WINDOW_BORDERLESS |
-                                    SDL_WINDOW_HIGH_PIXEL_DENSITY |
-                                    SDL_WINDOW_MAXIMIZED;
+                                    SDL_WINDOW_HIGH_PIXEL_DENSITY;
+        if (!cli.windowed) {
+            win_flags |= SDL_WINDOW_BORDERLESS | SDL_WINDOW_MAXIMIZED;
+        }
         if (cli.fullscreen) {
             win_flags |= SDL_WINDOW_FULLSCREEN;
         }
