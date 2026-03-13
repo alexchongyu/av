@@ -67,8 +67,52 @@ SDL_Texture* ImagePanel::ensure_soft_texture(int w, int h) {
     return soft_texture_;
 }
 
+// ─── falsecolor: shared by diff + SSIM ──────────────────────────────────────
+static void falsecolor(float t, uint8_t* rgb) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    float r, g, b;
+    if      (t < 0.25f) { float s = t * 4.0f;        r = 0;            g = 0;            b = 0.5f + 0.5f * s; }
+    else if (t < 0.50f) { float s = (t - 0.25f) * 4; r = 0;            g = s;            b = 1.0f - s; }
+    else if (t < 0.75f) { float s = (t - 0.50f) * 4; r = s;            g = 1.0f;         b = 0; }
+    else                { float s = (t - 0.75f) * 4; r = 1.0f;         g = 1.0f - s;     b = 0; }
+    rgb[0] = static_cast<uint8_t>(r * 255.0f);
+    rgb[1] = static_cast<uint8_t>(g * 255.0f);
+    rgb[2] = static_cast<uint8_t>(b * 255.0f);
+}
+
+// ─── apply channel filter + pixel grid to a rendered pixel ───────────────────
+static inline void apply_channel_grid(uint8_t* dst, float img_fx, float img_fy,
+                                       float zoom, ChannelMode channel) {
+    // Channel filter (same as shader u_channel logic)
+    if (channel == ChannelMode::Red)   { dst[1] = dst[0]; dst[2] = dst[0]; }
+    if (channel == ChannelMode::Green) { dst[0] = dst[1]; dst[2] = dst[1]; }
+    if (channel == ChannelMode::Blue)  { dst[0] = dst[2]; dst[1] = dst[2]; }
+
+    // Pixel grid at high zoom (>= 16x) — matches shader smoothstep logic
+    if (zoom >= 16.0f) {
+        float frac_x = img_fx - std::floor(img_fx);
+        float frac_y = img_fy - std::floor(img_fy);
+        float gx = std::min(frac_x, 1.0f - frac_x);
+        float gy = std::min(frac_y, 1.0f - frac_y);
+        float grid_dist = std::min(gx, gy);
+        float line_w = 1.0f / zoom;
+        // smoothstep(line_w, 0, grid_dist)
+        float grid = (grid_dist >= line_w) ? 0.0f :
+                     (grid_dist <= 0.0f)   ? 1.0f :
+                     1.0f - grid_dist / line_w;  // linear approx of smoothstep
+        grid = grid * grid * (3.0f - 2.0f * grid); // actual smoothstep
+        float mix_a = grid * 0.4f;
+        for (int c = 0; c < 3; ++c) {
+            float v = dst[c] / 255.0f;
+            v = v * (1.0f - mix_a) + 0.5f * mix_a;
+            dst[c] = static_cast<uint8_t>(std::clamp(v * 255.0f, 0.0f, 255.0f));
+        }
+    }
+}
+
 void ImagePanel::cpu_render_image(const ImageEntry& img, const ViewportState& vp,
-                                   uint8_t* buf, int view_w, int view_h) {
+                                   uint8_t* buf, int view_w, int view_h,
+                                   ChannelMode channel) {
     float half_vw = view_w * 0.5f;
     float half_vh = view_h * 0.5f;
     float half_iw = img.width * 0.5f;
@@ -79,7 +123,6 @@ void ImagePanel::cpu_render_image(const ImageEntry& img, const ViewportState& vp
 
     for (int sy = 0; sy < view_h; ++sy) {
         for (int sx = 0; sx < view_w; ++sx) {
-            // Inverse of shader transform: img_px = (screen_px - half_view) / zoom - pan + half_img
             float img_fx = (sx - half_vw) / vp.zoom - vp.pan_x + half_iw;
             float img_fy = (sy - half_vh) / vp.zoom - vp.pan_y + half_ih;
 
@@ -92,7 +135,6 @@ void ImagePanel::cpu_render_image(const ImageEntry& img, const ViewportState& vp
             }
 
             if (vp.zoom >= 1.0f) {
-                // Nearest neighbor
                 int ix = static_cast<int>(img_fx);
                 int iy = static_cast<int>(img_fy);
                 ix = std::clamp(ix, 0, iw - 1);
@@ -100,7 +142,6 @@ void ImagePanel::cpu_render_image(const ImageEntry& img, const ViewportState& vp
                 const uint8_t* p = src + (iy * iw + ix) * 4;
                 dst[0] = p[0]; dst[1] = p[1]; dst[2] = p[2]; dst[3] = p[3];
             } else {
-                // Bilinear interpolation
                 float fx = img_fx - 0.5f;
                 float fy = img_fy - 0.5f;
                 int x0 = static_cast<int>(std::floor(fx));
@@ -119,6 +160,8 @@ void ImagePanel::cpu_render_image(const ImageEntry& img, const ViewportState& vp
                     dst[c] = static_cast<uint8_t>(std::clamp(top * (1 - ty) + bot * ty, 0.0f, 255.0f));
                 }
             }
+
+            apply_channel_grid(dst, img_fx, img_fy, vp.zoom, channel);
         }
     }
 }
@@ -146,7 +189,7 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
     SDL_Texture* tex = ensure_soft_texture(pw, ph);
     if (!tex) return;
 
-    cpu_render_image(img, vp, soft_buf_.data(), pw, ph);
+    cpu_render_image(img, vp, soft_buf_.data(), pw, ph, state.channel_mode);
 
     // Upload to SDL texture
     SDL_UpdateTexture(tex, nullptr, soft_buf_.data(), pw * 4);
@@ -183,6 +226,342 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
     if (panel_idx == 0) {
         render_pathfinder(state, panel_idx, widget_pos, pw, ph);
     }
+}
+
+// ─── cpu_render_diff ──────────────────────────────────────────────────────────
+// CPU version of DIFF_FRAG_SRC shader logic.
+
+static inline void sample_pixel(const ImageEntry& img, float img_fx, float img_fy,
+                                 float zoom, float out[4]) {
+    int iw = img.width, ih = img.height;
+    if (img_fx < 0 || img_fy < 0 || img_fx >= iw || img_fy >= ih) {
+        out[0] = out[1] = out[2] = 0; out[3] = 1; return;
+    }
+    const uint8_t* src = img.pixels.data();
+    if (zoom >= 1.0f) {
+        int ix = std::clamp((int)img_fx, 0, iw - 1);
+        int iy = std::clamp((int)img_fy, 0, ih - 1);
+        const uint8_t* p = src + (iy * iw + ix) * 4;
+        for (int c = 0; c < 4; ++c) out[c] = p[c] / 255.0f;
+    } else {
+        float fx = img_fx - 0.5f, fy = img_fy - 0.5f;
+        int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy);
+        int x1 = x0 + 1, y1 = y0 + 1;
+        float tx = fx - x0, ty = fy - y0;
+        x0 = std::clamp(x0, 0, iw-1); x1 = std::clamp(x1, 0, iw-1);
+        y0 = std::clamp(y0, 0, ih-1); y1 = std::clamp(y1, 0, ih-1);
+        const uint8_t* p00 = src + (y0*iw+x0)*4;
+        const uint8_t* p10 = src + (y0*iw+x1)*4;
+        const uint8_t* p01 = src + (y1*iw+x0)*4;
+        const uint8_t* p11 = src + (y1*iw+x1)*4;
+        for (int c = 0; c < 4; ++c) {
+            float top = p00[c]/255.0f * (1-tx) + p10[c]/255.0f * tx;
+            float bot = p01[c]/255.0f * (1-tx) + p11[c]/255.0f * tx;
+            out[c] = top * (1-ty) + bot * ty;
+        }
+    }
+}
+
+void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
+                                  const ViewportState& vp, uint8_t* buf,
+                                  int view_w, int view_h,
+                                  DiffState::Mode mode, float amplify,
+                                  ChannelMode channel) {
+    float half_vw = view_w * 0.5f, half_vh = view_h * 0.5f;
+    float half_iw = imgA.width * 0.5f, half_ih = imgA.height * 0.5f;
+
+    for (int sy = 0; sy < view_h; ++sy) {
+        for (int sx = 0; sx < view_w; ++sx) {
+            float img_fx = (sx - half_vw) / vp.zoom - vp.pan_x + half_iw;
+            float img_fy = (sy - half_vh) / vp.zoom - vp.pan_y + half_ih;
+            uint8_t* dst = buf + (sy * view_w + sx) * 4;
+
+            if (img_fx < 0 || img_fy < 0 || img_fx >= imgA.width || img_fy >= imgA.height) {
+                dst[0] = 26; dst[1] = 26; dst[2] = 26; dst[3] = 255;
+                continue;
+            }
+
+            float a[4], b_val[4];
+            sample_pixel(imgA, img_fx, img_fy, vp.zoom, a);
+            sample_pixel(imgB, img_fx, img_fy, vp.zoom, b_val);
+
+            float diff[3] = { std::fabs(a[0]-b_val[0]), std::fabs(a[1]-b_val[1]), std::fabs(a[2]-b_val[2]) };
+
+            if (mode == DiffState::Mode::PixelRelative) {
+                constexpr float eps = 0.001f;
+                for (int c = 0; c < 3; ++c)
+                    diff[c] = diff[c] / std::max(a[c] + eps, eps);
+            }
+
+            float r, g, b_out;
+            if (mode == DiffState::Mode::FalseColor) {
+                float intensity;
+                if      (channel == ChannelMode::Red)   intensity = diff[0];
+                else if (channel == ChannelMode::Green) intensity = diff[1];
+                else if (channel == ChannelMode::Blue)  intensity = diff[2];
+                else    intensity = (diff[0] + diff[1] + diff[2]) / 3.0f;
+                uint8_t fc[3];
+                falsecolor(intensity * amplify, fc);
+                dst[0] = fc[0]; dst[1] = fc[1]; dst[2] = fc[2]; dst[3] = 255;
+            } else {
+                float d[3] = { diff[0]*amplify, diff[1]*amplify, diff[2]*amplify };
+                if      (channel == ChannelMode::Red)   { r = g = b_out = std::clamp(d[0], 0.0f, 1.0f); }
+                else if (channel == ChannelMode::Green) { r = g = b_out = std::clamp(d[1], 0.0f, 1.0f); }
+                else if (channel == ChannelMode::Blue)  { r = g = b_out = std::clamp(d[2], 0.0f, 1.0f); }
+                else { r = std::clamp(d[0], 0.0f, 1.0f); g = std::clamp(d[1], 0.0f, 1.0f); b_out = std::clamp(d[2], 0.0f, 1.0f); }
+                dst[0] = (uint8_t)(r*255); dst[1] = (uint8_t)(g*255); dst[2] = (uint8_t)(b_out*255); dst[3] = 255;
+            }
+
+            // Grid overlay (no channel filter needed — already applied in diff logic)
+            if (vp.zoom >= 16.0f) {
+                float frac_x = img_fx - std::floor(img_fx);
+                float frac_y = img_fy - std::floor(img_fy);
+                float gx = std::min(frac_x, 1.0f - frac_x);
+                float gy = std::min(frac_y, 1.0f - frac_y);
+                float grid_dist = std::min(gx, gy);
+                float line_w = 1.0f / vp.zoom;
+                float grid = (grid_dist >= line_w) ? 0.0f :
+                             (grid_dist <= 0.0f)   ? 1.0f :
+                             1.0f - grid_dist / line_w;
+                grid = grid * grid * (3.0f - 2.0f * grid);
+                float mix_a = grid * 0.4f;
+                for (int c = 0; c < 3; ++c) {
+                    float v = dst[c] / 255.0f;
+                    v = v * (1.0f - mix_a) + 0.5f * mix_a;
+                    dst[c] = (uint8_t)std::clamp(v * 255.0f, 0.0f, 255.0f);
+                }
+            }
+        }
+    }
+}
+
+// ─── cpu_render_overlay ─────────────────────────────────────────────────────
+
+void ImagePanel::cpu_render_overlay(const ImageEntry& imgA, const ImageEntry& imgB,
+                                     const ViewportState& vp, uint8_t* buf,
+                                     int view_w, int view_h,
+                                     const OverlayState& overlay, ChannelMode channel) {
+    float half_vw = view_w * 0.5f, half_vh = view_h * 0.5f;
+    float half_iw = imgA.width * 0.5f, half_ih = imgA.height * 0.5f;
+
+    for (int sy = 0; sy < view_h; ++sy) {
+        for (int sx = 0; sx < view_w; ++sx) {
+            float img_fx = (sx - half_vw) / vp.zoom - vp.pan_x + half_iw;
+            float img_fy = (sy - half_vh) / vp.zoom - vp.pan_y + half_ih;
+            uint8_t* dst = buf + (sy * view_w + sx) * 4;
+
+            if (img_fx < 0 || img_fy < 0 || img_fx >= imgA.width || img_fy >= imgA.height) {
+                dst[0] = 38; dst[1] = 38; dst[2] = 38; dst[3] = 255;
+                continue;
+            }
+
+            float a[4], b_val[4];
+            sample_pixel(imgA, img_fx, img_fy, vp.zoom, a);
+            sample_pixel(imgB, img_fx, img_fy, vp.zoom, b_val);
+
+            float result[4];
+            if (overlay.mode == OverlayState::Mode::Curtain) {
+                float uv_x = static_cast<float>(sx) / view_w;
+                const float* pick = (uv_x < overlay.curtain_x) ? a : b_val;
+                for (int c = 0; c < 4; ++c) result[c] = pick[c];
+            } else {
+                float alpha = overlay.alpha;
+                for (int c = 0; c < 4; ++c)
+                    result[c] = a[c] * (1.0f - alpha) + b_val[c] * alpha;
+            }
+
+            for (int c = 0; c < 4; ++c)
+                dst[c] = (uint8_t)std::clamp(result[c] * 255.0f, 0.0f, 255.0f);
+
+            apply_channel_grid(dst, img_fx, img_fy, vp.zoom, channel);
+        }
+    }
+}
+
+// ─── render_diff_software ─────────────────────────────────────────────────────
+
+void ImagePanel::render_diff_software(AppState& state) {
+    int idx_a = state.swap_images ? 1 : 0;
+    int idx_b = state.swap_images ? 0 : 1;
+    const ImageEntry& imgA = state.images[idx_a];
+    const ImageEntry& imgB = state.images[idx_b];
+    ViewportState& vp = state.views[0];
+
+    if (!imgA.loaded || !imgB.loaded || imgA.pixels.empty() || imgB.pixels.empty()) {
+        ImGui::TextDisabled("(need two images for diff)");
+        return;
+    }
+
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    int pw = std::max(1, (int)avail.x);
+    int ph = std::max(1, (int)avail.y);
+
+    if (vp.fit) viewport_fit(vp, imgA.width, imgA.height, pw, ph);
+    viewport_clamp_pan(vp, imgA.width, imgA.height, pw, ph);
+
+    SDL_Texture* tex = ensure_soft_texture(pw, ph);
+    if (!tex) return;
+
+    cpu_render_diff(imgA, imgB, vp, soft_buf_.data(), pw, ph,
+                    state.diff.mode, state.diff.amplify, state.channel_mode);
+
+    SDL_UpdateTexture(tex, nullptr, soft_buf_.data(), pw * 4);
+
+    ImTextureID imgui_tex = reinterpret_cast<ImTextureID>(tex);
+    ImGui::Image(imgui_tex, avail, ImVec2(0, 0), ImVec2(1, 1));
+
+    ImVec2 widget_pos = ImGui::GetItemRectMin();
+    if (state.roi.active) {
+        handle_roi_drag(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
+    } else {
+        handle_mouse_pan(state, 0);
+        handle_mouse_right_select(state, 0, widget_pos, pw, ph,
+                                   imgA.width, imgA.height);
+    }
+
+    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                      (float)pw, (float)ph,
+                      (float)imgA.width, (float)imgA.height,
+                      vp.pan_x, vp.pan_y, vp.zoom,
+                      static_cast<ImU32>(state.border_colors[2]));
+
+    if (state.roi.has_roi || state.roi.dragging)
+        render_roi_overlay(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
+
+    if (vp.zoom >= 32.0f && imgA.loaded && imgB.loaded)
+        render_diff_pixel_values(state, widget_pos, pw, ph);
+}
+
+// ─── render_overlay_software ──────────────────────────────────────────────────
+
+void ImagePanel::render_overlay_software(AppState& state) {
+    int idx_a = state.swap_images ? 1 : 0;
+    int idx_b = state.swap_images ? 0 : 1;
+    const ImageEntry& imgA = state.images[idx_a];
+    const ImageEntry& imgB = state.images[idx_b];
+    ViewportState& vp = state.views[0];
+
+    if (!imgA.loaded || !imgB.loaded || imgA.pixels.empty() || imgB.pixels.empty()) {
+        ImGui::TextDisabled("(overlay: need two images)");
+        return;
+    }
+
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    int pw = std::max(1, (int)avail.x);
+    int ph = std::max(1, (int)avail.y);
+
+    if (vp.fit) viewport_fit(vp, imgA.width, imgA.height, pw, ph);
+    viewport_clamp_pan(vp, imgA.width, imgA.height, pw, ph);
+
+    SDL_Texture* tex = ensure_soft_texture(pw, ph);
+    if (!tex) return;
+
+    cpu_render_overlay(imgA, imgB, vp, soft_buf_.data(), pw, ph,
+                       state.overlay, state.channel_mode);
+
+    SDL_UpdateTexture(tex, nullptr, soft_buf_.data(), pw * 4);
+
+    ImTextureID imgui_tex = reinterpret_cast<ImTextureID>(tex);
+    ImGui::Image(imgui_tex, avail, ImVec2(0, 0), ImVec2(1, 1));
+
+    ImVec2 widget_pos = ImGui::GetItemRectMin();
+
+    // Curtain mode: draw divider line + drag handling
+    if (state.overlay.mode == OverlayState::Mode::Curtain) {
+        float curtain_sx = widget_pos.x + state.overlay.curtain_x * pw;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddLine(ImVec2(curtain_sx, widget_pos.y),
+                    ImVec2(curtain_sx, widget_pos.y + ph),
+                    IM_COL32(255, 255, 255, 200), 2.0f);
+        char lbl[16];
+        std::snprintf(lbl, sizeof(lbl), "A | B");
+        dl->AddText(ImVec2(curtain_sx + 4, widget_pos.y + 4),
+                    IM_COL32(255, 255, 255, 200), lbl);
+
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+            float mx = ImGui::GetMousePos().x;
+            state.overlay.curtain_x = std::clamp((mx - widget_pos.x) / pw, 0.0f, 1.0f);
+        }
+    } else {
+        handle_mouse_pan(state, 0);
+    }
+
+    if (state.roi.active) {
+        handle_roi_drag(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
+    } else if (state.overlay.mode != OverlayState::Mode::Curtain) {
+        handle_mouse_right_select(state, 0, widget_pos, pw, ph,
+                                   imgA.width, imgA.height);
+    }
+
+    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                      (float)pw, (float)ph,
+                      (float)imgA.width, (float)imgA.height,
+                      vp.pan_x, vp.pan_y, vp.zoom,
+                      IM_COL32(150, 255, 150, 200));
+
+    if (state.roi.has_roi || state.roi.dragging)
+        render_roi_overlay(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
+
+    render_pathfinder(state, 0, widget_pos, pw, ph);
+}
+
+// ─── render_ssim_software ─────────────────────────────────────────────────────
+
+void ImagePanel::render_ssim_software(AppState& state) {
+    const ImageEntry& imgA = state.images[0];
+    ViewportState& vp = state.views[0];
+
+    if (!imgA.loaded || state.diff.ssim_texture_id == 0) {
+        ImGui::TextDisabled("(SSIM heatmap not ready)");
+        return;
+    }
+
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+    int pw = std::max(1, (int)avail.x);
+    int ph = std::max(1, (int)avail.y);
+
+    if (vp.fit) viewport_fit(vp, imgA.width, imgA.height, pw, ph);
+    viewport_clamp_pan(vp, imgA.width, imgA.height, pw, ph);
+
+    SDL_Texture* tex = ensure_soft_texture(pw, ph);
+    if (!tex) return;
+
+    // Use stored falsecolor RGBA pixels with cpu_render_image for viewport transform
+    if (!state.diff.ssim_pixels.empty() && state.diff.ssim_w > 0) {
+        ImageEntry fake{};
+        fake.loaded  = true;
+        fake.width   = state.diff.ssim_w;
+        fake.height  = state.diff.ssim_h;
+        fake.pixels.swap(state.diff.ssim_pixels);  // zero-copy swap
+        cpu_render_image(fake, vp, soft_buf_.data(), pw, ph);
+        fake.pixels.swap(state.diff.ssim_pixels);  // swap back
+    } else {
+        // Fallback: clear to dark
+        std::memset(soft_buf_.data(), 26, soft_buf_.size());
+    }
+
+    SDL_UpdateTexture(tex, nullptr, soft_buf_.data(), pw * 4);
+
+    ImTextureID imgui_tex = reinterpret_cast<ImTextureID>(tex);
+    ImGui::Image(imgui_tex, avail, ImVec2(0, 0), ImVec2(1, 1));
+
+    ImVec2 widget_pos = ImGui::GetItemRectMin();
+    if (state.roi.active) {
+        handle_roi_drag(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
+    } else {
+        handle_mouse_pan(state, 0);
+        handle_mouse_right_select(state, 0, widget_pos, pw, ph,
+                                   imgA.width, imgA.height);
+    }
+
+    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                      (float)pw, (float)ph,
+                      (float)imgA.width, (float)imgA.height,
+                      vp.pan_x, vp.pan_y, vp.zoom,
+                      static_cast<ImU32>(state.border_colors[2]));
+
+    if (state.roi.has_roi || state.roi.dragging)
+        render_roi_overlay(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
 }
 
 // ─── Mouse pan helper ─────────────────────────────────────────────────────────
@@ -874,8 +1253,29 @@ void ImagePanel::render(AppState& state, int panel_idx, DiffRenderer& diff_rende
                         bool force_single) {
     if (!inited_) return;
 
-    // Software mode: simplified rendering (no GPU shaders)
+    // Software mode: full feature rendering via CPU
     if (is_software_mode()) {
+        if (!force_single) {
+            bool both_loaded = state.images[0].loaded && state.images[1].loaded;
+            // Overlay mode
+            if (state.overlay.active && panel_idx == 0 && both_loaded) {
+                render_overlay_software(state);
+                return;
+            }
+            // Diff modes (abs/rel/falsecolor)
+            bool is_diff_mode = (state.diff.mode != DiffState::Mode::None &&
+                                 state.diff.mode != DiffState::Mode::SSIM);
+            if (is_diff_mode && panel_idx == 0) {
+                render_diff_software(state);
+                return;
+            }
+            // SSIM heatmap
+            if (state.diff.mode == DiffState::Mode::SSIM &&
+                panel_idx == 0 && state.diff.ssim_texture_id != 0) {
+                render_ssim_software(state);
+                return;
+            }
+        }
         render_single_software(state, panel_idx);
         return;
     }

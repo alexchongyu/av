@@ -44,6 +44,8 @@ struct DiffState {
     float ssim_score     = -1.0f;      // -1 = not computed
     uintptr_t ssim_texture_id = 0;     // SSIM heatmap texture (GLuint or SDL_Texture*)
     bool  ssim_computing = false;
+    std::vector<uint8_t> ssim_pixels;  // RGBA8 falsecolor heatmap for software mode
+    int   ssim_w = 0, ssim_h = 0;     // heatmap dimensions
 };
 
 struct SaveItemState {

@@ -58,8 +58,23 @@ private:
     int                  soft_h_ = 0;
 
     void render_single_software(AppState& state, int panel_idx);
+    void render_diff_software(AppState& state);
+    void render_overlay_software(AppState& state);
+    void render_ssim_software(AppState& state);
+
     void cpu_render_image(const ImageEntry& img, const ViewportState& vp,
-                          uint8_t* buf, int view_w, int view_h);
+                          uint8_t* buf, int view_w, int view_h,
+                          ChannelMode channel = ChannelMode::RGB);
+    void cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
+                         const ViewportState& vp, uint8_t* buf,
+                         int view_w, int view_h,
+                         DiffState::Mode mode, float amplify,
+                         ChannelMode channel);
+    void cpu_render_overlay(const ImageEntry& imgA, const ImageEntry& imgB,
+                            const ViewportState& vp, uint8_t* buf,
+                            int view_w, int view_h,
+                            const OverlayState& overlay, ChannelMode channel);
+
     SDL_Texture* ensure_soft_texture(int w, int h);
 
     // Right-click drag-to-zoom state

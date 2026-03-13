@@ -893,12 +893,21 @@ void MainWindow::render(AppState& state) {
         }
         if (s_ssim_result.success && !s_ssim_result.heatmap.empty()) {
             if (is_software_mode()) {
-                // Convert float heatmap to RGBA8 for SDL texture
+                // Convert float heatmap to falsecolor RGBA8 for SDL texture
                 int w = s_ssim_result.w, h = s_ssim_result.h;
                 std::vector<uint8_t> rgba(static_cast<size_t>(w) * h * 4);
                 for (int i = 0; i < w * h; ++i) {
-                    uint8_t v = static_cast<uint8_t>(std::clamp(s_ssim_result.heatmap[i] * 255.0f, 0.0f, 255.0f));
-                    rgba[i*4+0] = v; rgba[i*4+1] = v; rgba[i*4+2] = v; rgba[i*4+3] = 255;
+                    float t = std::clamp(s_ssim_result.heatmap[i], 0.0f, 1.0f);
+                    // falsecolor: dark blue → blue → green → yellow → red
+                    float r, g, b;
+                    if      (t < 0.25f) { float s = t * 4.0f;        r = 0;    g = 0;    b = 0.5f + 0.5f*s; }
+                    else if (t < 0.50f) { float s = (t-0.25f) * 4.0f; r = 0;    g = s;    b = 1.0f - s; }
+                    else if (t < 0.75f) { float s = (t-0.50f) * 4.0f; r = s;    g = 1.0f; b = 0; }
+                    else                { float s = (t-0.75f) * 4.0f; r = 1.0f; g = 1.0f-s; b = 0; }
+                    rgba[i*4+0] = (uint8_t)(r * 255.0f);
+                    rgba[i*4+1] = (uint8_t)(g * 255.0f);
+                    rgba[i*4+2] = (uint8_t)(b * 255.0f);
+                    rgba[i*4+3] = 255;
                 }
                 SDL_Surface* surf = SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32,
                                                            rgba.data(), w * 4);
@@ -907,6 +916,10 @@ void MainWindow::render(AppState& state) {
                     SDL_DestroySurface(surf);
                     state.diff.ssim_texture_id = reinterpret_cast<uintptr_t>(tex);
                 }
+                // Store falsecolor pixels for cpu_render_image viewport transform
+                state.diff.ssim_pixels = std::move(rgba);
+                state.diff.ssim_w = w;
+                state.diff.ssim_h = h;
             } else {
                 state.diff.ssim_texture_id = gl_upload_texture_r32f(
                     s_ssim_result.heatmap.data(),

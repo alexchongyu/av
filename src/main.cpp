@@ -161,6 +161,15 @@ int main(int argc, char* argv[]) {
     SdlCleanup cleanup;
     bool use_software = cli.software;
 
+    // Auto-detect X11 forwarding: SSH_CONNECTION set → remote session
+    if (!use_software) {
+        const char* ssh = getenv("SSH_CONNECTION");
+        if (ssh && ssh[0]) {
+            use_software = true;
+            std::cout << "[av] X11 forwarding detected (SSH) — using software renderer\n";
+        }
+    }
+
     // ── Try OpenGL path ───────────────────────────────────────────────────────
     SDL_Window* window = nullptr;
 
