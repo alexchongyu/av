@@ -390,9 +390,11 @@ struct ImageEntry {
     std::string          path;
     std::vector<uint8_t> pixels;      // CPU-side RGBA8
     std::vector<float>   pixels_f32;  // CPU-side RGBA32F (HDR)
+    std::vector<uint16_t> pixels_orig; // PPM 원본 픽셀값 (P2/P3)
     int   width    = 0;
     int   height   = 0;
     int   channels = 0;
+    int   ppm_maxval = 0;             // PPM maxval (0이면 PPM 아님)
     unsigned int texture_id = 0;      // OpenGL texture (GLuint)
     bool  loaded   = false;
     bool  is_hdr   = false;
@@ -405,15 +407,17 @@ struct ImageEntry {
     fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
     align: (left, left, left),
     table.header([필드], [타입], [설명]),
-    [`path`],       [`std::string`],          [이미지 파일의 절대 경로],
-    [`pixels`],     [`vector<uint8_t>`],      [CPU측 RGBA8 픽셀 데이터 (LDR)],
-    [`pixels_f32`], [`vector<float>`],        [CPU측 RGBA32F 픽셀 데이터 (HDR)],
-    [`width`],      [`int`],                  [이미지 너비 (픽셀)],
-    [`height`],     [`int`],                  [이미지 높이 (픽셀)],
-    [`channels`],   [`int`],                  [원본 채널 수 (1\~4)],
-    [`texture_id`], [`unsigned int`],         [OpenGL 텍스처 핸들 (GLuint)],
-    [`loaded`],     [`bool`],                 [로딩 완료 여부],
-    [`is_hdr`],     [`bool`],                 [HDR(32bit float) 이미지 여부],
+    [`path`],        [`std::string`],          [이미지 파일의 절대 경로],
+    [`pixels`],      [`vector<uint8_t>`],      [CPU측 RGBA8 픽셀 데이터 (LDR)],
+    [`pixels_f32`],  [`vector<float>`],        [CPU측 RGBA32F 픽셀 데이터 (HDR)],
+    [`pixels_orig`], [`vector<uint16_t>`],     [PPM ASCII 원본 픽셀값 (P2/P3, 0\~maxval)],
+    [`width`],       [`int`],                  [이미지 너비 (픽셀)],
+    [`height`],      [`int`],                  [이미지 높이 (픽셀)],
+    [`channels`],    [`int`],                  [원본 채널 수 (1\~4)],
+    [`ppm_maxval`],  [`int`],                  [PPM maxval 값 (0이면 PPM 아님)],
+    [`texture_id`],  [`unsigned int`],         [OpenGL 텍스처 핸들 (GLuint)],
+    [`loaded`],      [`bool`],                 [로딩 완료 여부],
+    [`is_hdr`],      [`bool`],                 [HDR(32bit float) 이미지 여부],
   ),
   caption: [ImageEntry 필드 설명],
 ) <tab:image-entry>
@@ -1142,9 +1146,11 @@ struct ImageEntry {
     std::string          path;
     std::vector<uint8_t> pixels;      // CPU RGBA8
     std::vector<float>   pixels_f32;  // CPU RGBA32F (HDR)
+    std::vector<uint16_t> pixels_orig; // PPM 원본 (P2/P3)
     int   width    = 0;
     int   height   = 0;
     int   channels = 0;
+    int   ppm_maxval = 0;             // PPM maxval
     unsigned int texture_id = 0;      // GLuint
     bool  loaded   = false;
     bool  is_hdr   = false;
@@ -1168,19 +1174,25 @@ struct ImageEntry {
     [TGA],     [Targa],                         [알파 채널 지원],
     [HDR],     [Radiance RGBE],                 [float 텍스처로 업로드],
     [PIC],     [Softimage PIC],                 [#sym.dash.en],
-    [PNM],     [PBM / PGM / PPM (Netpbm)],     [텍스트·바이너리 모두 지원],
+    [PNM (P5/P6)], [PGM / PPM Binary],          [stb\_image로 디코딩],
+    [PNM (P2/P3)], [PGM / PPM ASCII],           [av 자체 파서 (`try_load_ppm_ascii`)],
   ),
-  caption: [stb\_image 지원 포맷 목록],
+  caption: [지원 포맷 목록],
 ) <tab-formats>
 
 #v(0.5em)
 === 로딩 흐름
 
-SDR과 HDR 이미지는 별도의 함수로 디코딩된다.
+이미지 로딩은 PPM ASCII 자체 파서를 우선 시도하고, 실패 시 stb\_image로 fallback한다.
 
++ *PPM ASCII 경로*: `try_load_ppm_ascii()` 우선 시도 #sym.arrow.r P2(Grayscale) / P3(RGB) ASCII 파싱
+  - 매직 넘버(`P2`/`P3`) 확인 후 `#` 주석 행 스킵
+  - width, height, maxval 파싱 후 ASCII 정수값을 순차 읽기
+  - 원본 값을 `pixels_orig` (`uint16_t`)에 보존하고, 8\-bit RGBA로 정규화하여 `pixels`에 저장
+  - `ppm_maxval`에 원본 최대값 기록 (예: 1023, 65535 등)
 + *SDR 경로*: `stbi_load()` #sym.arrow.r RGBA8 (`uint8_t` 배열, 4채널 강제)
 + *HDR 경로*: `stbi_loadf()` #sym.arrow.r RGBA32F (`float` 배열, 4채널)
-+ `stbi_is_hdr()` 호출로 HDR 여부를 사전 판별하여 경로를 분기한다.
++ `stbi_is_hdr()` 호출로 HDR 여부를 사전 판별하여 SDR/HDR 경로를 분기한다.
 
 #v(1em)
 == HDR 지원
@@ -2063,7 +2075,8 @@ ImGui DrawList를 사용하여 각 패널의 이미지 경계를 시각적으로
 
 *단일 채널 모드:* 해당 채널 색상으로 단일 값 표시
 
-*형식:*
+*형식 (우선순위 순):*
+- PPM 원본 (pixels\_orig 존재 시): `%d` (0\~maxval 범위, 예: 0\-1023)
 - HDR (float32): `%.2f`
 - LDR (uint8): `%d`
 
@@ -2084,9 +2097,11 @@ ImGui DrawList를 사용하여 각 패널의 이미지 경계를 시각적으로
 - 배경: `IM_COL32(20, 20, 20, 200)`, 라운드 반지름 6px
 - 테두리: `IM_COL32(80, 80, 80, 180)`
 - 좌표 행: 흰색 `(123, 456)`
-- RGB 행: R/G/B 각 채널 색상으로 개별 표시
+- RGB 행: R/G/B 각 채널 색상으로 개별 표시 (우선순위 순)
+  - PPM 원본 (pixels\_orig 존재 시): `R:512 G:1023 B:0` (원본 maxval 기준)
   - HDR (float32): `R:1.234 G:0.562 B:0.012`
   - LDR (uint8): `R:255 G:128 B:64`
+- Diff 패널에서도 PPM 원본값 기준으로 차이를 계산하여 표시
 
 *Edge Clamping:* 풍선말이 화면 밖으로 나가지 않도록 위치를 자동 보정한다.
 
@@ -3042,9 +3057,9 @@ set(APPIMAGE_OUT "${CMAKE_SOURCE_DIR}/bin/av-${LD_ARCH}.AppImage")
 #pagebreak()
 #align(center + horizon)[
   #text(size: 11pt, fill: luma(120))[
-    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.3 \
+    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.4 \
     #v(0.3em)
-    2026\-03\-08 \
+    2026\-03\-13 \
     #v(0.3em)
     이 문서는 av 이미지 뷰어/비교기의 완전한 구현 참조 문서입니다.
   ]
