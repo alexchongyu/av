@@ -984,14 +984,20 @@ void ImagePanel::render_pixel_values(const AppState& state, int panel_idx,
             float abs_x = widget_pos.x + scr_x;
             float abs_y = widget_pos.y + scr_y;
 
-            int pidx = (py * img.width + px) * 4;
             char sr[16], sg[16], sb[16];
 
-            if (img.is_hdr && !img.pixels_f32.empty()) {
+            if (img.ppm_maxval > 0 && !img.pixels_orig.empty()) {
+                int oidx = (py * img.width + px) * 3;
+                std::snprintf(sr, sizeof(sr), "%d", (int)img.pixels_orig[oidx + 0]);
+                std::snprintf(sg, sizeof(sg), "%d", (int)img.pixels_orig[oidx + 1]);
+                std::snprintf(sb, sizeof(sb), "%d", (int)img.pixels_orig[oidx + 2]);
+            } else if (img.is_hdr && !img.pixels_f32.empty()) {
+                int pidx = (py * img.width + px) * 4;
                 std::snprintf(sr, sizeof(sr), "%.2f", img.pixels_f32[pidx + 0]);
                 std::snprintf(sg, sizeof(sg), "%.2f", img.pixels_f32[pidx + 1]);
                 std::snprintf(sb, sizeof(sb), "%.2f", img.pixels_f32[pidx + 2]);
             } else if (!img.pixels.empty()) {
+                int pidx = (py * img.width + px) * 4;
                 std::snprintf(sr, sizeof(sr), "%d", img.pixels[pidx + 0]);
                 std::snprintf(sg, sizeof(sg), "%d", img.pixels[pidx + 1]);
                 std::snprintf(sb, sizeof(sb), "%d", img.pixels[pidx + 2]);

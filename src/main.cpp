@@ -15,6 +15,18 @@
 #include <cstdio>
 #include <cmath>
 
+// X11 error handler for SSH forwarding (suppress MIT-SHM errors)
+#if defined(__linux__) || defined(__unix__)
+#include <X11/Xlib.h>
+#undef None      // X11 #define None 0L conflicts with DiffState::Mode::None
+#undef Status    // X11 #define Status int
+#undef Bool      // X11 #define Bool int
+static int x11_error_handler(Display* /*dpy*/, XErrorEvent* /*ev*/) {
+    // Suppress all X11 errors in software mode (MIT-SHM, GLX, etc.)
+    return 0;
+}
+#endif
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 static constexpr const char* APP_TITLE   = "Advanced Pixel Lens";
 static constexpr int         GL_MAJOR    = 3;
@@ -152,16 +164,8 @@ int main(int argc, char* argv[]) {
     // ── Parse CLI ─────────────────────────────────────────────────────────────
     CliOptions cli = parse_cli(argc, argv);
 
-    // ── SDL3 init ─────────────────────────────────────────────────────────────
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
-        std::cerr << "SDL_Init failed: " << SDL_GetError() << "\n";
-        return 2;
-    }
-
-    SdlCleanup cleanup;
+    // ── Determine software mode BEFORE SDL_Init ───────────────────────────────
     bool use_software = cli.software;
-
-    // Auto-detect X11 forwarding: SSH_CONNECTION set → remote session
     if (!use_software) {
         const char* ssh = getenv("SSH_CONNECTION");
         if (ssh && ssh[0]) {
@@ -169,6 +173,28 @@ int main(int argc, char* argv[]) {
             std::cout << "[av] X11 forwarding detected (SSH) — using software renderer\n";
         }
     }
+
+    // Install X11 error handler to survive MIT-SHM and GLX errors over SSH
+#if defined(__linux__) || defined(__unix__)
+    if (use_software) {
+        XSetErrorHandler(x11_error_handler);
+    }
+#endif
+
+    // Prevent SDL from probing GLX when we know we need software mode
+    if (use_software) {
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
+        SDL_SetHint("SDL_VIDEO_X11_FORCE_EGL", "0");
+        SDL_SetHint("SDL_OPENGL_ES_DRIVER", "0");
+    }
+
+    // ── SDL3 init ─────────────────────────────────────────────────────────────
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        std::cerr << "SDL_Init failed: " << SDL_GetError() << "\n";
+        return 2;
+    }
+
+    SdlCleanup cleanup;
 
     // ── Try OpenGL path ───────────────────────────────────────────────────────
     SDL_Window* window = nullptr;
@@ -248,13 +274,10 @@ int main(int argc, char* argv[]) {
             return 2;
         }
 
+        SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
         SDL_Renderer* renderer = SDL_CreateRenderer(window, "software");
         if (!renderer) {
-            // Try without specifying driver name
-            renderer = SDL_CreateRenderer(window, nullptr);
-        }
-        if (!renderer) {
-            std::cerr << "SDL_CreateRenderer failed: " << SDL_GetError() << "\n";
+            std::cerr << "SDL_CreateRenderer (software) failed: " << SDL_GetError() << "\n";
             return 2;
         }
 

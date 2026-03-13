@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <cstring>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 
 // ─── Global cache instance ────────────────────────────────────────────────────
 ImageCache g_image_cache;
@@ -61,11 +63,123 @@ static uintptr_t upload_sdl_texture(const uint8_t* pixels, int w, int h) {
     return reinterpret_cast<uintptr_t>(tex);
 }
 
+// ─── PPM ASCII (P2/P3) parser ─────────────────────────────────────────────────
+
+// Skip whitespace and '#' comment lines in PPM header
+static void ppm_skip_ws_comments(std::ifstream& f) {
+    while (f.good()) {
+        int c = f.peek();
+        if (c == '#') {
+            std::string dummy;
+            std::getline(f, dummy);
+        } else if (std::isspace(c)) {
+            f.get();
+        } else {
+            break;
+        }
+    }
+}
+
+static bool try_load_ppm_ascii(const std::string& path, ImageEntry& entry) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f.is_open()) return false;
+
+    // Read magic number
+    char magic[3] = {};
+    f.read(magic, 2);
+    if (!f.good()) return false;
+
+    bool is_p2 = (magic[0] == 'P' && magic[1] == '2');  // grayscale ASCII
+    bool is_p3 = (magic[0] == 'P' && magic[1] == '3');  // RGB ASCII
+    if (!is_p2 && !is_p3) return false;
+
+    int w = 0, h = 0, maxval = 0;
+    ppm_skip_ws_comments(f);
+    f >> w;
+    ppm_skip_ws_comments(f);
+    f >> h;
+    ppm_skip_ws_comments(f);
+    f >> maxval;
+
+    if (w <= 0 || h <= 0 || maxval <= 0 || maxval > 65535) {
+        std::cerr << "[image_loader] invalid PPM ASCII header: "
+                  << path << " (w=" << w << " h=" << h << " maxval=" << maxval << ")\n";
+        return false;
+    }
+
+    size_t npixels = static_cast<size_t>(w) * h;
+    int channels = is_p3 ? 3 : 1;
+    size_t nvalues = npixels * channels;
+
+    // Read all pixel values
+    std::vector<uint16_t> raw(nvalues);
+    for (size_t i = 0; i < nvalues; ++i) {
+        int val = 0;
+        f >> val;
+        if (f.fail()) {
+            std::cerr << "[image_loader] PPM ASCII: premature end of data at value "
+                      << i << "/" << nvalues << " in " << path << "\n";
+            return false;
+        }
+        raw[i] = static_cast<uint16_t>(std::clamp(val, 0, maxval));
+    }
+
+    // Build pixels_orig (always RGB 3ch)
+    entry.pixels_orig.resize(npixels * 3);
+    if (is_p3) {
+        entry.pixels_orig = std::move(raw);
+    } else {
+        // P2: grayscale -> RGB replicate
+        for (size_t i = 0; i < npixels; ++i) {
+            entry.pixels_orig[i * 3 + 0] = raw[i];
+            entry.pixels_orig[i * 3 + 1] = raw[i];
+            entry.pixels_orig[i * 3 + 2] = raw[i];
+        }
+    }
+    entry.ppm_maxval = maxval;
+
+    // Build 8-bit RGBA for display
+    entry.pixels.resize(npixels * 4);
+    for (size_t i = 0; i < npixels; ++i) {
+        uint16_t r = entry.pixels_orig[i * 3 + 0];
+        uint16_t g = entry.pixels_orig[i * 3 + 1];
+        uint16_t b = entry.pixels_orig[i * 3 + 2];
+        entry.pixels[i * 4 + 0] = static_cast<uint8_t>(r * 255 / maxval);
+        entry.pixels[i * 4 + 1] = static_cast<uint8_t>(g * 255 / maxval);
+        entry.pixels[i * 4 + 2] = static_cast<uint8_t>(b * 255 / maxval);
+        entry.pixels[i * 4 + 3] = 255;
+    }
+
+    entry.width    = w;
+    entry.height   = h;
+    entry.channels = 4;
+
+    // Upload texture
+    if (is_software_mode()) {
+        entry.texture_id = upload_sdl_texture(entry.pixels.data(), w, h);
+    } else {
+        entry.texture_id = upload_rgba8(entry.pixels.data(), w, h);
+    }
+
+    if (entry.texture_id == 0) {
+        std::cerr << "[image_loader] texture upload failed for PPM ASCII: " << path << "\n";
+        return false;
+    }
+
+    entry.loaded = true;
+    return true;
+}
+
 // ─── load_image ───────────────────────────────────────────────────────────────
 
 bool load_image(const std::string& path, ImageEntry& entry) {
     entry = {};
     entry.path = path;
+
+    // PPM ASCII (P2/P3) 먼저 시도
+    if (try_load_ppm_ascii(path, entry)) {
+        return true;
+    }
 
     // Check if HDR
     entry.is_hdr = (stbi_is_hdr(path.c_str()) != 0);
@@ -137,9 +251,11 @@ void free_image(ImageEntry& entry) {
         }
         entry.texture_id = 0;
     }
-    entry.pixels    = {};
+    entry.pixels     = {};
     entry.pixels_f32 = {};
-    entry.loaded    = false;
+    entry.pixels_orig = {};
+    entry.ppm_maxval = 0;
+    entry.loaded     = false;
 }
 
 // ─── Rotation helpers ─────────────────────────────────────────────────────────
@@ -181,6 +297,21 @@ void rotate_image_cw(ImageEntry& entry) {
             }
         }
         entry.pixels_f32 = std::move(dst);
+    }
+
+    if (!entry.pixels_orig.empty()) {
+        std::vector<uint16_t> dst(static_cast<size_t>(new_w) * new_h * 3);
+        const uint16_t* src = entry.pixels_orig.data();
+        for (int y = 0; y < old_h; ++y) {
+            for (int x = 0; x < old_w; ++x) {
+                int dst_row = x;
+                int dst_col = old_h - 1 - y;
+                const uint16_t* sp = src + (y * old_w + x) * 3;
+                uint16_t*       dp = dst.data() + (dst_row * new_w + dst_col) * 3;
+                dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2];
+            }
+        }
+        entry.pixels_orig = std::move(dst);
     }
 
     entry.width  = new_w;
@@ -243,6 +374,21 @@ void rotate_image_ccw(ImageEntry& entry) {
             }
         }
         entry.pixels_f32 = std::move(dst);
+    }
+
+    if (!entry.pixels_orig.empty()) {
+        std::vector<uint16_t> dst(static_cast<size_t>(new_w) * new_h * 3);
+        const uint16_t* src = entry.pixels_orig.data();
+        for (int y = 0; y < old_h; ++y) {
+            for (int x = 0; x < old_w; ++x) {
+                int dst_row = old_w - 1 - x;
+                int dst_col = y;
+                const uint16_t* sp = src + (y * old_w + x) * 3;
+                uint16_t*       dp = dst.data() + (dst_row * new_w + dst_col) * 3;
+                dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2];
+            }
+        }
+        entry.pixels_orig = std::move(dst);
     }
 
     entry.width  = new_w;

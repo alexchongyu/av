@@ -14,9 +14,11 @@ struct ImageEntry {
     std::string          path;
     std::vector<uint8_t> pixels;      // CPU-side RGBA8 (or empty if freed)
     std::vector<float>   pixels_f32;  // CPU-side RGBA32F for HDR
+    std::vector<uint16_t> pixels_orig; // 원본 RGB (3ch, uint16), PPM P2/P3 전용
     int   width    = 0;
     int   height   = 0;
     int   channels = 0;
+    int   ppm_maxval = 0;              // PPM maxval (0=PPM 아님, 255=8bit, 1023=10bit 등)
     uintptr_t texture_id = 0;          // GL texture handle or SDL_Texture*
     bool  loaded   = false;
     bool  is_hdr   = false;

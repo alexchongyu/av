@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.14)
 project(av C CXX)   # C required for glad2 generated sources
 
 # Static CRT for standalone deployment (no vcruntime DLL needed)
@@ -31,14 +31,22 @@ FetchContent_Declare(SDL3
 )
 FetchContent_MakeAvailable(SDL3)
 
+# Disable MIT-SHM in SDL3 X11 backend (broken over SSH X11 forwarding)
+if(UNIX AND NOT APPLE)
+    target_compile_definitions(SDL3-static PRIVATE NO_SHARED_MEMORY)
+endif()
+
 # ── glad2 ─────────────────────────────────────────────────────────────────────
 FetchContent_Declare(glad
     GIT_REPOSITORY https://github.com/Dav1dde/glad.git
     GIT_TAG        v2.0.6
     GIT_SHALLOW    TRUE
-    SOURCE_SUBDIR  cmake
 )
-FetchContent_MakeAvailable(glad)
+FetchContent_GetProperties(glad)
+if(NOT glad_POPULATED)
+    FetchContent_Populate(glad)
+    add_subdirectory(${glad_SOURCE_DIR}/cmake ${glad_BINARY_DIR})
+endif()
 glad_add_library(glad_gl STATIC REPRODUCIBLE API gl:core=3.3)
 
 # ── Dear ImGui (docking branch) ───────────────────────────────────────────────
@@ -150,7 +158,11 @@ if(APPLE)
     )
 elseif(UNIX)
     find_package(OpenGL REQUIRED)
+    find_package(X11 QUIET)
     target_link_libraries(av PRIVATE OpenGL::GL)
+    if(X11_FOUND)
+        target_link_libraries(av PRIVATE X11::X11)
+    endif()
 elseif(WIN32)
     target_link_libraries(av PRIVATE opengl32)
 endif()
@@ -162,9 +174,14 @@ else()
     target_compile_options(av PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter)
 endif()
 
-# Linux: libstdc++/libgcc 정적 링크 (오래된 배포판 호환성)
+# Linux: 정적 링크 (오래된 배포판 호환성)
 if(UNIX AND NOT APPLE)
-    target_link_options(av PRIVATE -static-libstdc++ -static-libgcc)
+    if(AV_FULL_STATIC)
+        # 완전 정적 빌드: CentOS 6.x 등 glibc 2.12 환경용
+        target_link_options(av PRIVATE -static)
+    else()
+        target_link_options(av PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
 endif()
 
 # Windows: stb UTF-8 경로 지원

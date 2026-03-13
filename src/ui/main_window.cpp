@@ -1218,11 +1218,22 @@ void MainWindow::render(AppState& state) {
 
                 std::snprintf(line_pos, sizeof(line_pos), "(%d, %d)", ix, iy);
 
+                bool has_orig_a = imgA.ppm_maxval > 0 && !imgA.pixels_orig.empty();
+                bool has_orig_b = imgB.ppm_maxval > 0 && !imgB.pixels_orig.empty();
                 bool is_hdr  = imgA.is_hdr && imgB.is_hdr;
                 bool has_f32 = !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty();
                 bool has_u8  = !imgA.pixels.empty() && !imgB.pixels.empty();
 
-                if (is_hdr && has_f32) {
+                if (has_orig_a && has_orig_b) {
+                    int oidx_a = (iy * imgA.width + ix) * 3;
+                    int oidx_b = (iy * imgB.width + ix) * 3;
+                    std::snprintf(line_r, sizeof(line_r), "R:%d",
+                        std::abs((int)imgA.pixels_orig[oidx_a + 0] - (int)imgB.pixels_orig[oidx_b + 0]));
+                    std::snprintf(line_g, sizeof(line_g), "G:%d",
+                        std::abs((int)imgA.pixels_orig[oidx_a + 1] - (int)imgB.pixels_orig[oidx_b + 1]));
+                    std::snprintf(line_b, sizeof(line_b), "B:%d",
+                        std::abs((int)imgA.pixels_orig[oidx_a + 2] - (int)imgB.pixels_orig[oidx_b + 2]));
+                } else if (is_hdr && has_f32) {
                     std::snprintf(line_r, sizeof(line_r), "R:%.3f",
                         std::fabs(imgA.pixels_f32[pidx_a + 0] - imgB.pixels_f32[pidx_b + 0]));
                     std::snprintf(line_g, sizeof(line_g), "G:%.3f",
@@ -1268,7 +1279,12 @@ void MainWindow::render(AppState& state) {
 
                 std::snprintf(line_pos, sizeof(line_pos), "(%d, %d)", ix, iy);
 
-                if (bimg.is_hdr && !bimg.pixels_f32.empty()) {
+                if (bimg.ppm_maxval > 0 && !bimg.pixels_orig.empty()) {
+                    int oidx = (iy * bimg.width + ix) * 3;
+                    std::snprintf(line_r, sizeof(line_r), "R:%d", (int)bimg.pixels_orig[oidx + 0]);
+                    std::snprintf(line_g, sizeof(line_g), "G:%d", (int)bimg.pixels_orig[oidx + 1]);
+                    std::snprintf(line_b, sizeof(line_b), "B:%d", (int)bimg.pixels_orig[oidx + 2]);
+                } else if (bimg.is_hdr && !bimg.pixels_f32.empty()) {
                     std::snprintf(line_r, sizeof(line_r), "R:%.3f", bimg.pixels_f32[pidx + 0]);
                     std::snprintf(line_g, sizeof(line_g), "G:%.3f", bimg.pixels_f32[pidx + 1]);
                     std::snprintf(line_b, sizeof(line_b), "B:%.3f", bimg.pixels_f32[pidx + 2]);
