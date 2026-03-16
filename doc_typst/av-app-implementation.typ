@@ -512,13 +512,15 @@ struct CliOptions {
     int             win_h        = 720;
     std::string     icc_profile;
     bool            no_color_mgmt = false;
+    bool            windowed     = false;
+    bool            no_border    = false;
     int             pan_step     = 32;
     std::array<uint32_t, 3> border_colors =
         {0xE6FF00FFu, 0xE600FFFFu, 0xE6FFFF00u};
 };
 ```
 
-`CliOptions`는 커맨드라인 인자를 파싱한 결과를 보관하며, `AppState` 초기화 시 각 필드에 복사된다. `border_colors` 배열은 A 패널(마젠타), B 패널(시안), Diff 패널(옐로)의 테두리 색상을 ARGB 형식으로 저장한다.
+`CliOptions`는 커맨드라인 인자를 파싱한 결과를 보관하며, `AppState` 초기화 시 각 필드에 복사된다. `border_colors` 배열은 A 패널(마젠타), B 패널(시안), Diff 패널(옐로)의 테두리 색상을 ARGB 형식으로 저장한다. `no_border`는 `-nb` 옵션 사용 시 테두리 숨김 상태로 시작한다.
 
 == AppState
 
@@ -545,6 +547,7 @@ struct AppState {
     ChannelMode channel_mode = ChannelMode::RGB;
     int   pan_step        = 32;
     std::array<uint32_t, 3> border_colors;
+    bool         show_borders = true;     // B key: toggle panel borders
     ImFont* font_large    = nullptr;   // Roboto-Medium 26px
     ImFont* font_medium   = nullptr;   // Roboto-Medium 18px
     CliOptions cli;
@@ -581,6 +584,7 @@ struct AppState {
     [`channel_mode`],     [채널 표시 모드 (RGB, R, G, B)],
     [`pan_step`],         [Shift+hjkl 팬 이동량 (픽셀, 기본 32)],
     [`border_colors`],    [패널 테두리 색상 배열 \[A, B, Diff\]],
+    [`show_borders`],     [테두리 표시 여부 (`B` 키 토글, `av.ini` 영속화)],
     [`font_medium`],      [Roboto-Medium 18px 폰트 (차트 창 등에서 사용)],
     [`show_save_dialog`], [컨텍스트 인식 Save 다이얼로그 표시 여부 (`Shift+Cmd+S`)],
     [`image_save`],       [`ImageSaveDialog` 상태 구조체],
@@ -2022,6 +2026,8 @@ ImGui DrawList를 사용하여 각 패널의 이미지 경계를 시각적으로
 - *좌표 변환*: `screen_px = (img_px + pan − half_img) × zoom + half_view`
 - *클리핑*: 수직/수평 에지 모두 뷰포트 범위로 클리핑
 - *커스텀*: `-bc` CLI 옵션으로 6자리 hex 색상 지정 가능
+- *토글*: `B` 키로 모든 패널 테두리를 런타임에 on/off 전환. `state.show_borders`가 `false`면 `draw_image_border()` 호출과 포그라운드 패널 보더 드로잉이 모두 스킵된다.
+- *영속화*: 종료 시 `av.ini`에 `show_borders=0|1`로 저장, 시작 시 자동 로드. `-nb` CLI 옵션은 INI 값을 override.
 
 #v(0.8em)
 
@@ -2497,6 +2503,7 @@ av [options] [imageA] [imageB]
     [`-bc <A> <B> <D>`], [mag/yel/cya], [패널 경계 색상 (6자리 hex)],
     [`-d`, `--diff`], [#sym.dash.en], [`--diff-mode abs` 단축],
     [`--windowed`], [off], [윈도우 모드로 시작 (타이틀바 + 리사이즈)],
+    [`-nb`], [off], [패널 테두리 숨김 상태로 시작],
     [`--version`], [#sym.dash.en], [버전 출력 후 종료],
     [`-h`, `--help`], [#sym.dash.en], [도움말 출력],
   ),
@@ -2638,6 +2645,7 @@ av [options] [imageA] [imageB]
     [`O`], [Overlay/Blend 비교 모드 토글], [ESC로 해제],
     [`Ctrl+T`], [Scatter Plot 창 토글], [],
     [`W`], [윈도우 모드 토글 (타이틀바 + 리사이즈)], [`--windowed`와 동일],
+    [`B`], [패널 테두리 토글], [`-nb`로 초기 off 가능; `av.ini` 영속화],
     [`Q`], [애플리케이션 종료], [],
   ),
   caption: [UI 토글 단축키],
@@ -3201,6 +3209,32 @@ Windowed 모드에서 SDL 창 제목에 로드된 이미지 파일명과 활성 
 `main_window.cpp`의 `MainWindow::render()` 초반부에서 매 프레임 타이틀 문자열을 구성한다. 이전 프레임의 타이틀과 비교하여 변경이 있을 때만 `SDL_SetWindowTitle()`을 호출하여 불필요한 API 호출을 방지한다.
 
 `title_diff_label()` 헬퍼 함수가 `DiffState::Mode`를 짧은 라벨 문자열로 변환한다: `PixelAbsolute` → `"Abs"`, `PixelRelative` → `"Rel"`, `FalseColor` → `"FalseColor"`, `SSIM` → `"SSIM"`. diff 모드가 `None`이면 라벨을 생략한다.
+
+== Border Toggle 및 av.ini 설정 영속화
+
+패널 테두리를 런타임에 토글하고 설정을 `av.ini` 파일에 영속화하는 기능이다.
+
+=== 토글 메커니즘
+
+`B` 키(단독, modifier 없음)를 누르면 `state.show_borders`가 반전된다. `Shift+B`는 기존의 Blue 채널 모드 전환으로 유지된다. View 메뉴에서도 "Show Borders" 항목으로 동일한 토글이 가능하다.
+
+토글이 `false`일 때 비활성화되는 렌더링:
+- `image_panel.cpp`의 7개 `draw_image_border()` 호출 (이미지 경계)
+- `main_window.cpp`의 포그라운드 패널 보더 (그림자 + 컬러 경계 사각형)
+
+=== av.ini 영속화
+
+`av.ini`는 작업 디렉토리에 생성되는 간단한 key\=value 파일이다.
+
+```
+# av configuration
+show_borders=1
+```
+
+*로드 순서*: INI → CLI 적용. `-nb` CLI 옵션은 INI의 `show_borders=1`을 override하여 `false`로 설정한다.
+
+- `load_app_ini()`: `main.cpp`에서 `AppState` 생성 직후, `apply_cli_options()` 호출 전에 실행
+- `save_app_ini()`: 메인 루프 종료 후, 정리 전에 실행
 
 // ──────────────────────────────────────────────
 // 마무리 페이지

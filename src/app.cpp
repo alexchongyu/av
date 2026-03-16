@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 
 #include <iostream>
+#include <fstream>
 #include <cstring>
 #include <cstdlib>
 #include <cmath>
@@ -50,6 +51,7 @@ static void print_help(const char* prog) {
         "  -d, --diff           Show pixel-absolute diff (shortcut)\n"
         "  --software           Force SDL software renderer (no OpenGL)\n"
         "  --windowed           Start in windowed mode (title bar + resizable)\n"
+        "  -nb                  Start with panel borders hidden\n"
         "  --version            Print version and exit\n"
         "  -h, --help           Print this help\n"
         "\n";
@@ -111,6 +113,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.software = true;
         } else if (arg == "--windowed") {
             opts.windowed = true;
+        } else if (arg == "-nb") {
+            opts.no_border = true;
         } else if (arg == "-d" || arg == "--diff") {
             opts.diff_mode = DiffState::Mode::PixelAbsolute;
         } else if (arg == "-bc") {
@@ -140,6 +144,7 @@ void apply_cli_options(AppState& state, const CliOptions& opts) {
     state.pan_step        = opts.pan_step;
     state.border_colors   = opts.border_colors;
     state.windowed_mode   = opts.windowed;
+    if (opts.no_border) state.show_borders = false;
 }
 
 // ─── handle_keyboard ──────────────────────────────────────────────────────────
@@ -387,6 +392,7 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         break;
     case SDL_SCANCODE_B:
         if (shift) state.channel_mode = ChannelMode::Blue;
+        else if (!ctrl && !gui) state.show_borders = !state.show_borders;
         break;
     case SDL_SCANCODE_C:
         if (shift) state.channel_mode = ChannelMode::RGB;
@@ -515,4 +521,33 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     default:
         break;
     }
+}
+
+// ─── INI load / save ─────────────────────────────────────────────────────────
+
+static std::string ini_path() {
+    // Place av.ini next to the executable's working directory
+    return "av.ini";
+}
+
+void load_app_ini(AppState& state) {
+    std::ifstream f(ini_path());
+    if (!f.is_open()) return;
+
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = line.substr(0, eq);
+        std::string val = line.substr(eq + 1);
+        if (key == "show_borders") state.show_borders = (val != "0");
+    }
+}
+
+void save_app_ini(const AppState& state) {
+    std::ofstream f(ini_path());
+    if (!f.is_open()) return;
+    f << "# av configuration\n";
+    f << "show_borders=" << (state.show_borders ? "1" : "0") << "\n";
 }

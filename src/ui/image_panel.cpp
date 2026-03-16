@@ -211,11 +211,12 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
                                    img.width, img.height, panel_idx);
     }
 
-    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
-                      static_cast<float>(pw), static_cast<float>(ph),
-                      static_cast<float>(img.width), static_cast<float>(img.height),
-                      vp.pan_x, vp.pan_y, vp.zoom,
-                      static_cast<ImU32>(state.border_colors[panel_idx]));
+    if (state.show_borders)
+        draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                          static_cast<float>(pw), static_cast<float>(ph),
+                          static_cast<float>(img.width), static_cast<float>(img.height),
+                          vp.pan_x, vp.pan_y, vp.zoom,
+                          static_cast<ImU32>(state.border_colors[panel_idx]));
 
     if (state.roi.has_roi || state.roi.dragging) {
         render_roi_overlay(state, panel_idx, widget_pos, pw, ph,
@@ -479,11 +480,12 @@ void ImagePanel::render_diff_software(AppState& state) {
                                    imgA.width, imgA.height, 2);
     }
 
-    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
-                      (float)pw, (float)ph,
-                      (float)imgA.width, (float)imgA.height,
-                      vp.pan_x, vp.pan_y, vp.zoom,
-                      static_cast<ImU32>(state.border_colors[2]));
+    if (state.show_borders)
+        draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                          (float)pw, (float)ph,
+                          (float)imgA.width, (float)imgA.height,
+                          vp.pan_x, vp.pan_y, vp.zoom,
+                          static_cast<ImU32>(state.border_colors[2]));
 
     if (state.roi.has_roi || state.roi.dragging)
         render_roi_overlay(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
@@ -555,11 +557,12 @@ void ImagePanel::render_overlay_software(AppState& state) {
                                    imgA.width, imgA.height);
     }
 
-    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
-                      (float)pw, (float)ph,
-                      (float)imgA.width, (float)imgA.height,
-                      vp.pan_x, vp.pan_y, vp.zoom,
-                      IM_COL32(150, 255, 150, 200));
+    if (state.show_borders)
+        draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                          (float)pw, (float)ph,
+                          (float)imgA.width, (float)imgA.height,
+                          vp.pan_x, vp.pan_y, vp.zoom,
+                          IM_COL32(150, 255, 150, 200));
 
     if (state.roi.has_roi || state.roi.dragging)
         render_roi_overlay(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
@@ -617,11 +620,12 @@ void ImagePanel::render_ssim_software(AppState& state) {
                                    imgA.width, imgA.height, 2);
     }
 
-    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
-                      (float)pw, (float)ph,
-                      (float)imgA.width, (float)imgA.height,
-                      vp.pan_x, vp.pan_y, vp.zoom,
-                      static_cast<ImU32>(state.border_colors[2]));
+    if (state.show_borders)
+        draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                          (float)pw, (float)ph,
+                          (float)imgA.width, (float)imgA.height,
+                          vp.pan_x, vp.pan_y, vp.zoom,
+                          static_cast<ImU32>(state.border_colors[2]));
 
     if (state.roi.has_roi || state.roi.dragging)
         render_roi_overlay(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
@@ -1124,11 +1128,12 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
                                    img.width, img.height, panel_idx);
     }
 
-    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
-                      static_cast<float>(pw), static_cast<float>(ph),
-                      static_cast<float>(img.width), static_cast<float>(img.height),
-                      vp.pan_x, vp.pan_y, vp.zoom,
-                      static_cast<ImU32>(state.border_colors[panel_idx]));
+    if (state.show_borders)
+        draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                          static_cast<float>(pw), static_cast<float>(ph),
+                          static_cast<float>(img.width), static_cast<float>(img.height),
+                          vp.pan_x, vp.pan_y, vp.zoom,
+                          static_cast<ImU32>(state.border_colors[panel_idx]));
 
     if (state.roi.has_roi || state.roi.dragging) {
         render_roi_overlay(state, panel_idx, widget_pos, pw, ph,
@@ -1332,11 +1337,12 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
                                    imgA.width, imgA.height, 2);
     }
 
-    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
-                      static_cast<float>(pw), static_cast<float>(ph),
-                      static_cast<float>(imgA.width), static_cast<float>(imgA.height),
-                      vp.pan_x, vp.pan_y, vp.zoom,
-                      static_cast<ImU32>(state.border_colors[2]));
+    if (state.show_borders)
+        draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                          static_cast<float>(pw), static_cast<float>(ph),
+                          static_cast<float>(imgA.width), static_cast<float>(imgA.height),
+                          vp.pan_x, vp.pan_y, vp.zoom,
+                          static_cast<ImU32>(state.border_colors[2]));
 
     if (state.roi.has_roi || state.roi.dragging) {
         render_roi_overlay(state, 0, widget_pos, pw, ph,
@@ -1798,11 +1804,12 @@ void ImagePanel::render_overlay(AppState& state, DiffRenderer& /*diff_renderer*/
                                    imgA.width, imgA.height);
     }
 
-    draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
-                      (float)pw, (float)ph,
-                      (float)imgA.width, (float)imgA.height,
-                      vp.pan_x, vp.pan_y, vp.zoom,
-                      IM_COL32(150, 255, 150, 200));
+    if (state.show_borders)
+        draw_image_border(ImGui::GetWindowDrawList(), widget_pos,
+                          (float)pw, (float)ph,
+                          (float)imgA.width, (float)imgA.height,
+                          vp.pan_x, vp.pan_y, vp.zoom,
+                          IM_COL32(150, 255, 150, 200));
 
     if (state.roi.has_roi || state.roi.dragging) {
         render_roi_overlay(state, 0, widget_pos, pw, ph,

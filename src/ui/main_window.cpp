@@ -689,6 +689,9 @@ void MainWindow::render_menubar(AppState& state) {
             if (ImGui::MenuItem("  Curtain mode", nullptr,  is_curtain)) state.overlay.mode = OverlayState::Mode::Curtain;
         }
         ImGui::Separator();
+        if (ImGui::MenuItem("Show Borders", "B", state.show_borders)) {
+            state.show_borders = !state.show_borders;
+        }
         if (ImGui::MenuItem("Hotkey Reference", "Ctrl+Shift+H", state.show_hotkey_help)) {
             state.show_hotkey_help = !state.show_hotkey_help;
         }
@@ -792,6 +795,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Analysis", "Ctrl+E",                    "Toggle ROI selection mode (left-drag to select)" },
         { "Analysis", "Ctrl+T",                    "Toggle Scatter Plot (A vs B pixel values)" },
         // Overlay
+        { "Display", "B",                           "Toggle panel borders" },
         { "Overlay", "O",                          "Toggle Overlay/Blend comparison mode" },
         { "Overlay", "Curtain mode",               "Left-drag to move divider; mode in menu" },
         // Sequence
@@ -831,6 +835,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "CLI", "--no-color-mgmt",                 "Disable colour management" },
         { "CLI", "-p, --pan-step <N>",              "Shift+hjkl jump size in pixels  (default: 32)" },
         { "CLI", "-bc <A> <B> <D>",                 "Border colours for A/B/Diff as 6-digit hex" },
+        { "CLI", "-nb",                              "Start with panel borders hidden" },
         { "CLI", "-d, --diff",                      "Show pixel-absolute diff (shortcut)" },
         { "CLI", "--version",                       "Print version and exit" },
         { "CLI", "-h, --help",                      "Print this help" },
@@ -1153,7 +1158,7 @@ void MainWindow::render(AppState& state) {
     }
 
     // ── Always-visible panel borders (foreground → rendered above all children) ──
-    {
+    if (state.show_borders) {
         ImDrawList* dl = ImGui::GetForegroundDrawList();
         ImU32 shadow = IM_COL32(0, 0, 0, 160);
         for (int i = 0; i < panel_rect_count; ++i) {

@@ -346,6 +346,7 @@ int main(int argc, char* argv[]) {
 
     // ── Application state ─────────────────────────────────────────────────────
     AppState state;
+    load_app_ini(state);
     apply_cli_options(state, cli);
     state.window = window;
 
@@ -488,6 +489,8 @@ int main(int argc, char* argv[]) {
             SDL_GL_SwapWindow(window);
         }
     }
+
+    save_app_ini(state);
 
     // Cleanup happens via SdlCleanup RAII destructor
     return 0;

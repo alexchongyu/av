@@ -164,6 +164,7 @@ struct CliOptions {
     bool            no_color_mgmt = false;
     bool            software     = false;  // --software: force SDL software renderer
     bool            windowed     = false;  // --windowed: start with title bar + resizable
+    bool            no_border    = false;  // -nb: start with panel borders hidden
     int             pan_step     = 32;     // Shift+hjkl jump size in image-pixels
     // Border colors for A / B / Diff panels (ImGui ABGR uint32, alpha=230)
     // Defaults: magenta / yellow / cyan
@@ -211,6 +212,7 @@ struct AppState {
     OverlayState overlay;               // Overlay/Blend 비교 모드
     bool         show_scatter_plot = false; // Scatter Plot 창 표시
     bool         windowed_mode = false;    // W key: windowed (title bar) mode
+    bool         show_borders = true;     // B key: toggle panel borders
     ContextSaveState context_save;         // right-click context menu save state
 
     // ─── Feature: Crosshair Overlay (M key) ─────────────────────────────────
@@ -240,3 +242,7 @@ void apply_cli_options(AppState& state, const CliOptions& opts);
 // Handle a keyboard event (SDL_SCANCODE_* values).
 // gui: true if Cmd (macOS) / Win key is held.
 void handle_keyboard(AppState& state, int sdl_scancode, bool ctrl, bool shift, bool alt, bool gui = false);
+
+// Load/save persistent settings from/to av.ini.
+void load_app_ini(AppState& state);
+void save_app_ini(const AppState& state);
