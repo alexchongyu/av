@@ -19,6 +19,16 @@
 #include <cmath>
 #include <cstdio>
 
+// ─── Pixel format helper for balloon ──────────────────────────────────────────
+
+static void fmt_balloon_pixel(char* buf, size_t sz, const char* prefix, int val, PixelFormat fmt) {
+    switch (fmt) {
+    case PixelFormat::Hex0x: std::snprintf(buf, sz, "%s0x%02X", prefix, val); break;
+    case PixelFormat::HexH:  std::snprintf(buf, sz, "%s%02Xh", prefix, val);  break;
+    default:                 std::snprintf(buf, sz, "%s%d", prefix, val);     break;
+    }
+}
+
 // ─── Save window helpers ──────────────────────────────────────────────────────
 
 namespace {
@@ -692,6 +702,15 @@ void MainWindow::render_menubar(AppState& state) {
         if (ImGui::MenuItem("Show Borders", "B", state.show_borders)) {
             state.show_borders = !state.show_borders;
         }
+        if (ImGui::BeginMenu("Pixel Format")) {
+            if (ImGui::MenuItem("Decimal (128)", "Ctrl+X", state.pixel_format == PixelFormat::Decimal))
+                state.pixel_format = PixelFormat::Decimal;
+            if (ImGui::MenuItem("Hex (0x80)", nullptr, state.pixel_format == PixelFormat::Hex0x))
+                state.pixel_format = PixelFormat::Hex0x;
+            if (ImGui::MenuItem("Hex (80h)", nullptr, state.pixel_format == PixelFormat::HexH))
+                state.pixel_format = PixelFormat::HexH;
+            ImGui::EndMenu();
+        }
         if (ImGui::MenuItem("Hotkey Reference", "Ctrl+Shift+H", state.show_hotkey_help)) {
             state.show_hotkey_help = !state.show_hotkey_help;
         }
@@ -796,6 +815,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Analysis", "Ctrl+T",                    "Toggle Scatter Plot (A vs B pixel values)" },
         // Overlay
         { "Display", "B",                           "Toggle panel borders" },
+        { "Display", "Ctrl+X",                      "Cycle pixel value format (Dec / 0xHex / Hexh)" },
         { "Overlay", "O",                          "Toggle Overlay/Blend comparison mode" },
         { "Overlay", "Curtain mode",               "Left-drag to move divider; mode in menu" },
         // Sequence
@@ -1321,12 +1341,12 @@ void MainWindow::render(AppState& state) {
                 if (has_orig_a && has_orig_b) {
                     int oidx_a = (iy * imgA.width + ix) * 3;
                     int oidx_b = (iy * imgB.width + ix) * 3;
-                    std::snprintf(line_r, sizeof(line_r), "R:%d",
-                        std::abs((int)imgA.pixels_orig[oidx_a + 0] - (int)imgB.pixels_orig[oidx_b + 0]));
-                    std::snprintf(line_g, sizeof(line_g), "G:%d",
-                        std::abs((int)imgA.pixels_orig[oidx_a + 1] - (int)imgB.pixels_orig[oidx_b + 1]));
-                    std::snprintf(line_b, sizeof(line_b), "B:%d",
-                        std::abs((int)imgA.pixels_orig[oidx_a + 2] - (int)imgB.pixels_orig[oidx_b + 2]));
+                    fmt_balloon_pixel(line_r, sizeof(line_r), "R:",
+                        std::abs((int)imgA.pixels_orig[oidx_a + 0] - (int)imgB.pixels_orig[oidx_b + 0]), state.pixel_format);
+                    fmt_balloon_pixel(line_g, sizeof(line_g), "G:",
+                        std::abs((int)imgA.pixels_orig[oidx_a + 1] - (int)imgB.pixels_orig[oidx_b + 1]), state.pixel_format);
+                    fmt_balloon_pixel(line_b, sizeof(line_b), "B:",
+                        std::abs((int)imgA.pixels_orig[oidx_a + 2] - (int)imgB.pixels_orig[oidx_b + 2]), state.pixel_format);
                 } else if (is_hdr && has_f32) {
                     std::snprintf(line_r, sizeof(line_r), "R:%.3f",
                         std::fabs(imgA.pixels_f32[pidx_a + 0] - imgB.pixels_f32[pidx_b + 0]));
@@ -1335,12 +1355,12 @@ void MainWindow::render(AppState& state) {
                     std::snprintf(line_b, sizeof(line_b), "B:%.3f",
                         std::fabs(imgA.pixels_f32[pidx_a + 2] - imgB.pixels_f32[pidx_b + 2]));
                 } else if (has_u8) {
-                    std::snprintf(line_r, sizeof(line_r), "R:%d",
-                        std::abs((int)imgA.pixels[pidx_a + 0] - (int)imgB.pixels[pidx_b + 0]));
-                    std::snprintf(line_g, sizeof(line_g), "G:%d",
-                        std::abs((int)imgA.pixels[pidx_a + 1] - (int)imgB.pixels[pidx_b + 1]));
-                    std::snprintf(line_b, sizeof(line_b), "B:%d",
-                        std::abs((int)imgA.pixels[pidx_a + 2] - (int)imgB.pixels[pidx_b + 2]));
+                    fmt_balloon_pixel(line_r, sizeof(line_r), "R:",
+                        std::abs((int)imgA.pixels[pidx_a + 0] - (int)imgB.pixels[pidx_b + 0]), state.pixel_format);
+                    fmt_balloon_pixel(line_g, sizeof(line_g), "G:",
+                        std::abs((int)imgA.pixels[pidx_a + 1] - (int)imgB.pixels[pidx_b + 1]), state.pixel_format);
+                    fmt_balloon_pixel(line_b, sizeof(line_b), "B:",
+                        std::abs((int)imgA.pixels[pidx_a + 2] - (int)imgB.pixels[pidx_b + 2]), state.pixel_format);
                 } else {
                     break;
                 }
@@ -1375,17 +1395,17 @@ void MainWindow::render(AppState& state) {
 
                 if (bimg.ppm_maxval > 0 && !bimg.pixels_orig.empty()) {
                     int oidx = (iy * bimg.width + ix) * 3;
-                    std::snprintf(line_r, sizeof(line_r), "R:%d", (int)bimg.pixels_orig[oidx + 0]);
-                    std::snprintf(line_g, sizeof(line_g), "G:%d", (int)bimg.pixels_orig[oidx + 1]);
-                    std::snprintf(line_b, sizeof(line_b), "B:%d", (int)bimg.pixels_orig[oidx + 2]);
+                    fmt_balloon_pixel(line_r, sizeof(line_r), "R:", (int)bimg.pixels_orig[oidx + 0], state.pixel_format);
+                    fmt_balloon_pixel(line_g, sizeof(line_g), "G:", (int)bimg.pixels_orig[oidx + 1], state.pixel_format);
+                    fmt_balloon_pixel(line_b, sizeof(line_b), "B:", (int)bimg.pixels_orig[oidx + 2], state.pixel_format);
                 } else if (bimg.is_hdr && !bimg.pixels_f32.empty()) {
                     std::snprintf(line_r, sizeof(line_r), "R:%.3f", bimg.pixels_f32[pidx + 0]);
                     std::snprintf(line_g, sizeof(line_g), "G:%.3f", bimg.pixels_f32[pidx + 1]);
                     std::snprintf(line_b, sizeof(line_b), "B:%.3f", bimg.pixels_f32[pidx + 2]);
                 } else if (!bimg.pixels.empty()) {
-                    std::snprintf(line_r, sizeof(line_r), "R:%d", (int)bimg.pixels[pidx + 0]);
-                    std::snprintf(line_g, sizeof(line_g), "G:%d", (int)bimg.pixels[pidx + 1]);
-                    std::snprintf(line_b, sizeof(line_b), "B:%d", (int)bimg.pixels[pidx + 2]);
+                    fmt_balloon_pixel(line_r, sizeof(line_r), "R:", (int)bimg.pixels[pidx + 0], state.pixel_format);
+                    fmt_balloon_pixel(line_g, sizeof(line_g), "G:", (int)bimg.pixels[pidx + 1], state.pixel_format);
+                    fmt_balloon_pixel(line_b, sizeof(line_b), "B:", (int)bimg.pixels[pidx + 2], state.pixel_format);
                 } else {
                     break;
                 }

@@ -16,6 +16,16 @@
 #include <cstring>
 #include <memory>
 
+// ─── Pixel format helper ──────────────────────────────────────────────────────
+
+static void fmt_int_pixel(char* buf, size_t sz, int val, PixelFormat fmt) {
+    switch (fmt) {
+    case PixelFormat::Hex0x: std::snprintf(buf, sz, "0x%02X", val); break;
+    case PixelFormat::HexH:  std::snprintf(buf, sz, "%02Xh", val);  break;
+    default:                 std::snprintf(buf, sz, "%d", val);     break;
+    }
+}
+
 // ─── init ─────────────────────────────────────────────────────────────────────
 
 bool ImagePanel::init() {
@@ -1226,9 +1236,9 @@ void ImagePanel::render_pixel_values(const AppState& state, int panel_idx,
 
             if (img.ppm_maxval > 0 && !img.pixels_orig.empty()) {
                 int oidx = (py * img.width + px) * 3;
-                std::snprintf(sr, sizeof(sr), "%d", (int)img.pixels_orig[oidx + 0]);
-                std::snprintf(sg, sizeof(sg), "%d", (int)img.pixels_orig[oidx + 1]);
-                std::snprintf(sb, sizeof(sb), "%d", (int)img.pixels_orig[oidx + 2]);
+                fmt_int_pixel(sr, sizeof(sr), (int)img.pixels_orig[oidx + 0], state.pixel_format);
+                fmt_int_pixel(sg, sizeof(sg), (int)img.pixels_orig[oidx + 1], state.pixel_format);
+                fmt_int_pixel(sb, sizeof(sb), (int)img.pixels_orig[oidx + 2], state.pixel_format);
             } else if (img.is_hdr && !img.pixels_f32.empty()) {
                 int pidx = (py * img.width + px) * 4;
                 std::snprintf(sr, sizeof(sr), "%.2f", img.pixels_f32[pidx + 0]);
@@ -1236,9 +1246,9 @@ void ImagePanel::render_pixel_values(const AppState& state, int panel_idx,
                 std::snprintf(sb, sizeof(sb), "%.2f", img.pixels_f32[pidx + 2]);
             } else if (!img.pixels.empty()) {
                 int pidx = (py * img.width + px) * 4;
-                std::snprintf(sr, sizeof(sr), "%d", img.pixels[pidx + 0]);
-                std::snprintf(sg, sizeof(sg), "%d", img.pixels[pidx + 1]);
-                std::snprintf(sb, sizeof(sb), "%d", img.pixels[pidx + 2]);
+                fmt_int_pixel(sr, sizeof(sr), img.pixels[pidx + 0], state.pixel_format);
+                fmt_int_pixel(sg, sizeof(sg), img.pixels[pidx + 1], state.pixel_format);
+                fmt_int_pixel(sb, sizeof(sb), img.pixels[pidx + 2], state.pixel_format);
             } else {
                 continue;
             }
@@ -1440,12 +1450,12 @@ void ImagePanel::render_diff_pixel_values(const AppState& state,
                 std::snprintf(sb, sizeof(sb), "%.2f",
                     std::fabs(imgA.pixels_f32[pidx_a + 2] - imgB.pixels_f32[pidx_b + 2]));
             } else if (has_u8) {
-                std::snprintf(sr, sizeof(sr), "%d",
-                    std::abs((int)imgA.pixels[pidx_a + 0] - (int)imgB.pixels[pidx_b + 0]));
-                std::snprintf(sg, sizeof(sg), "%d",
-                    std::abs((int)imgA.pixels[pidx_a + 1] - (int)imgB.pixels[pidx_b + 1]));
-                std::snprintf(sb, sizeof(sb), "%d",
-                    std::abs((int)imgA.pixels[pidx_a + 2] - (int)imgB.pixels[pidx_b + 2]));
+                fmt_int_pixel(sr, sizeof(sr),
+                    std::abs((int)imgA.pixels[pidx_a + 0] - (int)imgB.pixels[pidx_b + 0]), state.pixel_format);
+                fmt_int_pixel(sg, sizeof(sg),
+                    std::abs((int)imgA.pixels[pidx_a + 1] - (int)imgB.pixels[pidx_b + 1]), state.pixel_format);
+                fmt_int_pixel(sb, sizeof(sb),
+                    std::abs((int)imgA.pixels[pidx_a + 2] - (int)imgB.pixels[pidx_b + 2]), state.pixel_format);
             } else {
                 continue;
             }

@@ -32,6 +32,7 @@ struct ViewportState {
 };
 
 enum class ChannelMode { RGB = 0, Red = 1, Green = 2, Blue = 3 };
+enum class PixelFormat { Decimal = 0, Hex0x = 1, HexH = 2 };
 
 struct DiffState {
     enum class Mode {
@@ -217,6 +218,9 @@ struct AppState {
 
     // ─── Feature: Crosshair Overlay (M key) ─────────────────────────────────
     bool show_crosshair = false;
+
+    // ─── Feature: Pixel Format (Dec / 0xHex / Hexh) ────────────────────────
+    PixelFormat pixel_format = PixelFormat::Decimal;
 
     // ─── Feature: Histogram Compare ─────────────────────────────────────────
     bool histogram_compare = false;

@@ -468,6 +468,12 @@ enum class ChannelMode { RGB = 0, Red = 1, Green = 2, Blue = 3 };
 `ChannelMode`는 현재 표시 중인 채널을 결정한다. `R`, `G`, `B` 키로 전환하며 개별 채널을 그레이스케일로 시각화한다.
 
 ```cpp
+enum class PixelFormat { Decimal = 0, Hex0x = 1, HexH = 2 };
+```
+
+`PixelFormat`은 정수 픽셀값의 표시 형식을 결정한다. `Ctrl+X`로 순환 전환하며, `Decimal`(128), `Hex0x`(0x80), `HexH`(80h) 세 가지 형식을 지원한다. HDR float 값은 형식 토글 대상이 아니다.
+
+```cpp
 struct DiffState {
     enum class Mode {
         None, PixelAbsolute, PixelRelative, FalseColor, SSIM
@@ -548,6 +554,7 @@ struct AppState {
     int   pan_step        = 32;
     std::array<uint32_t, 3> border_colors;
     bool         show_borders = true;     // B key: toggle panel borders
+    PixelFormat  pixel_format = PixelFormat::Decimal; // Ctrl+X 순환
     ImFont* font_large    = nullptr;   // Roboto-Medium 26px
     ImFont* font_medium   = nullptr;   // Roboto-Medium 18px
     CliOptions cli;
@@ -585,6 +592,7 @@ struct AppState {
     [`pan_step`],         [Shift+hjkl 팬 이동량 (픽셀, 기본 32)],
     [`border_colors`],    [패널 테두리 색상 배열 \[A, B, Diff\]],
     [`show_borders`],     [테두리 표시 여부 (`B` 키 토글, `av.ini` 영속화)],
+    [`pixel_format`],     [픽셀값 표시 형식 (`Ctrl+X` 순환: Decimal/Hex0x/HexH, `av.ini` 영속화)],
     [`font_medium`],      [Roboto-Medium 18px 폰트 (차트 창 등에서 사용)],
     [`show_save_dialog`], [컨텍스트 인식 Save 다이얼로그 표시 여부 (`Shift+Cmd+S`)],
     [`image_save`],       [`ImageSaveDialog` 상태 구조체],
@@ -2082,9 +2090,16 @@ ImGui DrawList를 사용하여 각 패널의 이미지 경계를 시각적으로
 *단일 채널 모드:* 해당 채널 색상으로 단일 값 표시
 
 *형식 (우선순위 순):*
-- PPM 원본 (pixels\_orig 존재 시): `%d` (0\~maxval 범위, 예: 0\-1023)
-- HDR (float32): `%.2f`
-- LDR (uint8): `%d`
+- PPM 원본 (pixels\_orig 존재 시): 정수 (0\~maxval 범위, 예: 0\-1023)
+- HDR (float32): `%.2f` (형식 토글 대상 아님)
+- LDR (uint8): 정수 (0\~255)
+
+*픽셀값 형식 토글 (`Ctrl+X`):* 정수 픽셀값의 표시 형식을 세 가지로 순환 전환한다. HDR float 값은 항상 소수점 형식을 유지한다.
+- Decimal (기본): `128`
+- Hex 0x: `0x80` (C\-style)
+- Hex h: `80h` (Intel/ASM\-style)
+
+`fmt_int_pixel()` 헬퍼 함수가 `PixelFormat` enum에 따라 `snprintf` 형식을 선택한다. Diff 패널의 uint8 차이값에도 동일한 형식이 적용된다.
 
 *글꼴 크기:* `zoom × 0.25f` (최대 20.0f), 픽셀 중심에 배치, 그림자 오프셋 (+1,+1)
 
@@ -2105,9 +2120,10 @@ ImGui DrawList를 사용하여 각 패널의 이미지 경계를 시각적으로
 - 좌표 행: 흰색 `(123, 456)`
 - RGB 행: R/G/B 각 채널 색상으로 개별 표시 (우선순위 순)
   - PPM 원본 (pixels\_orig 존재 시): `R:512 G:1023 B:0` (원본 maxval 기준)
-  - HDR (float32): `R:1.234 G:0.562 B:0.012`
+  - HDR (float32): `R:1.234 G:0.562 B:0.012` (형식 토글 대상 아님)
   - LDR (uint8): `R:255 G:128 B:64`
 - Diff 패널에서도 PPM 원본값 기준으로 차이를 계산하여 표시
+- `Ctrl+X` 형식 토글이 풍선말에도 동일하게 적용 (예: `R:0x80 G:0xFF B:0x40`). `fmt_balloon_pixel()` 헬퍼가 prefix 포함 포맷팅 담당
 
 *Edge Clamping:* 풍선말이 화면 밖으로 나가지 않도록 위치를 자동 보정한다.
 
@@ -2646,6 +2662,7 @@ av [options] [imageA] [imageB]
     [`Ctrl+T`], [Scatter Plot 창 토글], [],
     [`W`], [윈도우 모드 토글 (타이틀바 + 리사이즈)], [`--windowed`와 동일],
     [`B`], [패널 테두리 토글], [`-nb`로 초기 off 가능; `av.ini` 영속화],
+    [`Ctrl+X`], [픽셀값 형식 순환 (Dec → 0xHex → Hexh)], [`av.ini` 영속화],
     [`Q`], [애플리케이션 종료], [],
   ),
   caption: [UI 토글 단축키],
@@ -3210,9 +3227,9 @@ Windowed 모드에서 SDL 창 제목에 로드된 이미지 파일명과 활성 
 
 `title_diff_label()` 헬퍼 함수가 `DiffState::Mode`를 짧은 라벨 문자열로 변환한다: `PixelAbsolute` → `"Abs"`, `PixelRelative` → `"Rel"`, `FalseColor` → `"FalseColor"`, `SSIM` → `"SSIM"`. diff 모드가 `None`이면 라벨을 생략한다.
 
-== Border Toggle 및 av.ini 설정 영속화
+== Border Toggle, Pixel Format 및 av.ini 설정 영속화
 
-패널 테두리를 런타임에 토글하고 설정을 `av.ini` 파일에 영속화하는 기능이다.
+패널 테두리와 픽셀값 표시 형식을 런타임에 토글하고 설정을 `av.ini` 파일에 영속화하는 기능이다.
 
 === 토글 메커니즘
 
@@ -3222,6 +3239,8 @@ Windowed 모드에서 SDL 창 제목에 로드된 이미지 파일명과 활성 
 - `image_panel.cpp`의 7개 `draw_image_border()` 호출 (이미지 경계)
 - `main_window.cpp`의 포그라운드 패널 보더 (그림자 + 컬러 경계 사각형)
 
+`Ctrl+X`를 누르면 `state.pixel_format`이 `Decimal` → `Hex0x` → `HexH` → `Decimal`로 순환한다. `X` 키 단독은 기존 줌 아웃 기능을 유지한다. View 메뉴의 "Pixel Format" 서브메뉴에서 개별 형식을 직접 선택할 수도 있다.
+
 === av.ini 영속화
 
 `av.ini`는 작업 디렉토리에 생성되는 간단한 key\=value 파일이다.
@@ -3229,7 +3248,10 @@ Windowed 모드에서 SDL 창 제목에 로드된 이미지 파일명과 활성 
 ```
 # av configuration
 show_borders=1
+pixel_format=0
 ```
+
+`pixel_format` 값: 0\=Decimal, 1\=Hex0x, 2\=HexH.
 
 *로드 순서*: INI → CLI 적용. `-nb` CLI 옵션은 INI의 `show_borders=1`을 override하여 `false`로 설정한다.
 
@@ -3243,7 +3265,7 @@ show_borders=1
 #pagebreak()
 #align(center + horizon)[
   #text(size: 11pt, fill: luma(120))[
-    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.12 \
+    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.13 \
     #v(0.3em)
     2026\-03\-16 \
     #v(0.3em)

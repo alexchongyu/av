@@ -73,7 +73,7 @@ CliOptions parse_cli(int argc, char* argv[]) {
             print_help(argv[0]);
             std::exit(0);
         } else if (arg == "--version") {
-            std::cout << "av 0.12\n";
+            std::cout << "av 0.13\n";
             std::exit(0);
         } else if (arg == "--diff-mode") {
             std::string m = next();
@@ -202,8 +202,14 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         }
         break;
     case SDL_SCANCODE_X:
-        viewport_zoom_out(vA);
-        if (state.sync_viewports) { vB.zoom = vA.zoom; vB.fit = false; }
+        if (ctrl && !shift && !gui) {
+            // Ctrl+X: cycle pixel format (Decimal → 0xHex → Hexh)
+            state.pixel_format = static_cast<PixelFormat>(
+                (static_cast<int>(state.pixel_format) + 1) % 3);
+        } else {
+            viewport_zoom_out(vA);
+            if (state.sync_viewports) { vB.zoom = vA.zoom; vB.fit = false; }
+        }
         break;
     case SDL_SCANCODE_0: case SDL_SCANCODE_1: case SDL_SCANCODE_2:
     case SDL_SCANCODE_3: case SDL_SCANCODE_4: case SDL_SCANCODE_5:
@@ -542,6 +548,7 @@ void load_app_ini(AppState& state) {
         std::string key = line.substr(0, eq);
         std::string val = line.substr(eq + 1);
         if (key == "show_borders") state.show_borders = (val != "0");
+        if (key == "pixel_format") state.pixel_format = static_cast<PixelFormat>(std::stoi(val));
     }
 }
 
@@ -550,4 +557,5 @@ void save_app_ini(const AppState& state) {
     if (!f.is_open()) return;
     f << "# av configuration\n";
     f << "show_borders=" << (state.show_borders ? "1" : "0") << "\n";
+    f << "pixel_format=" << static_cast<int>(state.pixel_format) << "\n";
 }

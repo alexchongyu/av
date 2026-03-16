@@ -73,7 +73,7 @@
 #align(center)[
   #text(size: 20pt, weight: "bold")[av #text(size: 12pt, weight: "regular", fill: luma(80))[\u{2014} Advanced Pixel Lens Cheat Sheet]]
   #v(0.15em)
-  #text(size: 8pt, fill: luma(120))[v0.12 \u{2014} 2026\-03\-16]
+  #text(size: 8pt, fill: luma(120))[v0.13 \u{2014} 2026\-03\-16]
 ]
 
 #v(0.3em)
@@ -192,6 +192,7 @@ av [image_a] [image_b] [options]
   [#key("U")], [UI 토글],
   [#key("I")], [정보 패널 토글],
   [#key("V")], [픽셀 값 풍선말],
+  [#key("Ctrl+X")], [픽셀값 형식 순환 (Dec → 0xHex → Hexh)],
   [#key("P")], [Pathfinder 토글],
   [#key("Ctrl+P")], [Schematic 모드],
 )
@@ -303,9 +304,21 @@ av [image_a] [image_b] [options]
 #section("픽셀값 표시 우선순위")
 
 + PPM 원본값 (`pixels_orig` 존재 시): 0\~maxval 범위
-+ HDR float: `%.2f` 형식
-+ LDR uint8: `%d` (0\~255)
++ HDR float: `%.2f` 형식 (hex 변환 대상 아님)
++ LDR uint8: 0\~255
 
 줌 32× 이상에서 자동 그리드 + 값 표시. #key("V")로 풍선말 토글.
+
+#key("Ctrl+X")로 정수 픽셀값 표시 형식을 순환 전환:
+#table(
+  columns: (1fr, 2fr),
+  stroke: none,
+  inset: (x: 3pt, y: 2pt),
+  fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
+  [Decimal], [`128` (기본)],
+  [Hex 0x],  [`0x80` (C\-style)],
+  [Hex h],   [`80h` (Intel/ASM\-style)],
+)
+설정은 `av.ini`에 `pixel_format=0|1|2`로 영속화.
 
 ] // end columns
