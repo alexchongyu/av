@@ -3243,9 +3243,9 @@ show_borders=1
 #pagebreak()
 #align(center + horizon)[
   #text(size: 11pt, fill: luma(120))[
-    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.11 \
+    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.12 \
     #v(0.3em)
-    2026\-03\-13 \
+    2026\-03\-16 \
     #v(0.3em)
     이 문서는 av 이미지 뷰어/비교기의 완전한 구현 참조 문서입니다.
   ]

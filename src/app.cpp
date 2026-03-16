@@ -73,7 +73,7 @@ CliOptions parse_cli(int argc, char* argv[]) {
             print_help(argv[0]);
             std::exit(0);
         } else if (arg == "--version") {
-            std::cout << "av 0.11\n";
+            std::cout << "av 0.12\n";
             std::exit(0);
         } else if (arg == "--diff-mode") {
             std::string m = next();

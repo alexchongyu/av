@@ -73,7 +73,7 @@
 #align(center)[
   #text(size: 20pt, weight: "bold")[av #text(size: 12pt, weight: "regular", fill: luma(80))[\u{2014} Advanced Pixel Lens Cheat Sheet]]
   #v(0.15em)
-  #text(size: 8pt, fill: luma(120))[v0.11 \u{2014} 2026\-03\-13]
+  #text(size: 8pt, fill: luma(120))[v0.12 \u{2014} 2026\-03\-16]
 ]
 
 #v(0.3em)
