@@ -175,13 +175,10 @@ else()
 endif()
 
 # Linux: 정적 링크 (오래된 배포판 호환성)
+# X11/OpenGL은 드라이버에 의존하므로 반드시 동적 링크.
+# libstdc++/libgcc만 정적 링크하여 이식성을 확보한다.
 if(UNIX AND NOT APPLE)
-    if(AV_FULL_STATIC)
-        # 완전 정적 빌드: CentOS 6.x 등 glibc 2.12 환경용
-        target_link_options(av PRIVATE -static)
-    else()
-        target_link_options(av PRIVATE -static-libstdc++ -static-libgcc)
-    endif()
+    target_link_options(av PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
 # Windows: stb UTF-8 경로 지원

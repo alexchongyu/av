@@ -233,6 +233,10 @@ struct AppState {
         int   panel     = 0;      // which panel's sequence to advance
     };
     SlideshowState slideshow;
+
+    // ─── Window drag optimization ────────────────────────────────────────
+    bool     window_moving = false;
+    uint64_t last_window_move_tick = 0;  // SDL_GetTicksNS()
 };
 
 // ─── Function declarations ────────────────────────────────────────────────────

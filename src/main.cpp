@@ -417,6 +417,17 @@ int main(int argc, char* argv[]) {
                         load_image(dropped, state.images[1]);
                     }
                 }
+            } else if (event.type == SDL_EVENT_WINDOW_MOVED) {
+                state.window_moving = true;
+                state.last_window_move_tick = SDL_GetTicksNS();
+            }
+        }
+
+        // 100ms간 WINDOW_MOVED 없으면 드래그 종료로 판정
+        if (state.window_moving) {
+            uint64_t now = SDL_GetTicksNS();
+            if (now - state.last_window_move_tick > 100'000'000ULL) {
+                state.window_moving = false;
             }
         }
 
@@ -439,6 +450,9 @@ int main(int argc, char* argv[]) {
                 state.slideshow.countdown = state.slideshow.interval;
             }
         }
+
+        // ── Skip rendering while window is being dragged ─────────────────
+        if (state.window_moving) continue;
 
         // ── Window size ───────────────────────────────────────────────────────
         int fb_w = 0, fb_h = 0;
