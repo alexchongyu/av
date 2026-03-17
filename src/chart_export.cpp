@@ -152,7 +152,7 @@ ImageStats compute_image_stats(const ImageEntry& img)
     ImageStats st;
     if (!img.loaded) return st;
     int npix = img.width * img.height;
-    if (img.is_hdr && !img.pixels_f32.empty()) {
+    if (!img.pixels_f32.empty()) {
         for (int c = 0; c < 3; ++c)
             st.ch[c] = compute_channel_stats_f32(img.pixels_f32.data(), npix, c);
     } else if (!img.pixels.empty()) {
@@ -170,8 +170,7 @@ ImageStats compute_diff_stats(const ImageEntry& imgA, const ImageEntry& imgB,
     int npix = std::min(imgA.width * imgA.height, imgB.width * imgB.height);
     if (npix <= 0) return st;
 
-    bool use_hdr = imgA.is_hdr && imgB.is_hdr &&
-                   !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty();
+    bool use_hdr = !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty();
     bool use_u8  = !imgA.pixels.empty() && !imgB.pixels.empty();
 
     if (use_hdr) {
@@ -235,7 +234,7 @@ HistogramData extract_histogram(const ImageEntry& img)
     d.label = fname;
 
     int npix = img.width * img.height;
-    if (img.is_hdr && !img.pixels_f32.empty()) {
+    if (!img.pixels_f32.empty()) {
         float max_v = 1.0f;
         for (int p = 0; p < npix; ++p) {
             float r = img.pixels_f32[p*4+0];
@@ -267,8 +266,7 @@ HistogramData extract_diff_histogram(const ImageEntry& imgA, const ImageEntry& i
     int npix = std::min(imgA.width * imgA.height, imgB.width * imgB.height);
     if (npix <= 0) return d;
 
-    bool use_hdr = imgA.is_hdr && imgB.is_hdr &&
-                   !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty();
+    bool use_hdr = !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty();
     bool use_u8  = !imgA.pixels.empty() && !imgB.pixels.empty();
 
     if (use_hdr) {
@@ -317,7 +315,7 @@ LineCutData extract_hline_cut(const ImageEntry& img, const ViewportState& vp)
     if (n < 1) return d;
     d.r.resize(n); d.g.resize(n); d.b.resize(n);
 
-    if (img.is_hdr && !img.pixels_f32.empty()) {
+    if (!img.pixels_f32.empty()) {
         float max_v = 1.0f;
         for (int x = 0; x < n; ++x) {
             int idx = (row * img.width + x) * 4;
@@ -364,7 +362,7 @@ LineCutData extract_vline_cut(const ImageEntry& img, const ViewportState& vp)
     if (n < 1) return d;
     d.r.resize(n); d.g.resize(n); d.b.resize(n);
 
-    if (img.is_hdr && !img.pixels_f32.empty()) {
+    if (!img.pixels_f32.empty()) {
         float max_v = 1.0f;
         for (int y = 0; y < n; ++y) {
             int idx = (y * img.width + col) * 4;
@@ -408,8 +406,7 @@ LineCutData extract_diff_hline_cut(const ImageEntry& imgA, const ImageEntry& img
     if (n < 1) return d;
     d.r.resize(n); d.g.resize(n); d.b.resize(n);
 
-    bool use_hdr = imgA.is_hdr && imgB.is_hdr &&
-                   !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty();
+    bool use_hdr = !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty();
     bool use_u8  = !imgA.pixels.empty() && !imgB.pixels.empty();
 
     if (use_hdr) {
@@ -458,8 +455,7 @@ LineCutData extract_diff_vline_cut(const ImageEntry& imgA, const ImageEntry& img
     if (n < 1) return d;
     d.r.resize(n); d.g.resize(n); d.b.resize(n);
 
-    bool use_hdr = imgA.is_hdr && imgB.is_hdr &&
-                   !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty();
+    bool use_hdr = !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty();
     bool use_u8  = !imgA.pixels.empty() && !imgB.pixels.empty();
 
     if (use_hdr) {
@@ -864,7 +860,7 @@ ImageStats compute_roi_stats(const ImageEntry& img, int rx, int ry, int rw, int 
 
     int npix = rw * rh;
 
-    if (img.is_hdr && !img.pixels_f32.empty()) {
+    if (!img.pixels_f32.empty()) {
         std::vector<float> buf(npix * 4, 0.0f);
         for (int y = 0; y < rh; ++y) {
             const float* src = img.pixels_f32.data() + ((ry + y) * img.width + rx) * 4;
@@ -902,7 +898,7 @@ ImageStats compute_roi_diff_stats(const ImageEntry& a, const ImageEntry& b,
     if (rw <= 0 || rh <= 0) return st;
 
     int npix = rw * rh;
-    bool use_hdr = a.is_hdr && b.is_hdr && !a.pixels_f32.empty() && !b.pixels_f32.empty();
+    bool use_hdr = !a.pixels_f32.empty() && !b.pixels_f32.empty();
     bool use_u8  = !a.pixels.empty() && !b.pixels.empty();
 
     if (use_hdr) {
@@ -979,7 +975,7 @@ ScatterPlotData extract_scatter_plot(const ImageEntry& a, const ImageEntry& b,
     sp.g_a.reserve(n); sp.g_b.reserve(n);
     sp.b_a.reserve(n); sp.b_b.reserve(n);
 
-    bool use_hdr = a.is_hdr && b.is_hdr && !a.pixels_f32.empty() && !b.pixels_f32.empty();
+    bool use_hdr = !a.pixels_f32.empty() && !b.pixels_f32.empty();
     bool use_u8  = !a.pixels.empty() && !b.pixels.empty();
 
     if (use_hdr) {

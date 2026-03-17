@@ -36,7 +36,7 @@ static void print_help(const char* prog) {
         "Usage: " << prog << " [options] [imageA] [imageB]\n"
         "\n"
         "Options:\n"
-        "  --diff-mode <mode>   none|abs|rel|falsecolor|ssim  (default: none)\n"
+        "  --diff-mode <mode>   none|abs|rel|highlight|falsecolor|ssim  (default: none)\n"
         "  --zoom <factor>      fit|1|2.0 etc.                (default: fit)\n"
         "  --sync               Enable viewport sync          (default: on)\n"
         "  --no-sync            Disable viewport sync\n"
@@ -80,6 +80,7 @@ CliOptions parse_cli(int argc, char* argv[]) {
             if      (m == "none")       opts.diff_mode = DiffState::Mode::None;
             else if (m == "abs")        opts.diff_mode = DiffState::Mode::PixelAbsolute;
             else if (m == "rel")        opts.diff_mode = DiffState::Mode::PixelRelative;
+            else if (m == "highlight")  opts.diff_mode = DiffState::Mode::Highlight;
             else if (m == "falsecolor") opts.diff_mode = DiffState::Mode::FalseColor;
             else if (m == "ssim")       opts.diff_mode = DiffState::Mode::SSIM;
             else { std::cerr << "Unknown diff-mode: " << m << "\n"; std::exit(1); }
@@ -219,10 +220,11 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
             int key_num = (scancode == SDL_SCANCODE_0) ? 0 : (scancode - SDL_SCANCODE_1 + 1);
             if      (key_num == 3) state.diff.mode = DiffState::Mode::PixelAbsolute;
             else if (key_num == 4) state.diff.mode = DiffState::Mode::PixelRelative;
-            else if (key_num == 5) state.diff.mode = DiffState::Mode::FalseColor;
-            else if (key_num == 6) state.diff.mode = DiffState::Mode::SSIM;
-            else if (key_num == 7) {
-                // Ctrl+7: tolerance diff — set threshold to 1 if disabled, or toggle off
+            else if (key_num == 5) state.diff.mode = DiffState::Mode::Highlight;
+            else if (key_num == 6) state.diff.mode = DiffState::Mode::FalseColor;
+            else if (key_num == 7) state.diff.mode = DiffState::Mode::SSIM;
+            else if (key_num == 8) {
+                // Ctrl+8: tolerance diff — set threshold to 1 if disabled, or toggle off
                 if (state.diff.threshold == 0)
                     state.diff.threshold = 1;
                 else

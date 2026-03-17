@@ -8,6 +8,7 @@ static const char* diff_mode_name(DiffState::Mode m) {
     case DiffState::Mode::None:          return "None";
     case DiffState::Mode::PixelAbsolute: return "Abs";
     case DiffState::Mode::PixelRelative: return "Rel";
+    case DiffState::Mode::Highlight:     return "Highlight";
     case DiffState::Mode::FalseColor:    return "FalseColor";
     case DiffState::Mode::SSIM:          return "SSIM";
     default:                             return "?";
@@ -93,6 +94,18 @@ void StatusBar::render(const AppState& state) {
             ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "PSNR: inf");
         else
             ImGui::TextColored(col, "PSNR: %.1f dB", p);
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+    }
+
+    // Highlight diff pixel count
+    if (state.diff.mode == DiffState::Mode::Highlight &&
+        state.diff.threshold_total_count > 0) {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+            "[Diff: %d / %d px]",
+            state.diff.threshold_exceed_count,
+            state.diff.threshold_total_count);
         ImGui::SameLine();
         ImGui::TextDisabled("|");
         ImGui::SameLine();

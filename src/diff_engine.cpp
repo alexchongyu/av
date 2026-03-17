@@ -50,6 +50,7 @@ void DiffRenderer::render(uintptr_t texA, uintptr_t texB,
         case DiffState::Mode::PixelAbsolute: diff_mode_int = 0; break;
         case DiffState::Mode::PixelRelative: diff_mode_int = 1; break;
         case DiffState::Mode::FalseColor:    diff_mode_int = 2; break;
+        case DiffState::Mode::Highlight:     diff_mode_int = 3; break;
         default: break;
     }
 
@@ -113,6 +114,12 @@ inline double luma(const uint8_t* pixels, int w, int x, int y) {
     return 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
 }
 
+// Convert RGBA float32 pixel at (x,y) → luminance [0,255] (SSIM 상수와 호환).
+inline double luma_f32(const float* pixels, int w, int x, int y) {
+    const float* p = pixels + (y * w + x) * 4;
+    return (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) * 255.0;
+}
+
 // Weighted window statistics
 struct WinStats { double mu = 0, sigma2 = 0, sigma = 0; };
 struct WinCross { double sigma_ab = 0; };
@@ -127,6 +134,29 @@ static WinStats window_stats(const uint8_t* img, int w, int h,
             int ix = std::clamp(cx + kx - half, 0, w - 1);
             int iy = std::clamp(cy + ky - half, 0, h - 1);
             double v = luma(img, w, ix, iy);
+            double w_ = kernel[ky * SSIM_WIN + kx];
+            mu  += w_ * v;
+            mu2 += w_ * v * v;
+        }
+    }
+    WinStats s;
+    s.mu     = mu;
+    s.sigma2 = mu2 - mu * mu;
+    if (s.sigma2 < 0) s.sigma2 = 0;
+    s.sigma  = std::sqrt(s.sigma2);
+    return s;
+}
+
+static WinStats window_stats_f32(const float* img, int w, int h,
+                                  const std::vector<double>& kernel,
+                                  int cx, int cy) {
+    int half = SSIM_WIN / 2;
+    double mu = 0.0, mu2 = 0.0;
+    for (int ky = 0; ky < SSIM_WIN; ++ky) {
+        for (int kx = 0; kx < SSIM_WIN; ++kx) {
+            int ix = std::clamp(cx + kx - half, 0, w - 1);
+            int iy = std::clamp(cy + ky - half, 0, h - 1);
+            double v = luma_f32(img, w, ix, iy);
             double w_ = kernel[ky * SSIM_WIN + kx];
             mu  += w_ * v;
             mu2 += w_ * v * v;
@@ -160,12 +190,35 @@ static double window_cross(const uint8_t* imgA, const uint8_t* imgB,
     return cov;
 }
 
+static double window_cross_f32(const float* imgA, const float* imgB,
+                                int w, int h,
+                                const std::vector<double>& kernel,
+                                int cx, int cy,
+                                double muA, double muB) {
+    int half = SSIM_WIN / 2;
+    double cov = 0.0;
+    for (int ky = 0; ky < SSIM_WIN; ++ky) {
+        for (int kx = 0; kx < SSIM_WIN; ++kx) {
+            int ix = std::clamp(cx + kx - half, 0, w - 1);
+            int iy = std::clamp(cy + ky - half, 0, h - 1);
+            double va = luma_f32(imgA, w, ix, iy);
+            double vb = luma_f32(imgB, w, ix, iy);
+            double ww = kernel[ky * SSIM_WIN + kx];
+            cov += ww * (va - muA) * (vb - muB);
+        }
+    }
+    return cov;
+}
+
 SSIMResult compute_ssim_cpu(const ImageEntry& a,
                              const ImageEntry& b,
                              std::atomic<bool>& cancel_flag) {
     SSIMResult res;
     if (!a.loaded || !b.loaded) return res;
-    if (a.pixels.empty() || b.pixels.empty()) return res;
+
+    bool use_f32 = !a.pixels_f32.empty() && !b.pixels_f32.empty();
+    bool use_u8  = !a.pixels.empty() && !b.pixels.empty();
+    if (!use_f32 && !use_u8) return res;
 
     int w = std::min(a.width,  b.width);
     int h = std::min(a.height, b.height);
@@ -182,10 +235,19 @@ SSIMResult compute_ssim_cpu(const ImageEntry& a,
     for (int y = 0; y < h; ++y) {
         if (cancel_flag.load()) return res;
         for (int x = 0; x < w; ++x) {
-            auto sA = window_stats(a.pixels.data(), w, h, kernel, x, y);
-            auto sB = window_stats(b.pixels.data(), w, h, kernel, x, y);
-            double cov = window_cross(a.pixels.data(), b.pixels.data(),
-                                      w, h, kernel, x, y, sA.mu, sB.mu);
+            WinStats sA, sB;
+            double cov;
+            if (use_f32) {
+                sA = window_stats_f32(a.pixels_f32.data(), w, h, kernel, x, y);
+                sB = window_stats_f32(b.pixels_f32.data(), w, h, kernel, x, y);
+                cov = window_cross_f32(a.pixels_f32.data(), b.pixels_f32.data(),
+                                       w, h, kernel, x, y, sA.mu, sB.mu);
+            } else {
+                sA = window_stats(a.pixels.data(), w, h, kernel, x, y);
+                sB = window_stats(b.pixels.data(), w, h, kernel, x, y);
+                cov = window_cross(a.pixels.data(), b.pixels.data(),
+                                   w, h, kernel, x, y, sA.mu, sB.mu);
+            }
             double num   = (2.0 * sA.mu * sB.mu + SSIM_C1) *
                            (2.0 * cov           + SSIM_C2);
             double denom = (sA.mu * sA.mu + sB.mu * sB.mu + SSIM_C1) *

@@ -70,6 +70,7 @@ void main() {
 //   0 = PixelAbsolute  : |A - B| * amplify
 //   1 = PixelRelative  : |A - B| / max(A, eps) * amplify
 //   2 = FalseColor     : heatmap (blue→red)
+//   3 = Highlight      : non-zero diff → red, zero → black
 constexpr const char* DIFF_FRAG_SRC = R"GLSL(
 #version 150
 
@@ -117,7 +118,20 @@ void main() {
     }
 
     vec3 result;
-    if (u_diff_mode == 2) {    // FalseColor
+    if (u_diff_mode == 3) {    // Highlight
+        float max_d;
+        if (u_channel == 1) max_d = diff.r;
+        else if (u_channel == 2) max_d = diff.g;
+        else if (u_channel == 3) max_d = diff.b;
+        else max_d = max(max(diff.r, diff.g), diff.b);
+        max_d *= u_amplify;
+        if (max_d > 0.0) {
+            float bright = 0.502 + clamp(max_d, 0.0, 1.0) * 0.498;
+            result = vec3(bright, 0.0, 0.0);
+        } else {
+            result = vec3(0.0);
+        }
+    } else if (u_diff_mode == 2) {    // FalseColor
         float intensity;
         if (u_channel == 1) intensity = diff.r;
         else if (u_channel == 2) intensity = diff.g;

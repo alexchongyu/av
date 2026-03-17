@@ -39,6 +39,7 @@ struct DiffState {
         None,
         PixelAbsolute,
         PixelRelative,
+        Highlight,
         FalseColor,
         SSIM
     };

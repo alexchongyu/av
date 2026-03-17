@@ -253,6 +253,36 @@ static inline void sample_pixel(const ImageEntry& img, float img_fx, float img_f
     if (img_fx < 0 || img_fy < 0 || img_fx >= iw || img_fy >= ih) {
         out[0] = out[1] = out[2] = 0; out[3] = 1; return;
     }
+
+    // float32 데이터 우선 (HDR 또는 고정밀 PPM)
+    if (!img.pixels_f32.empty()) {
+        const float* src = img.pixels_f32.data();
+        if (zoom >= 1.0f) {
+            int ix = std::clamp((int)img_fx, 0, iw - 1);
+            int iy = std::clamp((int)img_fy, 0, ih - 1);
+            const float* p = src + (iy * iw + ix) * 4;
+            for (int c = 0; c < 4; ++c) out[c] = p[c];
+        } else {
+            float fx = img_fx - 0.5f, fy = img_fy - 0.5f;
+            int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy);
+            int x1 = x0 + 1, y1 = y0 + 1;
+            float tx = fx - x0, ty = fy - y0;
+            x0 = std::clamp(x0, 0, iw-1); x1 = std::clamp(x1, 0, iw-1);
+            y0 = std::clamp(y0, 0, ih-1); y1 = std::clamp(y1, 0, ih-1);
+            const float* p00 = src + (y0*iw+x0)*4;
+            const float* p10 = src + (y0*iw+x1)*4;
+            const float* p01 = src + (y1*iw+x0)*4;
+            const float* p11 = src + (y1*iw+x1)*4;
+            for (int c = 0; c < 4; ++c) {
+                float top = p00[c] * (1-tx) + p10[c] * tx;
+                float bot = p01[c] * (1-tx) + p11[c] * tx;
+                out[c] = top * (1-ty) + bot * ty;
+            }
+        }
+        return;
+    }
+
+    // 기존 8-bit 경로
     const uint8_t* src = img.pixels.data();
     if (zoom >= 1.0f) {
         int ix = std::clamp((int)img_fx, 0, iw - 1);
@@ -310,7 +340,20 @@ void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
             }
 
             float r, g, b_out;
-            if (mode == DiffState::Mode::FalseColor) {
+            if (mode == DiffState::Mode::Highlight) {
+                float max_d;
+                if      (channel == ChannelMode::Red)   max_d = diff[0];
+                else if (channel == ChannelMode::Green) max_d = diff[1];
+                else if (channel == ChannelMode::Blue)  max_d = diff[2];
+                else    max_d = std::max({diff[0], diff[1], diff[2]});
+                max_d *= amplify;
+                if (max_d > 0.0f) {
+                    float bright = 0.502f + std::clamp(max_d, 0.0f, 1.0f) * 0.498f;
+                    dst[0] = (uint8_t)(bright * 255); dst[1] = 0; dst[2] = 0; dst[3] = 255;
+                } else {
+                    dst[0] = 0; dst[1] = 0; dst[2] = 0; dst[3] = 255;
+                }
+            } else if (mode == DiffState::Mode::FalseColor) {
                 float intensity;
                 if      (channel == ChannelMode::Red)   intensity = diff[0];
                 else if (channel == ChannelMode::Green) intensity = diff[1];
@@ -349,6 +392,43 @@ void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
             }
         }
     }
+}
+
+// ─── count_nonzero_diff_pixels ───────────────────────────────────────────────
+// Count non-zero diff pixels for Highlight mode status bar display.
+// Returns (nonzero_count, total_count). Does NOT modify the buffer.
+
+static std::pair<int,int> count_nonzero_diff_pixels(
+    const ImageEntry& imgA, const ImageEntry& imgB,
+    int view_w, int view_h,
+    const ViewportState& vp)
+{
+    float half_vw = view_w * 0.5f, half_vh = view_h * 0.5f;
+    float half_iw = imgA.width * 0.5f, half_ih = imgA.height * 0.5f;
+    int nonzero = 0, total = 0;
+
+    for (int sy = 0; sy < view_h; ++sy) {
+        for (int sx = 0; sx < view_w; ++sx) {
+            float img_fx = (sx - half_vw) / vp.zoom - vp.pan_x + half_iw;
+            float img_fy = (sy - half_vh) / vp.zoom - vp.pan_y + half_ih;
+
+            if (img_fx < 0 || img_fy < 0 || img_fx >= imgA.width || img_fy >= imgA.height)
+                continue;
+
+            float a[4], b_val[4];
+            sample_pixel(imgA, img_fx, img_fy, vp.zoom, a);
+            sample_pixel(imgB, img_fx, img_fy, vp.zoom, b_val);
+            float max_diff = 0.0f;
+            for (int c = 0; c < 3; ++c) {
+                float d = std::fabs(a[c] - b_val[c]);
+                if (d > max_diff) max_diff = d;
+            }
+
+            ++total;
+            if (max_diff > 0.0f) ++nonzero;
+        }
+    }
+    return {nonzero, total};
 }
 
 // ─── apply_threshold_to_diff ─────────────────────────────────────────────────
@@ -467,6 +547,14 @@ void ImagePanel::render_diff_software(AppState& state) {
 
     cpu_render_diff(imgA, imgB, vp, soft_buf_.data(), pw, ph,
                     state.diff.mode, state.diff.amplify, state.channel_mode);
+
+    // Highlight mode: count non-zero diff pixels for status bar
+    if (state.diff.mode == DiffState::Mode::Highlight) {
+        auto [nonzero, total] = count_nonzero_diff_pixels(
+            imgA, imgB, pw, ph, vp);
+        state.diff.threshold_exceed_count = nonzero;
+        state.diff.threshold_total_count  = total;
+    }
 
     // Apply tolerance threshold post-processing
     if (state.diff.threshold > 0) {
@@ -733,7 +821,7 @@ void ImagePanel::copy_panel_to_clipboard(AppState& state, int target_type) {
 
         if (!img.pixels.empty()) {
             rgba_data = img.pixels.data();
-        } else if (img.is_hdr && !img.pixels_f32.empty()) {
+        } else if (!img.pixels_f32.empty()) {
             rgba_buf.resize(static_cast<size_t>(w) * h * 4);
             for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i) {
                 for (int c = 0; c < 4; ++c) {
@@ -1239,7 +1327,7 @@ void ImagePanel::render_pixel_values(const AppState& state, int panel_idx,
                 fmt_int_pixel(sr, sizeof(sr), (int)img.pixels_orig[oidx + 0], state.pixel_format);
                 fmt_int_pixel(sg, sizeof(sg), (int)img.pixels_orig[oidx + 1], state.pixel_format);
                 fmt_int_pixel(sb, sizeof(sb), (int)img.pixels_orig[oidx + 2], state.pixel_format);
-            } else if (img.is_hdr && !img.pixels_f32.empty()) {
+            } else if (!img.pixels_f32.empty()) {
                 int pidx = (py * img.width + px) * 4;
                 std::snprintf(sr, sizeof(sr), "%.2f", img.pixels_f32[pidx + 0]);
                 std::snprintf(sg, sizeof(sg), "%.2f", img.pixels_f32[pidx + 1]);
@@ -1334,6 +1422,15 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
                          state.diff.threshold);
     fbo_.unbind();
 
+    // Highlight mode: count non-zero diff pixels (CPU-side, no GPU readback)
+    if (state.diff.mode == DiffState::Mode::Highlight &&
+        !imgA.pixels.empty() && !imgB.pixels.empty()) {
+        auto [nonzero, total] = count_nonzero_diff_pixels(
+            imgA, imgB, pw, ph, vp);
+        state.diff.threshold_exceed_count = nonzero;
+        state.diff.threshold_total_count  = total;
+    }
+
     ImTextureID tex = static_cast<ImTextureID>(fbo_.tex_id);
     ImGui::Image(tex, avail, ImVec2(0, 0), ImVec2(1, 1));
 
@@ -1427,8 +1524,10 @@ void ImagePanel::render_diff_pixel_values(const AppState& state,
     ImU32 col_b  = IM_COL32(100, 130, 255, 230);
     ImU32 shadow = IM_COL32(0, 0, 0, 140);
 
-    bool is_hdr = imgA.is_hdr && imgB.is_hdr;
+    bool has_orig = imgA.ppm_maxval > 0 && !imgA.pixels_orig.empty() &&
+                    imgB.ppm_maxval > 0 && !imgB.pixels_orig.empty();
     bool has_f32 = !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty();
+    bool is_hdr  = imgA.is_hdr && imgB.is_hdr;
     bool has_u8  = !imgA.pixels.empty() && !imgB.pixels.empty();
 
     for (int py = px_start_y; py < px_end_y; ++py) {
@@ -1442,7 +1541,16 @@ void ImagePanel::render_diff_pixel_values(const AppState& state,
             int pidx_b = (py * imgB.width + px) * 4;
             char sr[16], sg[16], sb[16];
 
-            if (is_hdr && has_f32) {
+            if (has_orig) {
+                int oidx_a = (py * imgA.width + px) * 3;
+                int oidx_b = (py * imgB.width + px) * 3;
+                fmt_int_pixel(sr, sizeof(sr),
+                    std::abs((int)imgA.pixels_orig[oidx_a + 0] - (int)imgB.pixels_orig[oidx_b + 0]), state.pixel_format);
+                fmt_int_pixel(sg, sizeof(sg),
+                    std::abs((int)imgA.pixels_orig[oidx_a + 1] - (int)imgB.pixels_orig[oidx_b + 1]), state.pixel_format);
+                fmt_int_pixel(sb, sizeof(sb),
+                    std::abs((int)imgA.pixels_orig[oidx_a + 2] - (int)imgB.pixels_orig[oidx_b + 2]), state.pixel_format);
+            } else if (is_hdr && has_f32) {
                 std::snprintf(sr, sizeof(sr), "%.2f",
                     std::fabs(imgA.pixels_f32[pidx_a + 0] - imgB.pixels_f32[pidx_b + 0]));
                 std::snprintf(sg, sizeof(sg), "%.2f",

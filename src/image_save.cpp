@@ -20,7 +20,7 @@ static void get_pixel_f32(const ImageEntry& img, int ix, int iy,
                            float& r, float& g, float& b)
 {
     int pidx = (iy * img.width + ix) * 4;
-    if (img.is_hdr && !img.pixels_f32.empty()) {
+    if (!img.pixels_f32.empty()) {
         r = img.pixels_f32[pidx + 0];
         g = img.pixels_f32[pidx + 1];
         b = img.pixels_f32[pidx + 2];

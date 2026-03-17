@@ -37,6 +37,7 @@ static const char* title_diff_label(DiffState::Mode m) {
     switch (m) {
     case DiffState::Mode::PixelAbsolute: return "Abs";
     case DiffState::Mode::PixelRelative: return "Rel";
+    case DiffState::Mode::Highlight:     return "Highlight";
     case DiffState::Mode::FalseColor:    return "FalseColor";
     case DiffState::Mode::SSIM:          return "SSIM";
     default: return nullptr;
@@ -722,14 +723,16 @@ void MainWindow::render_menubar(AppState& state) {
         bool none = state.diff.mode == DiffState::Mode::None;
         bool abs_ = state.diff.mode == DiffState::Mode::PixelAbsolute;
         bool rel_ = state.diff.mode == DiffState::Mode::PixelRelative;
+        bool hl_  = state.diff.mode == DiffState::Mode::Highlight;
         bool fc_  = state.diff.mode == DiffState::Mode::FalseColor;
         bool ssim = state.diff.mode == DiffState::Mode::SSIM;
 
         if (ImGui::MenuItem("Off",        "Ctrl+D", none)) state.diff.mode = DiffState::Mode::None;
         if (ImGui::MenuItem("Absolute",   "Ctrl+3", abs_)) state.diff.mode = DiffState::Mode::PixelAbsolute;
         if (ImGui::MenuItem("Relative",   "Ctrl+4", rel_)) state.diff.mode = DiffState::Mode::PixelRelative;
-        if (ImGui::MenuItem("FalseColor", "Ctrl+5", fc_ )) state.diff.mode = DiffState::Mode::FalseColor;
-        if (ImGui::MenuItem("SSIM",       "Ctrl+6", ssim)) state.diff.mode = DiffState::Mode::SSIM;
+        if (ImGui::MenuItem("Highlight",  "Ctrl+5", hl_ )) state.diff.mode = DiffState::Mode::Highlight;
+        if (ImGui::MenuItem("FalseColor", "Ctrl+6", fc_ )) state.diff.mode = DiffState::Mode::FalseColor;
+        if (ImGui::MenuItem("SSIM",       "Ctrl+7", ssim)) state.diff.mode = DiffState::Mode::SSIM;
         ImGui::Separator();
         ImGui::SliderFloat("Amplify", &state.diff.amplify, 0.5f, 50.0f, "%.1f");
         ImGui::EndMenu();
@@ -828,12 +831,13 @@ static void render_hotkey_help_window(AppState& state) {
         { "Diff", "Ctrl+D",                        "Disable diff mode" },
         { "Diff", "Ctrl+3",                        "Diff: Pixel Absolute" },
         { "Diff", "Ctrl+4",                        "Diff: Pixel Relative" },
-        { "Diff", "Ctrl+5",                        "Diff: False Color" },
-        { "Diff", "Ctrl+6",                        "Diff: SSIM" },
+        { "Diff", "Ctrl+5",                        "Diff: Highlight (red)" },
+        { "Diff", "Ctrl+6",                        "Diff: False Color" },
+        { "Diff", "Ctrl+7",                        "Diff: SSIM" },
         { "Diff", "[",                             "Decrease diff amplify" },
         { "Diff", "]",                             "Increase diff amplify" },
         { "Diff", "\\",                            "Reset diff amplify (1.0x)" },
-        { "Diff", "Ctrl+7",                        "Toggle tolerance-based diff" },
+        { "Diff", "Ctrl+8",                        "Toggle tolerance-based diff" },
         { "Diff", "Shift+]",                       "Increase diff threshold (+1)" },
         { "Diff", "Shift+[",                       "Decrease diff threshold (-1)" },
         { "Diff", "Ctrl+\\",                       "Reset diff threshold (0)" },
@@ -845,7 +849,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Help", "Ctrl+Shift+H",                  "Toggle this hotkey reference" },
         // CLI Options
         { "CLI", "av [image_a] [image_b]",          "Open one or two images" },
-        { "CLI", "--diff-mode <mode>",              "none|abs|rel|falsecolor|ssim  (default: none)" },
+        { "CLI", "--diff-mode <mode>",              "none|abs|rel|highlight|falsecolor|ssim  (default: none)" },
         { "CLI", "--zoom <factor>",                 "fit|1|2.0 etc.  (default: fit)" },
         { "CLI", "--sync / --no-sync",              "Enable/disable viewport sync  (default: on)" },
         { "CLI", "--amplify <val>",                 "Diff amplification 0.1-100  (default: 1.0)" },

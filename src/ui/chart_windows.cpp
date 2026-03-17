@@ -255,7 +255,7 @@ void render_histogram_window(AppState& state) {
         // ── Build 256-bin histogram ──
         uint32_t hist_r[256]{}, hist_g[256]{}, hist_b[256]{};
 
-        if (img.is_hdr && !img.pixels_f32.empty()) {
+        if (!img.pixels_f32.empty()) {
             float max_v = 1.0f;
             int npix = img.width * img.height;
             for (int p = 0; p < npix; ++p) {
@@ -597,7 +597,7 @@ void render_hline_cut_window(AppState& state) {
         float line_max = 255.0f;
         bool  line_hdr = false;
 
-        if (img.is_hdr && !img.pixels_f32.empty()) {
+        if (!img.pixels_f32.empty()) {
             float max_v = 1.0f;
             for (int x = 0; x < n; ++x) {
                 int idx = (row * img.width + x) * 4;
@@ -647,8 +647,7 @@ void render_hline_cut_window(AppState& state) {
             float line_max = 255.0f;
             bool  line_hdr = false;
 
-            bool use_hdr = (imgA.is_hdr && imgB.is_hdr &&
-                            !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty());
+            bool use_hdr = (!imgA.pixels_f32.empty() && !imgB.pixels_f32.empty());
             bool use_u8  = (!imgA.pixels.empty() && !imgB.pixels.empty());
 
             if (use_hdr) {
@@ -849,7 +848,7 @@ void render_vline_cut_window(AppState& state) {
         float line_max = 255.0f;
         bool  line_hdr = false;
 
-        if (img.is_hdr && !img.pixels_f32.empty()) {
+        if (!img.pixels_f32.empty()) {
             float max_v = 1.0f;
             for (int y = 0; y < n; ++y) {
                 int idx = (y * img.width + col) * 4;
@@ -899,8 +898,7 @@ void render_vline_cut_window(AppState& state) {
             float line_max = 255.0f;
             bool  line_hdr = false;
 
-            bool use_hdr = (imgA.is_hdr && imgB.is_hdr &&
-                            !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty());
+            bool use_hdr = (!imgA.pixels_f32.empty() && !imgB.pixels_f32.empty());
             bool use_u8  = (!imgA.pixels.empty() && !imgB.pixels.empty());
 
             if (use_hdr) {
@@ -1106,7 +1104,7 @@ void render_stats_window(AppState& state) {
                       fname, img.width, img.height);
         ImageStats st = compute_image_stats(img);
         if (st.valid) {
-            draw_stats_table(header, IM_COL32(255, 80, 255, 255), st, img.is_hdr);
+            draw_stats_table(header, IM_COL32(255, 80, 255, 255), st, !img.pixels_f32.empty());
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
@@ -1123,7 +1121,7 @@ void render_stats_window(AppState& state) {
                       fname, img.width, img.height);
         ImageStats st = compute_image_stats(img);
         if (st.valid) {
-            draw_stats_table(header, IM_COL32(255, 255, 0, 255), st, img.is_hdr);
+            draw_stats_table(header, IM_COL32(255, 255, 0, 255), st, !img.pixels_f32.empty());
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
@@ -1135,11 +1133,11 @@ void render_stats_window(AppState& state) {
     bool diff_on     = (state.diff.mode != DiffState::Mode::None);
     if (both_loaded && diff_on) {
         any = true;
-        bool is_hdr = state.images[0].is_hdr && state.images[1].is_hdr;
+        bool use_f32 = !state.images[0].pixels_f32.empty() && !state.images[1].pixels_f32.empty();
         DiffExtraStats extra;
         ImageStats st = compute_diff_stats(state.images[0], state.images[1], extra);
         if (st.valid)
-            draw_stats_table("Diff |A-B|", IM_COL32(0, 255, 255, 255), st, is_hdr, &extra);
+            draw_stats_table("Diff |A-B|", IM_COL32(0, 255, 255, 255), st, use_f32, &extra);
     }
 
     if (!any)
@@ -1196,12 +1194,12 @@ void render_roi_stats_window(AppState& state)
         const ImageEntry& img = state.images[i];
         if (!img.loaded) continue;
         any = true;
-        bool is_hdr = img.is_hdr;
+        bool use_f32 = !img.pixels_f32.empty();
         ImageStats st = compute_roi_stats(img, roi.x, roi.y, roi.w, roi.h);
         if (st.valid) {
             ImU32 col = (i == 0) ? IM_COL32(255, 220, 50, 255) : IM_COL32(50, 220, 255, 255);
             const char* lbl = (i == 0) ? "Image A (ROI)" : "Image B (ROI)";
-            draw_stats_table(lbl, col, st, is_hdr);
+            draw_stats_table(lbl, col, st, use_f32);
             ImGui::Spacing();
         }
     }
@@ -1209,12 +1207,12 @@ void render_roi_stats_window(AppState& state)
     bool both = state.images[0].loaded && state.images[1].loaded;
     if (both) {
         any = true;
-        bool is_hdr = state.images[0].is_hdr && state.images[1].is_hdr;
+        bool use_f32 = !state.images[0].pixels_f32.empty() && !state.images[1].pixels_f32.empty();
         DiffExtraStats extra;
         ImageStats st = compute_roi_diff_stats(state.images[0], state.images[1],
                                                 roi.x, roi.y, roi.w, roi.h, extra);
         if (st.valid) {
-            draw_stats_table("ROI Diff |A-B|", IM_COL32(0, 255, 200, 255), st, is_hdr, &extra);
+            draw_stats_table("ROI Diff |A-B|", IM_COL32(0, 255, 200, 255), st, use_f32, &extra);
         }
     }
 

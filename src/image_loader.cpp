@@ -154,9 +154,23 @@ static bool try_load_ppm_ascii(const std::string& path, ImageEntry& entry) {
     entry.height   = h;
     entry.channels = 4;
 
+    // maxval > 255인 경우 float32 RGBA 버퍼도 생성 (정밀 diff용)
+    if (maxval > 255) {
+        entry.pixels_f32.resize(npixels * 4);
+        float inv_max = 1.0f / static_cast<float>(maxval);
+        for (size_t i = 0; i < npixels; ++i) {
+            entry.pixels_f32[i * 4 + 0] = entry.pixels_orig[i * 3 + 0] * inv_max;
+            entry.pixels_f32[i * 4 + 1] = entry.pixels_orig[i * 3 + 1] * inv_max;
+            entry.pixels_f32[i * 4 + 2] = entry.pixels_orig[i * 3 + 2] * inv_max;
+            entry.pixels_f32[i * 4 + 3] = 1.0f;
+        }
+    }
+
     // Upload texture
     if (is_software_mode()) {
         entry.texture_id = upload_sdl_texture(entry.pixels.data(), w, h);
+    } else if (!entry.pixels_f32.empty()) {
+        entry.texture_id = upload_rgba_f32(entry.pixels_f32.data(), w, h);
     } else {
         entry.texture_id = upload_rgba8(entry.pixels.data(), w, h);
     }
