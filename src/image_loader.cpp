@@ -184,14 +184,135 @@ static bool try_load_ppm_ascii(const std::string& path, ImageEntry& entry) {
     return true;
 }
 
+// ─── PPM Binary (P5/P6) parser ───────────────────────────────────────────────
+
+static bool try_load_ppm_binary(const std::string& path, ImageEntry& entry) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f.is_open()) return false;
+
+    // Read magic number
+    char magic[3] = {};
+    f.read(magic, 2);
+    if (!f.good()) return false;
+
+    bool is_p5 = (magic[0] == 'P' && magic[1] == '5');  // grayscale binary
+    bool is_p6 = (magic[0] == 'P' && magic[1] == '6');  // RGB binary
+    if (!is_p5 && !is_p6) return false;
+
+    int w = 0, h = 0, maxval = 0;
+    ppm_skip_ws_comments(f);
+    f >> w;
+    ppm_skip_ws_comments(f);
+    f >> h;
+    ppm_skip_ws_comments(f);
+    f >> maxval;
+
+    if (w <= 0 || h <= 0 || maxval <= 0 || maxval > 65535) {
+        std::cerr << "[image_loader] invalid PPM binary header: "
+                  << path << " (w=" << w << " h=" << h << " maxval=" << maxval << ")\n";
+        return false;
+    }
+
+    // Skip exactly one whitespace character after maxval (per PPM spec)
+    f.get();
+
+    size_t npixels = static_cast<size_t>(w) * h;
+    int channels = is_p6 ? 3 : 1;
+    int bytes_per_channel = (maxval > 255) ? 2 : 1;
+    size_t data_size = npixels * channels * bytes_per_channel;
+
+    // Read all raw pixel data at once
+    std::vector<uint8_t> rawbuf(data_size);
+    f.read(reinterpret_cast<char*>(rawbuf.data()), static_cast<std::streamsize>(data_size));
+    if (f.gcount() != static_cast<std::streamsize>(data_size)) {
+        std::cerr << "[image_loader] PPM binary: premature end of data in " << path
+                  << " (expected " << data_size << " bytes, got " << f.gcount() << ")\n";
+        return false;
+    }
+
+    // Convert raw bytes to uint16 values
+    size_t nvalues = npixels * channels;
+    std::vector<uint16_t> raw(nvalues);
+    if (bytes_per_channel == 1) {
+        for (size_t i = 0; i < nvalues; ++i)
+            raw[i] = rawbuf[i];
+    } else {
+        // 16-bit big-endian
+        for (size_t i = 0; i < nvalues; ++i)
+            raw[i] = static_cast<uint16_t>((rawbuf[i * 2] << 8) | rawbuf[i * 2 + 1]);
+    }
+
+    // Build pixels_orig (always RGB 3ch)
+    entry.pixels_orig.resize(npixels * 3);
+    if (is_p6) {
+        entry.pixels_orig = std::move(raw);
+    } else {
+        // P5: grayscale -> RGB replicate
+        for (size_t i = 0; i < npixels; ++i) {
+            entry.pixels_orig[i * 3 + 0] = raw[i];
+            entry.pixels_orig[i * 3 + 1] = raw[i];
+            entry.pixels_orig[i * 3 + 2] = raw[i];
+        }
+    }
+    entry.ppm_maxval = maxval;
+
+    // Build 8-bit RGBA for display
+    entry.pixels.resize(npixels * 4);
+    for (size_t i = 0; i < npixels; ++i) {
+        uint16_t r = entry.pixels_orig[i * 3 + 0];
+        uint16_t g = entry.pixels_orig[i * 3 + 1];
+        uint16_t b = entry.pixels_orig[i * 3 + 2];
+        entry.pixels[i * 4 + 0] = static_cast<uint8_t>(r * 255 / maxval);
+        entry.pixels[i * 4 + 1] = static_cast<uint8_t>(g * 255 / maxval);
+        entry.pixels[i * 4 + 2] = static_cast<uint8_t>(b * 255 / maxval);
+        entry.pixels[i * 4 + 3] = 255;
+    }
+
+    entry.width    = w;
+    entry.height   = h;
+    entry.channels = 4;
+
+    // maxval > 255인 경우 float32 RGBA 버퍼도 생성 (정밀 diff용)
+    if (maxval > 255) {
+        entry.pixels_f32.resize(npixels * 4);
+        float inv_max = 1.0f / static_cast<float>(maxval);
+        for (size_t i = 0; i < npixels; ++i) {
+            entry.pixels_f32[i * 4 + 0] = entry.pixels_orig[i * 3 + 0] * inv_max;
+            entry.pixels_f32[i * 4 + 1] = entry.pixels_orig[i * 3 + 1] * inv_max;
+            entry.pixels_f32[i * 4 + 2] = entry.pixels_orig[i * 3 + 2] * inv_max;
+            entry.pixels_f32[i * 4 + 3] = 1.0f;
+        }
+    }
+
+    // Upload texture
+    if (is_software_mode()) {
+        entry.texture_id = upload_sdl_texture(entry.pixels.data(), w, h);
+    } else if (!entry.pixels_f32.empty()) {
+        entry.texture_id = upload_rgba_f32(entry.pixels_f32.data(), w, h);
+    } else {
+        entry.texture_id = upload_rgba8(entry.pixels.data(), w, h);
+    }
+
+    if (entry.texture_id == 0) {
+        std::cerr << "[image_loader] texture upload failed for PPM binary: " << path << "\n";
+        return false;
+    }
+
+    entry.loaded = true;
+    return true;
+}
+
 // ─── load_image ───────────────────────────────────────────────────────────────
 
 bool load_image(const std::string& path, ImageEntry& entry) {
     entry = {};
     entry.path = path;
 
-    // PPM ASCII (P2/P3) 먼저 시도
+    // PPM 먼저 시도 (P2/P3 ASCII, P5/P6 binary)
     if (try_load_ppm_ascii(path, entry)) {
+        return true;
+    }
+    if (try_load_ppm_binary(path, entry)) {
         return true;
     }
 

@@ -14,7 +14,7 @@ struct ImageEntry {
     std::string          path;
     std::vector<uint8_t> pixels;      // CPU-side RGBA8 (or empty if freed)
     std::vector<float>   pixels_f32;  // CPU-side RGBA32F for HDR
-    std::vector<uint16_t> pixels_orig; // 원본 RGB (3ch, uint16), PPM P2/P3 전용
+    std::vector<uint16_t> pixels_orig; // 원본 RGB (3ch, uint16), PPM P2/P3/P5/P6 전용
     int   width    = 0;
     int   height   = 0;
     int   channels = 0;
