@@ -1319,13 +1319,7 @@ void ImagePanel::update_mouse_constraint(AppState& state, int panel_idx,
     ImGuiIO& io = ImGui::GetIO();
     bool want = state.magnifier_active && io.KeyCtrl && img_hovered;
 
-    if (!want) {
-        if (state.mouse_constrained) {
-            SDL_SetWindowMouseRect(state.window, nullptr);
-            state.mouse_constrained = false;
-        }
-        return;
-    }
+    if (!want) return;  // 해제는 frame-end / Ctrl+M 토글에서 처리
 
     // 이미지의 화면 좌표 계산 (draw_image_border와 동일한 변환)
     const ViewportState& vp = state.views[panel_idx];
@@ -1343,13 +1337,7 @@ void ImagePanel::update_mouse_constraint(AppState& state, int panel_idx,
     int cx1 = (int)std::min(x1, widget_pos.x + (float)view_w);
     int cy1 = (int)std::min(y1, widget_pos.y + (float)view_h);
 
-    if (cx1 <= cx0 || cy1 <= cy0) {
-        if (state.mouse_constrained) {
-            SDL_SetWindowMouseRect(state.window, nullptr);
-            state.mouse_constrained = false;
-        }
-        return;
-    }
+    if (cx1 <= cx0 || cy1 <= cy0) return;  // degenerate rect — 무시
 
     SDL_Rect rect = { cx0, cy0, cx1 - cx0, cy1 - cy0 };
     SDL_SetWindowMouseRect(state.window, &rect);
@@ -1364,9 +1352,9 @@ void ImagePanel::render_magnifier(const AppState& state, int panel_idx,
                                    int img_w, int img_h, bool is_diff_panel,
                                    bool img_hovered) {
     // Ctrl+M 토글로 모든 모드에서 제어
-    // 16x 이상 줌에서는 개별 픽셀이 충분히 크므로 자동 숨김
+    // 32x 이상 줌에서는 개별 픽셀이 충분히 크므로 자동 숨김
     const ViewportState& vp = state.views[panel_idx];
-    bool show_mag = img_hovered && vp.zoom < 16.0f && state.magnifier_active;
+    bool show_mag = img_hovered && vp.zoom < 32.0f && state.magnifier_active;
     if (!show_mag) return;
 
     ImGuiIO& io = ImGui::GetIO();
@@ -1393,7 +1381,7 @@ void ImagePanel::render_magnifier(const AppState& state, int panel_idx,
         return;
 
     const int radius = 8;          // ±8 = 16×16 영역
-    const int cell_size = 16;      // 각 픽셀을 16×16로 확대 (16배 줌)
+    const int cell_size = 32;      // 각 픽셀을 32×32로 확대 (32배 줌)
     const int grid_size = radius * 2;  // 16
     const float tooltip_size = static_cast<float>(grid_size * cell_size);  // 512
 
