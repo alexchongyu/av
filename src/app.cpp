@@ -595,8 +595,9 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 // ─── INI load / save ─────────────────────────────────────────────────────────
 
 static std::string ini_path() {
-    // Place av.ini next to the executable's working directory
-    return "av.ini";
+    const char* home = getenv("HOME");
+    if (!home) home = ".";
+    return std::string(home) + "/.av.ini";
 }
 
 void load_app_ini(AppState& state) {
@@ -610,8 +611,24 @@ void load_app_ini(AppState& state) {
         if (eq == std::string::npos) continue;
         std::string key = line.substr(0, eq);
         std::string val = line.substr(eq + 1);
-        if (key == "show_borders") state.show_borders = (val != "0");
-        if (key == "pixel_format") state.pixel_format = static_cast<PixelFormat>(std::stoi(val));
+        if      (key == "show_borders")      state.show_borders      = (val != "0");
+        else if (key == "pixel_format")      state.pixel_format      = static_cast<PixelFormat>(std::stoi(val));
+        else if (key == "magnifier_active")  state.magnifier_active  = (val != "0");
+        else if (key == "show_crosshair")    state.show_crosshair    = (val != "0");
+        else if (key == "sync_viewports")    state.sync_viewports    = (val != "0");
+        else if (key == "show_ui")           state.show_ui           = (val != "0");
+        else if (key == "show_info")         state.show_info         = (val != "0");
+        else if (key == "show_pixel_info")   state.show_pixel_info   = (val != "0");
+        else if (key == "show_histogram")    state.show_histogram    = (val != "0");
+        else if (key == "show_hline_cut")    state.show_hline_cut    = (val != "0");
+        else if (key == "show_vline_cut")    state.show_vline_cut    = (val != "0");
+        else if (key == "show_stats")        state.show_stats        = (val != "0");
+        else if (key == "show_hotkey_help")  state.show_hotkey_help  = (val != "0");
+        else if (key == "show_scatter_plot") state.show_scatter_plot = (val != "0");
+        else if (key == "histogram_compare") state.histogram_compare = (val != "0");
+        else if (key == "channel_mode")      state.channel_mode      = static_cast<ChannelMode>(std::stoi(val));
+        else if (key == "windowed_mode")     state.windowed_mode     = (val != "0");
+        else if (key == "overlay_active")    state.overlay.active    = (val != "0");
     }
 }
 
@@ -619,6 +636,22 @@ void save_app_ini(const AppState& state) {
     std::ofstream f(ini_path());
     if (!f.is_open()) return;
     f << "# av configuration\n";
-    f << "show_borders=" << (state.show_borders ? "1" : "0") << "\n";
-    f << "pixel_format=" << static_cast<int>(state.pixel_format) << "\n";
+    f << "show_borders="      << (state.show_borders      ? "1" : "0") << "\n";
+    f << "pixel_format="      << static_cast<int>(state.pixel_format)  << "\n";
+    f << "magnifier_active="  << (state.magnifier_active  ? "1" : "0") << "\n";
+    f << "show_crosshair="    << (state.show_crosshair    ? "1" : "0") << "\n";
+    f << "sync_viewports="    << (state.sync_viewports    ? "1" : "0") << "\n";
+    f << "show_ui="           << (state.show_ui           ? "1" : "0") << "\n";
+    f << "show_info="         << (state.show_info         ? "1" : "0") << "\n";
+    f << "show_pixel_info="   << (state.show_pixel_info   ? "1" : "0") << "\n";
+    f << "show_histogram="    << (state.show_histogram    ? "1" : "0") << "\n";
+    f << "show_hline_cut="    << (state.show_hline_cut    ? "1" : "0") << "\n";
+    f << "show_vline_cut="    << (state.show_vline_cut    ? "1" : "0") << "\n";
+    f << "show_stats="        << (state.show_stats        ? "1" : "0") << "\n";
+    f << "show_hotkey_help="  << (state.show_hotkey_help  ? "1" : "0") << "\n";
+    f << "show_scatter_plot=" << (state.show_scatter_plot ? "1" : "0") << "\n";
+    f << "histogram_compare=" << (state.histogram_compare ? "1" : "0") << "\n";
+    f << "channel_mode="      << static_cast<int>(state.channel_mode)  << "\n";
+    f << "windowed_mode="     << (state.windowed_mode     ? "1" : "0") << "\n";
+    f << "overlay_active="    << (state.overlay.active    ? "1" : "0") << "\n";
 }
