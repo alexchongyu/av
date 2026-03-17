@@ -219,6 +219,8 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
                         img.width, img.height);
     } else {
         handle_mouse_pan(state, panel_idx);
+        handle_mouse_double_click(state, panel_idx, widget_pos, pw, ph,
+                                   img.width, img.height);
         handle_mouse_right_select(state, panel_idx, widget_pos, pw, ph,
                                    img.width, img.height, panel_idx);
     }
@@ -725,6 +727,8 @@ void ImagePanel::render_diff_software(AppState& state) {
         handle_roi_drag(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
     } else {
         handle_mouse_pan(state, 0);
+        handle_mouse_double_click(state, 0, widget_pos, pw, ph,
+                                   imgA.width, imgA.height);
         handle_mouse_right_select(state, 0, widget_pos, pw, ph,
                                    imgA.width, imgA.height, 2);
     }
@@ -817,6 +821,8 @@ void ImagePanel::render_overlay_software(AppState& state) {
         }
     } else {
         handle_mouse_pan(state, 0);
+        handle_mouse_double_click(state, 0, widget_pos, pw, ph,
+                                   imgA.width, imgA.height);
     }
 
     if (state.roi.active) {
@@ -885,6 +891,8 @@ void ImagePanel::render_ssim_software(AppState& state) {
         handle_roi_drag(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
     } else {
         handle_mouse_pan(state, 0);
+        handle_mouse_double_click(state, 0, widget_pos, pw, ph,
+                                   imgA.width, imgA.height);
         handle_mouse_right_select(state, 0, widget_pos, pw, ph,
                                    imgA.width, imgA.height, 2);
     }
@@ -938,6 +946,60 @@ void ImagePanel::handle_mouse_pan(AppState& state, int panel_idx) {
                 ov.fit  = false;
             }
         }
+    }
+}
+
+// ─── Double-click zoom ───────────────────────────────────────────────────────
+
+void ImagePanel::handle_mouse_double_click(AppState& state, int panel_idx,
+                                           ImVec2 widget_pos, int view_w, int view_h,
+                                           int img_w, int img_h) {
+    bool any_dbl   = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
+                  || ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Right);
+    // ImGui의 ConfigMacOSXBehaviors가 Ctrl↔Cmd 스왑 + Ctrl+Left→Right 변환을
+    // 하므로, SDL API로 물리 키/버튼 상태를 직접 확인
+    SDL_Keymod mods = SDL_GetModState();
+    bool ctrl_held  = (mods & SDL_KMOD_CTRL) != 0;
+    bool phys_left  = (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK) != 0;
+    bool left_dbl   = any_dbl && phys_left;
+    bool right_dbl  = any_dbl && !phys_left;
+    if (!ImGui::IsItemHovered() || !(left_dbl || right_dbl))
+        return;
+
+    auto& v = state.views[panel_idx];
+    ImVec2 mouse = ImGui::GetMousePos();
+
+    float half_vw = view_w * 0.5f;
+    float half_vh = view_h * 0.5f;
+    float half_iw = img_w  * 0.5f;
+    float half_ih = img_h  * 0.5f;
+
+    // 스크린 좌표 → 이미지 픽셀 좌표
+    float img_x = (mouse.x - widget_pos.x - half_vw) / v.zoom - v.pan_x + half_iw;
+    float img_y = (mouse.y - widget_pos.y - half_vh) / v.zoom - v.pan_y + half_ih;
+
+    // 점진적 줌: Ctrl 여부에 따라 16배/2배, 좌=확대 우=축소
+    float new_zoom;
+    if (ctrl_held && left_dbl) {
+        new_zoom = v.zoom * 16.0f;
+    } else if (ctrl_held && right_dbl) {
+        new_zoom = v.zoom / 16.0f;
+    } else if (left_dbl) {
+        new_zoom = v.zoom * 2.0f;
+    } else {
+        new_zoom = v.zoom * 0.5f;
+    }
+    viewport_set_zoom(v, new_zoom);
+    v.pan_x = half_iw - img_x;
+    v.pan_y = half_ih - img_y;
+    v.fit   = false;
+
+    if (state.sync_viewports) {
+        auto& ov = state.views[1 - panel_idx];
+        viewport_set_zoom(ov, new_zoom);
+        ov.pan_x = v.pan_x;
+        ov.pan_y = v.pan_y;
+        ov.fit   = false;
     }
 }
 
@@ -1045,9 +1107,10 @@ void ImagePanel::handle_mouse_right_select(AppState& state, int panel_idx,
 
     // Begin drag when right-click starts on this panel's image widget
     if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-        drag_selecting_ = true;
-        drag_start_     = ImGui::GetMousePos();
-        drag_panel_idx_ = panel_idx;
+        drag_selecting_   = true;
+        drag_start_       = ImGui::GetMousePos();
+        drag_panel_idx_   = panel_idx;
+        right_press_time_ = ImGui::GetTime();
     }
 
     // Only process/draw for the panel that owns the drag
@@ -1070,9 +1133,10 @@ void ImagePanel::handle_mouse_right_select(AppState& state, int panel_idx,
 
     drag_selecting_ = false;
 
-    // Tiny drag → context menu instead of zoom
+    // Tiny drag → long-press (≥0.5s, no Ctrl) opens context menu
     if ((rx1 - rx0) < 5.0f || (ry1 - ry0) < 5.0f) {
-        if (context_type >= 0) {
+        double hold = ImGui::GetTime() - right_press_time_;
+        if (context_type >= 0 && hold >= 0.5 && !ImGui::GetIO().KeyCtrl) {
             context_panel_type_ = context_type;
             ImGui::OpenPopup("##PanelContextMenu");
         }
@@ -1202,6 +1266,10 @@ void ImagePanel::render_crosshair(const AppState& state, int panel_idx,
 
     int img_x = static_cast<int>(std::floor(img_fx));
     int img_y = static_cast<int>(std::floor(img_fy));
+    if (state.mouse_constrained) {
+        img_x = std::clamp(img_x, 0, img_w - 1);
+        img_y = std::clamp(img_y, 0, img_h - 1);
+    }
 
     ImDrawList* dl = ImGui::GetForegroundDrawList();
 
@@ -1331,11 +1399,16 @@ void ImagePanel::update_mouse_constraint(AppState& state, int panel_idx,
     float x1 = x0 + img_w * vp.zoom;
     float y1 = y0 + img_h * vp.zoom;
 
-    // 위젯 경계와 교차
-    int cx0 = (int)std::max(x0, widget_pos.x);
-    int cy0 = (int)std::max(y0, widget_pos.y);
-    int cx1 = (int)std::min(x1, widget_pos.x + (float)view_w);
-    int cy1 = (int)std::min(y1, widget_pos.y + (float)view_h);
+    // 이미지를 부분적으로라도 커버하는 스크린 픽셀을 모두 포함
+    int cx0 = (int)std::floor(std::max(x0, widget_pos.x));
+    int cy0 = (int)std::floor(std::max(y0, widget_pos.y));
+    int cx1 = (int)std::floor(std::min(x1, widget_pos.x + (float)view_w)) + 1;
+    int cy1 = (int)std::floor(std::min(y1, widget_pos.y + (float)view_h)) + 1;
+    // 위젯 경계 초과 방지
+    cx0 = std::max(cx0, (int)widget_pos.x);
+    cy0 = std::max(cy0, (int)widget_pos.y);
+    cx1 = std::min(cx1, (int)widget_pos.x + view_w);
+    cy1 = std::min(cy1, (int)widget_pos.y + view_h);
 
     if (cx1 <= cx0 || cy1 <= cy0) return;  // degenerate rect — 무시
 
@@ -1376,9 +1449,13 @@ void ImagePanel::render_magnifier(const AppState& state, int panel_idx,
     int center_x = static_cast<int>(std::floor(img_fx));
     int center_y = static_cast<int>(std::floor(img_fy));
 
-    // 중심 픽셀이 이미지 범위 밖이면 표시하지 않음
-    if (center_x < 0 || center_x >= img_w || center_y < 0 || center_y >= img_h)
+    if (state.mouse_constrained) {
+        // 제한 모드: 가장자리 1px 밖은 마지막 유효 픽셀로 클램핑
+        center_x = std::clamp(center_x, 0, img_w - 1);
+        center_y = std::clamp(center_y, 0, img_h - 1);
+    } else if (center_x < 0 || center_x >= img_w || center_y < 0 || center_y >= img_h) {
         return;
+    }
 
     const int radius = 8;          // ±8 = 16×16 영역
     const int cell_size = 32;      // 각 픽셀을 32×32로 확대 (32배 줌)
@@ -1744,6 +1821,7 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
                                             static_cast<float>(img.height));
     image_shader_.set_vec2 ("u_view_size",  static_cast<float>(pw),
                                             static_cast<float>(ph));
+
     image_shader_.set_float("u_zoom",       vp.zoom);
     image_shader_.set_vec2 ("u_pan",        vp.pan_x, vp.pan_y);
     image_shader_.set_int  ("u_channel",   static_cast<int>(state.channel_mode));
@@ -1765,6 +1843,8 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
                         img.width, img.height);
     } else {
         handle_mouse_pan(state, panel_idx);
+        handle_mouse_double_click(state, panel_idx, widget_pos, pw, ph,
+                                   img.width, img.height);
         handle_mouse_right_select(state, panel_idx, widget_pos, pw, ph,
                                    img.width, img.height, panel_idx);
     }
@@ -2000,6 +2080,8 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
                         imgA.width, imgA.height);
     } else {
         handle_mouse_pan(state, 0);
+        handle_mouse_double_click(state, 0, widget_pos, pw, ph,
+                                   imgA.width, imgA.height);
         handle_mouse_right_select(state, 0, widget_pos, pw, ph,
                                    imgA.width, imgA.height, 2);
     }
@@ -2492,6 +2574,8 @@ void ImagePanel::render_overlay(AppState& state, DiffRenderer& /*diff_renderer*/
     } else {
         // Blend 모드: 마우스 팬
         handle_mouse_pan(state, 0);
+        handle_mouse_double_click(state, 0, widget_pos, pw, ph,
+                                   imgA.width, imgA.height);
     }
 
     if (state.roi.active) {

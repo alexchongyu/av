@@ -923,13 +923,12 @@ static void render_diff_listing_window(AppState& state) {
     const ImGuiViewport* vp = ImGui::GetMainViewport();
 
     // 반응형 그룹 수 결정 (뷰포트 전체 너비 기준)
-    const float group_w = 460.0f;
+    // cell padding + border를 포함한 실제 그룹 너비 계산
+    float cell_pad = ImGui::GetStyle().CellPadding.x;
+    const float group_w = 460.0f + 5 * (cell_pad * 2.0f) + 6.0f;
     const float padding = 40.0f;  // 스크롤바 + 여백
-    float avail_w = vp->WorkSize.x * 0.9f;
-    int num_groups = (int)(avail_w / group_w);
-    if (num_groups >= 4)      num_groups = 4;
-    else if (num_groups >= 2) num_groups = 2;
-    else                      num_groups = 1;
+    float avail_w = vp->WorkSize.x * 0.95f;
+    int num_groups = std::clamp((int)(avail_w / group_w), 1, 4);
 
     float win_w = num_groups * group_w + padding;
     win_w = std::min(win_w, vp->WorkSize.x * 0.95f);

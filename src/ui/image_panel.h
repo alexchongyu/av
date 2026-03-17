@@ -35,6 +35,9 @@ private:
     void render_diff  (AppState& state, DiffRenderer& diff_renderer);
 
     void handle_mouse_pan(AppState& state, int panel_idx);
+    void handle_mouse_double_click(AppState& state, int panel_idx,
+                                   ImVec2 widget_pos, int view_w, int view_h,
+                                   int img_w, int img_h);
     void handle_mouse_right_select(AppState& state, int panel_idx,
                                    ImVec2 widget_pos, int view_w, int view_h,
                                    int img_w, int img_h,
@@ -86,6 +89,7 @@ private:
     ImVec2 drag_start_      = {0.0f, 0.0f};
     int    drag_panel_idx_  = 0;
     int    context_panel_type_ = -1;  // last context menu target (-1=none, 0=A, 1=B, 2=Diff)
+    double right_press_time_   = 0.0; // right-click press timestamp for long-press detection
 
     void render_crosshair(const AppState& state, int panel_idx,
                           ImVec2 widget_pos, int view_w, int view_h,

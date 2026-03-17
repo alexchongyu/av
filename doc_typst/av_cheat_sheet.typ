@@ -294,7 +294,7 @@ av [image_a] [image_b] [options]
   [*BMP*],         [비트맵 (Windows)],
   [*TGA*],         [Targa, 알파 채널 지원],
   [*HDR*],         [Radiance RGBE (float)],
-  [*PNM P5/P6*],   [PGM/PPM Binary (stb\_image)],
+  [*PNM P5/P6*],   [PGM/PPM Binary (자체 파서, 16\-bit 원본값 보존)],
   [*PNM P2/P3*],   [PGM/PPM ASCII (자체 파서, 원본값 보존)],
 )
 

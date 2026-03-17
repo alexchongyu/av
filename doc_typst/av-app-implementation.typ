@@ -390,7 +390,7 @@ struct ImageEntry {
     std::string          path;
     std::vector<uint8_t> pixels;      // CPU-side RGBA8
     std::vector<float>   pixels_f32;  // CPU-side RGBA32F (HDR)
-    std::vector<uint16_t> pixels_orig; // PPM 원본 픽셀값 (P2/P3)
+    std::vector<uint16_t> pixels_orig; // PPM 원본 픽셀값 (P2/P3/P5/P6)
     int   width    = 0;
     int   height   = 0;
     int   channels = 0;
@@ -410,7 +410,7 @@ struct ImageEntry {
     [`path`],        [`std::string`],          [이미지 파일의 절대 경로],
     [`pixels`],      [`vector<uint8_t>`],      [CPU측 RGBA8 픽셀 데이터 (LDR)],
     [`pixels_f32`],  [`vector<float>`],        [CPU측 RGBA32F 픽셀 데이터 (HDR)],
-    [`pixels_orig`], [`vector<uint16_t>`],     [PPM ASCII 원본 픽셀값 (P2/P3, 0\~maxval)],
+    [`pixels_orig`], [`vector<uint16_t>`],     [PPM 원본 픽셀값 (P2/P3/P5/P6, 0\~maxval)],
     [`width`],       [`int`],                  [이미지 너비 (픽셀)],
     [`height`],      [`int`],                  [이미지 높이 (픽셀)],
     [`channels`],    [`int`],                  [원본 채널 수 (1\~4)],
@@ -1158,7 +1158,7 @@ struct ImageEntry {
     std::string          path;
     std::vector<uint8_t> pixels;      // CPU RGBA8
     std::vector<float>   pixels_f32;  // CPU RGBA32F (HDR)
-    std::vector<uint16_t> pixels_orig; // PPM 원본 (P2/P3)
+    std::vector<uint16_t> pixels_orig; // PPM 원본 (P2/P3/P5/P6)
     int   width    = 0;
     int   height   = 0;
     int   channels = 0;
@@ -1186,8 +1186,8 @@ struct ImageEntry {
     [TGA],     [Targa],                         [알파 채널 지원],
     [HDR],     [Radiance RGBE],                 [float 텍스처로 업로드],
     [PIC],     [Softimage PIC],                 [#sym.dash.en],
-    [PNM (P5/P6)], [PGM / PPM Binary],          [stb\_image로 디코딩],
-    [PNM (P2/P3)], [PGM / PPM ASCII],           [av 자체 파서 (`try_load_ppm_ascii`)],
+    [PNM (P5/P6)], [PGM / PPM Binary],          [av 자체 파서 (`try_load_ppm_binary`), 16\-bit 원본값 보존],
+    [PNM (P2/P3)], [PGM / PPM ASCII],           [av 자체 파서 (`try_load_ppm_ascii`), 원본값 보존],
   ),
   caption: [지원 포맷 목록],
 ) <tab-formats>
@@ -1195,13 +1195,19 @@ struct ImageEntry {
 #v(0.5em)
 === 로딩 흐름
 
-이미지 로딩은 PPM ASCII 자체 파서를 우선 시도하고, 실패 시 stb\_image로 fallback한다.
+이미지 로딩은 PPM 자체 파서(ASCII → Binary 순)를 우선 시도하고, 실패 시 stb\_image로 fallback한다.
 
 + *PPM ASCII 경로*: `try_load_ppm_ascii()` 우선 시도 #sym.arrow.r P2(Grayscale) / P3(RGB) ASCII 파싱
   - 매직 넘버(`P2`/`P3`) 확인 후 `#` 주석 행 스킵
   - width, height, maxval 파싱 후 ASCII 정수값을 순차 읽기
   - 원본 값을 `pixels_orig` (`uint16_t`)에 보존하고, 8\-bit RGBA로 정규화하여 `pixels`에 저장
   - `ppm_maxval`에 원본 최대값 기록 (예: 1023, 65535 등)
++ *PPM Binary 경로*: `try_load_ppm_binary()` #sym.arrow.r P5(Grayscale) / P6(RGB) Binary 파싱
+  - 매직 넘버(`P5`/`P6`) 확인 후 헤더 파싱 (기존 `ppm_skip_ws_comments()` 재사용)
+  - maxval 뒤 정확히 1바이트 whitespace 스킵 후 `f.read()`로 전체 픽셀 데이터 일괄 읽기
+  - maxval \<= 255: 채널당 1바이트, maxval > 255: 채널당 2바이트 (빅엔디안)
+  - P5 grayscale은 R\=G\=B로 복제하여 `pixels_orig` (RGB 3ch)에 저장
+  - maxval > 255일 때 `pixels_f32` (RGBA32F) 생성, GL\_RGBA32F 텍스처로 업로드
 + *SDR 경로*: `stbi_load()` #sym.arrow.r RGBA8 (`uint8_t` 배열, 4채널 강제)
 + *HDR 경로*: `stbi_loadf()` #sym.arrow.r RGBA32F (`float` 배열, 4채널)
 + `stbi_is_hdr()` 호출로 HDR 여부를 사전 판별하여 SDR/HDR 경로를 분기한다.
