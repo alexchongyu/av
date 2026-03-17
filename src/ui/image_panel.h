@@ -97,6 +97,10 @@ private:
                           int img_w, int img_h, bool is_diff_panel,
                           bool img_hovered);
 
+    void update_mouse_constraint(AppState& state, int panel_idx,
+                                 ImVec2 widget_pos, int view_w, int view_h,
+                                 int img_w, int img_h, bool img_hovered);
+
     // ROI drag state - stored in AppState.roi
     ImVec2 roi_drag_start_  = {0.0f, 0.0f};
 

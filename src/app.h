@@ -256,6 +256,7 @@ struct AppState {
 
     // ─── Feature: Magnifier (Ctrl+M toggle, non-diff mode) ────────────────
     bool magnifier_active = false;
+    bool mouse_constrained = false;  // SDL mouse rect constraint active
 
     // ─── Feature: Pixel Format (Dec / 0xHex / Hexh) ────────────────────────
     PixelFormat pixel_format = PixelFormat::Decimal;

@@ -239,6 +239,8 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
         render_pixel_values(state, panel_idx, widget_pos, pw, ph);
     }
 
+    update_mouse_constraint(state, panel_idx, widget_pos, pw, ph,
+                            img.width, img.height, img_hovered);
     render_magnifier(state, panel_idx, widget_pos, pw, ph,
                      img.width, img.height, false, img_hovered);
     render_crosshair(state, panel_idx, widget_pos, pw, ph, img.width, img.height);
@@ -756,6 +758,8 @@ void ImagePanel::render_diff_software(AppState& state) {
         dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx, ty), IM_COL32(0,255,120,220), label);
     }
 
+    update_mouse_constraint(state, 0, widget_pos, pw, ph,
+                            imgA.width, imgA.height, img_hovered);
     render_magnifier(state, 0, widget_pos, pw, ph,
                      imgA.width, imgA.height, true, img_hovered);
     render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height, true);
@@ -1307,6 +1311,51 @@ void ImagePanel::render_crosshair(const AppState& state, int panel_idx,
     }
 }
 
+// ─── update_mouse_constraint ──────────────────────────────────────────────────
+
+void ImagePanel::update_mouse_constraint(AppState& state, int panel_idx,
+                                          ImVec2 widget_pos, int view_w, int view_h,
+                                          int img_w, int img_h, bool img_hovered) {
+    ImGuiIO& io = ImGui::GetIO();
+    bool want = state.magnifier_active && io.KeyCtrl && img_hovered;
+
+    if (!want) {
+        if (state.mouse_constrained) {
+            SDL_SetWindowMouseRect(state.window, nullptr);
+            state.mouse_constrained = false;
+        }
+        return;
+    }
+
+    // 이미지의 화면 좌표 계산 (draw_image_border와 동일한 변환)
+    const ViewportState& vp = state.views[panel_idx];
+    float half_vw = view_w * 0.5f, half_vh = view_h * 0.5f;
+    float half_iw = img_w  * 0.5f, half_ih = img_h  * 0.5f;
+
+    float x0 = widget_pos.x + (vp.pan_x - half_iw) * vp.zoom + half_vw;
+    float y0 = widget_pos.y + (vp.pan_y - half_ih) * vp.zoom + half_vh;
+    float x1 = x0 + img_w * vp.zoom;
+    float y1 = y0 + img_h * vp.zoom;
+
+    // 위젯 경계와 교차
+    int cx0 = (int)std::max(x0, widget_pos.x);
+    int cy0 = (int)std::max(y0, widget_pos.y);
+    int cx1 = (int)std::min(x1, widget_pos.x + (float)view_w);
+    int cy1 = (int)std::min(y1, widget_pos.y + (float)view_h);
+
+    if (cx1 <= cx0 || cy1 <= cy0) {
+        if (state.mouse_constrained) {
+            SDL_SetWindowMouseRect(state.window, nullptr);
+            state.mouse_constrained = false;
+        }
+        return;
+    }
+
+    SDL_Rect rect = { cx0, cy0, cx1 - cx0, cy1 - cy0 };
+    SDL_SetWindowMouseRect(state.window, &rect);
+    state.mouse_constrained = true;
+}
+
 // ─── render_magnifier ─────────────────────────────────────────────────────────
 // Ctrl+5 홀드 + 마우스 호버 → 16×16 픽셀 영역을 16배 확대한 매그니파이어 툴팁
 
@@ -1748,6 +1797,8 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
         render_pixel_values(state, panel_idx, widget_pos, pw, ph);
     }
 
+    update_mouse_constraint(state, panel_idx, widget_pos, pw, ph,
+                            img.width, img.height, img_hovered);
     render_magnifier(state, panel_idx, widget_pos, pw, ph,
                      img.width, img.height, false, img_hovered);
     render_crosshair(state, panel_idx, widget_pos, pw, ph, img.width, img.height);
@@ -1997,6 +2048,8 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
         dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx, ty), IM_COL32(0,255,120,220), label);
     }
 
+    update_mouse_constraint(state, 0, widget_pos, pw, ph,
+                            imgA.width, imgA.height, img_hovered);
     render_magnifier(state, 0, widget_pos, pw, ph,
                      imgA.width, imgA.height, true, img_hovered);
     render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height, true);

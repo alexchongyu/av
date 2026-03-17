@@ -1430,6 +1430,15 @@ void MainWindow::render(AppState& state) {
 
     ImGui::End(); // ##Host
 
+    // Release mouse constraint if conditions no longer met
+    if (state.mouse_constrained) {
+        ImGuiIO& io = ImGui::GetIO();
+        if (!state.magnifier_active || !io.KeyCtrl) {
+            SDL_SetWindowMouseRect(state.window, nullptr);
+            state.mouse_constrained = false;
+        }
+    }
+
     // ── Pixel value balloon ───────────────────────────────────────────────────
     if (state.show_pixel_info) {
         if (state.font_large) ImGui::PushFont(state.font_large);

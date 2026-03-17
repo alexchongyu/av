@@ -542,6 +542,10 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     case SDL_SCANCODE_M:
         if (ctrl && !shift && !gui) {
             state.magnifier_active = !state.magnifier_active;
+            if (!state.magnifier_active && state.mouse_constrained) {
+                SDL_SetWindowMouseRect(state.window, nullptr);
+                state.mouse_constrained = false;
+            }
         } else if (!ctrl && !shift && !gui) {
             state.show_crosshair = !state.show_crosshair;
         }
