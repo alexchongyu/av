@@ -41,7 +41,8 @@ struct DiffState {
         PixelRelative,
         Highlight,
         FalseColor,
-        SSIM
+        SSIM,
+        Enhance       // Ctrl+5: [min,max] → [128,255] remap + auto magnifier
     };
     Mode  mode           = Mode::None;
     float amplify        = 1.0f;       // diff amplification factor
@@ -59,6 +60,39 @@ struct DiffState {
     int   threshold              = 0;   // 0=disabled; diff > threshold => highlight
     int   threshold_exceed_count = 0;   // pixels exceeding threshold (cache)
     int   threshold_total_count  = 0;   // total compared pixels
+
+    // Enhance mode: global min/max of non-zero diff (0-255 scale, all channels)
+    int   enhance_min            = 0;
+    int   enhance_max            = 0;
+    bool  enhance_range_computed = false;
+};
+
+struct DiffPixelInfo {
+    int x, y;           // 이미지 좌표
+    int ar, ag, ab;     // Image A 픽셀값 (원본 단위: 8bit=0~255, 10bit=0~1023 등)
+    int br, bg, bb;     // Image B 픽셀값
+    int dr, dg, db;     // |A-B| 차이값
+};
+
+struct DiffListingState {
+    bool show      = false;
+    bool computed   = false;
+    bool identical  = false;
+    std::vector<DiffPixelInfo> pixels;  // 차이 픽셀 목록
+    int  start_from = 0;                // 표시 시작 인덱스 (0-based)
+    int  per_page   = 50;               // 페이지당 표시 개수
+    int  goto_num   = 1;                // Go to pixel # 입력값 (1-based)
+    int  list_from_num = 1;             // List from # 입력값 (1-based)
+    // 캐시 무효화용
+    int  cache_img_a_w = -1, cache_img_a_h = -1;
+    int  cache_img_b_w = -1, cache_img_b_h = -1;
+
+    void reset() {
+        show = false; computed = false; identical = false;
+        pixels.clear(); start_from = 0; goto_num = 1; list_from_num = 1;
+        cache_img_a_w = cache_img_a_h = -1;
+        cache_img_b_w = cache_img_b_h = -1;
+    }
 };
 
 struct SaveItemState {
@@ -220,11 +254,17 @@ struct AppState {
     // ─── Feature: Crosshair Overlay (M key) ─────────────────────────────────
     bool show_crosshair = false;
 
+    // ─── Feature: Magnifier (Ctrl+M toggle, non-diff mode) ────────────────
+    bool magnifier_active = false;
+
     // ─── Feature: Pixel Format (Dec / 0xHex / Hexh) ────────────────────────
     PixelFormat pixel_format = PixelFormat::Decimal;
 
     // ─── Feature: Histogram Compare ─────────────────────────────────────────
     bool histogram_compare = false;
+
+    // ─── Feature: Diff Listing Window (Ctrl+D) ───────────────────────────
+    DiffListingState diff_listing;
 
     // ─── Feature: Slideshow ─────────────────────────────────────────────────
     struct SlideshowState {
@@ -238,6 +278,7 @@ struct AppState {
     // ─── Window drag optimization ────────────────────────────────────────
     bool     window_moving = false;
     uint64_t last_window_move_tick = 0;  // SDL_GetTicksNS()
+
 };
 
 // ─── Function declarations ────────────────────────────────────────────────────

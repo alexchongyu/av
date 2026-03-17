@@ -84,6 +84,8 @@ uniform int   u_diff_mode;
 uniform float u_amplify;
 uniform int   u_channel;     // 0=RGB, 1=R, 2=G, 3=B
 uniform int   u_threshold;  // 0=disabled; diff > threshold/255 => highlight
+uniform float u_enhance_min;   // normalized [0,1]
+uniform float u_enhance_max;   // normalized [0,1]
 
 in  vec2 v_uv;
 out vec4 out_color;
@@ -131,6 +133,15 @@ void main() {
         } else {
             result = vec3(0.0);
         }
+    } else if (u_diff_mode == 4) {    // Enhance
+        float range = max(u_enhance_max - u_enhance_min, 1.0 / 255.0);
+        vec3 d = diff.rgb;
+        vec3 t = clamp((d - vec3(u_enhance_min)) / range, 0.0, 1.0);
+        vec3 mapped = vec3(0.502) + t * 0.498;   // [128/255, 1.0]
+        // per-channel: zero diff → black
+        result.r = (d.r > 0.0) ? mapped.r : 0.0;
+        result.g = (d.g > 0.0) ? mapped.g : 0.0;
+        result.b = (d.b > 0.0) ? mapped.b : 0.0;
     } else if (u_diff_mode == 2) {    // FalseColor
         float intensity;
         if (u_channel == 1) intensity = diff.r;

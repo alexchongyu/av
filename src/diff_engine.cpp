@@ -42,7 +42,8 @@ void DiffRenderer::render(uintptr_t texA, uintptr_t texB,
                           int view_w, int view_h,
                           DiffState::Mode mode, float amplify,
                           ChannelMode channel,
-                          int threshold) {
+                          int threshold,
+                          float enh_min, float enh_max) {
     if (!shader_.valid()) return;
 
     int diff_mode_int = 0;
@@ -51,6 +52,7 @@ void DiffRenderer::render(uintptr_t texA, uintptr_t texB,
         case DiffState::Mode::PixelRelative: diff_mode_int = 1; break;
         case DiffState::Mode::FalseColor:    diff_mode_int = 2; break;
         case DiffState::Mode::Highlight:     diff_mode_int = 3; break;
+        case DiffState::Mode::Enhance:      diff_mode_int = 4; break;
         default: break;
     }
 
@@ -70,6 +72,8 @@ void DiffRenderer::render(uintptr_t texA, uintptr_t texB,
     shader_.set_float("u_amplify",     amplify);
     shader_.set_int  ("u_channel",    static_cast<int>(channel));
     shader_.set_int  ("u_threshold",  threshold);
+    shader_.set_float("u_enhance_min", enh_min);
+    shader_.set_float("u_enhance_max", enh_max);
 
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);

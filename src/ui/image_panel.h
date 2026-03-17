@@ -72,7 +72,8 @@ private:
                          const ViewportState& vp, uint8_t* buf,
                          int view_w, int view_h,
                          DiffState::Mode mode, float amplify,
-                         ChannelMode channel);
+                         ChannelMode channel,
+                         float enh_min = 0.0f, float enh_max = 0.0f);
     void cpu_render_overlay(const ImageEntry& imgA, const ImageEntry& imgB,
                             const ViewportState& vp, uint8_t* buf,
                             int view_w, int view_h,
@@ -88,7 +89,13 @@ private:
 
     void render_crosshair(const AppState& state, int panel_idx,
                           ImVec2 widget_pos, int view_w, int view_h,
-                          int img_w, int img_h);
+                          int img_w, int img_h,
+                          bool is_diff_panel = false);
+
+    void render_magnifier(const AppState& state, int panel_idx,
+                          ImVec2 widget_pos, int view_w, int view_h,
+                          int img_w, int img_h, bool is_diff_panel,
+                          bool img_hovered);
 
     // ROI drag state - stored in AppState.roi
     ImVec2 roi_drag_start_  = {0.0f, 0.0f};

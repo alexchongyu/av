@@ -10,6 +10,7 @@
 #include <stb_image_write.h>
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
@@ -210,6 +211,7 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
     // Display via ImGui
     ImTextureID imgui_tex = reinterpret_cast<ImTextureID>(tex);
     ImGui::Image(imgui_tex, avail, ImVec2(0, 0), ImVec2(1, 1));
+    bool img_hovered = ImGui::IsItemHovered();
 
     ImVec2 widget_pos = ImGui::GetItemRectMin();
     if (state.roi.active) {
@@ -237,6 +239,8 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
         render_pixel_values(state, panel_idx, widget_pos, pw, ph);
     }
 
+    render_magnifier(state, panel_idx, widget_pos, pw, ph,
+                     img.width, img.height, false, img_hovered);
     render_crosshair(state, panel_idx, widget_pos, pw, ph, img.width, img.height);
 
     if (panel_idx == 0) {
@@ -312,7 +316,8 @@ void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
                                   const ViewportState& vp, uint8_t* buf,
                                   int view_w, int view_h,
                                   DiffState::Mode mode, float amplify,
-                                  ChannelMode channel) {
+                                  ChannelMode channel,
+                                  float enh_min, float enh_max) {
     float half_vw = view_w * 0.5f, half_vh = view_h * 0.5f;
     float half_iw = imgA.width * 0.5f, half_ih = imgA.height * 0.5f;
 
@@ -362,6 +367,21 @@ void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
                 uint8_t fc[3];
                 falsecolor(intensity * amplify, fc);
                 dst[0] = fc[0]; dst[1] = fc[1]; dst[2] = fc[2]; dst[3] = 255;
+            } else if (mode == DiffState::Mode::Enhance) {
+                bool all_zero = (diff[0] == 0.0f && diff[1] == 0.0f && diff[2] == 0.0f);
+                if (all_zero) {
+                    dst[0] = dst[1] = dst[2] = 0; dst[3] = 255;
+                } else {
+                    float range = (enh_max > enh_min) ? (enh_max - enh_min) : (1.0f/255.0f);
+                    for (int c = 0; c < 3; ++c) {
+                        if (diff[c] == 0.0f) { dst[c] = 0; }
+                        else {
+                            float t = std::clamp((diff[c] - enh_min) / range, 0.0f, 1.0f);
+                            dst[c] = static_cast<uint8_t>(128.0f + t * 127.0f);
+                        }
+                    }
+                    dst[3] = 255;
+                }
             } else {
                 float d[3] = { diff[0]*amplify, diff[1]*amplify, diff[2]*amplify };
                 if      (channel == ChannelMode::Red)   { r = g = b_out = std::clamp(d[0], 0.0f, 1.0f); }
@@ -392,6 +412,124 @@ void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
             }
         }
     }
+}
+
+// ─── compute_diff_pixel_list ─────────────────────────────────────────────────
+// Compute diff pixel listing for DiffListingState (image-space, not viewport)
+
+static void compute_diff_pixel_list(
+    const ImageEntry& imgA, const ImageEntry& imgB,
+    DiffListingState& listing)
+{
+    // 캐시 체크
+    if (listing.computed &&
+        listing.cache_img_a_w == imgA.width && listing.cache_img_a_h == imgA.height &&
+        listing.cache_img_b_w == imgB.width && listing.cache_img_b_h == imgB.height) {
+        return;
+    }
+
+    listing.pixels.clear();
+    listing.identical = true;
+    listing.computed  = true;
+    listing.cache_img_a_w = imgA.width;  listing.cache_img_a_h = imgA.height;
+    listing.cache_img_b_w = imgB.width;  listing.cache_img_b_h = imgB.height;
+
+    int w = std::min(imgA.width, imgB.width);
+    int h = std::min(imgA.height, imgB.height);
+
+    // High-bit-depth PPM: pixels_orig (uint16_t, RGB 3ch)
+    bool has_orig = imgA.ppm_maxval > 0 && !imgA.pixels_orig.empty()
+                 && imgB.ppm_maxval > 0 && !imgB.pixels_orig.empty();
+    // HDR float: pixels_f32 (float, RGBA 4ch)
+    bool has_f32 = !imgA.pixels_f32.empty() && !imgB.pixels_f32.empty();
+
+    if (has_orig) {
+        const uint16_t* pA = imgA.pixels_orig.data();
+        const uint16_t* pB = imgB.pixels_orig.data();
+        if (!pA || !pB) return;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                int offA = (y * imgA.width + x) * 3;
+                int offB = (y * imgB.width + x) * 3;
+                int dr = std::abs((int)pA[offA+0] - (int)pB[offB+0]);
+                int dg = std::abs((int)pA[offA+1] - (int)pB[offB+1]);
+                int db = std::abs((int)pA[offA+2] - (int)pB[offB+2]);
+                if (dr != 0 || dg != 0 || db != 0) {
+                    listing.identical = false;
+                    listing.pixels.push_back({
+                        x, y,
+                        (int)pA[offA+0], (int)pA[offA+1], (int)pA[offA+2],
+                        (int)pB[offB+0], (int)pB[offB+1], (int)pB[offB+2],
+                        dr, dg, db
+                    });
+                }
+            }
+        }
+    } else if (has_f32) {
+        const float* pA = imgA.pixels_f32.data();
+        const float* pB = imgB.pixels_f32.data();
+        if (!pA || !pB) return;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                int offA = (y * imgA.width + x) * 4;
+                int offB = (y * imgB.width + x) * 4;
+                int ar = (int)std::clamp(pA[offA+0] * 255.0f, 0.0f, 255.0f);
+                int ag = (int)std::clamp(pA[offA+1] * 255.0f, 0.0f, 255.0f);
+                int ab = (int)std::clamp(pA[offA+2] * 255.0f, 0.0f, 255.0f);
+                int br = (int)std::clamp(pB[offB+0] * 255.0f, 0.0f, 255.0f);
+                int bg = (int)std::clamp(pB[offB+1] * 255.0f, 0.0f, 255.0f);
+                int bb = (int)std::clamp(pB[offB+2] * 255.0f, 0.0f, 255.0f);
+                int dr = std::abs(ar - br);
+                int dg = std::abs(ag - bg);
+                int db = std::abs(ab - bb);
+                if (dr != 0 || dg != 0 || db != 0) {
+                    listing.identical = false;
+                    listing.pixels.push_back({
+                        x, y, ar, ag, ab, br, bg, bb, dr, dg, db
+                    });
+                }
+            }
+        }
+    } else {
+        const uint8_t* pA = imgA.pixels.data();
+        const uint8_t* pB = imgB.pixels.data();
+        if (!pA || !pB) return;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                int offA = (y * imgA.width + x) * 4;
+                int offB = (y * imgB.width + x) * 4;
+                int dr = std::abs((int)pA[offA+0] - (int)pB[offB+0]);
+                int dg = std::abs((int)pA[offA+1] - (int)pB[offB+1]);
+                int db = std::abs((int)pA[offA+2] - (int)pB[offB+2]);
+                if (dr != 0 || dg != 0 || db != 0) {
+                    listing.identical = false;
+                    listing.pixels.push_back({
+                        x, y,
+                        pA[offA+0], pA[offA+1], pA[offA+2],
+                        pB[offB+0], pB[offB+1], pB[offB+2],
+                        dr, dg, db
+                    });
+                }
+            }
+        }
+    }
+}
+
+// ─── compute_enhance_range ────────────────────────────────────────────────────
+// Compute global min/max of non-zero diff values for Enhance mode remap.
+
+static void compute_enhance_range(const DiffListingState& listing, DiffState& diff) {
+    if (diff.enhance_range_computed) return;
+    diff.enhance_range_computed = true;
+    if (listing.pixels.empty()) { diff.enhance_min = diff.enhance_max = 0; return; }
+    int gmin = INT_MAX, gmax = 0;
+    for (const auto& p : listing.pixels) {
+        for (int d : {p.dr, p.dg, p.db}) {
+            if (d > 0) { gmin = std::min(gmin, d); gmax = std::max(gmax, d); }
+        }
+    }
+    diff.enhance_min = (gmax > 0) ? gmin : 0;
+    diff.enhance_max = gmax;
 }
 
 // ─── count_nonzero_diff_pixels ───────────────────────────────────────────────
@@ -535,6 +673,15 @@ void ImagePanel::render_diff_software(AppState& state) {
         return;
     }
 
+    // Compute diff pixel list (lazy, cached by image dimensions)
+    compute_diff_pixel_list(imgA, imgB, state.diff_listing);
+
+    // Enhance mode: compute global min/max of non-zero diff
+    if (state.diff.mode == DiffState::Mode::Enhance)
+        compute_enhance_range(state.diff_listing, state.diff);
+    float enh_min_f = state.diff.enhance_max > 0 ? state.diff.enhance_min / 255.0f : 0.0f;
+    float enh_max_f = state.diff.enhance_max / 255.0f;
+
     ImVec2 avail = ImGui::GetContentRegionAvail();
     int pw = std::max(1, (int)avail.x);
     int ph = std::max(1, (int)avail.y);
@@ -546,7 +693,8 @@ void ImagePanel::render_diff_software(AppState& state) {
     if (!tex) return;
 
     cpu_render_diff(imgA, imgB, vp, soft_buf_.data(), pw, ph,
-                    state.diff.mode, state.diff.amplify, state.channel_mode);
+                    state.diff.mode, state.diff.amplify, state.channel_mode,
+                    enh_min_f, enh_max_f);
 
     // Highlight mode: count non-zero diff pixels for status bar
     if (state.diff.mode == DiffState::Mode::Highlight) {
@@ -568,6 +716,7 @@ void ImagePanel::render_diff_software(AppState& state) {
 
     ImTextureID imgui_tex = reinterpret_cast<ImTextureID>(tex);
     ImGui::Image(imgui_tex, avail, ImVec2(0, 0), ImVec2(1, 1));
+    bool img_hovered = ImGui::IsItemHovered();
 
     ImVec2 widget_pos = ImGui::GetItemRectMin();
     if (state.roi.active) {
@@ -591,7 +740,25 @@ void ImagePanel::render_diff_software(AppState& state) {
     if (vp.zoom >= 32.0f && imgA.loaded && imgB.loaded)
         render_diff_pixel_values(state, widget_pos, pw, ph);
 
-    render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
+    // "Identical" overlay when images are the same
+    if (state.diff_listing.identical && state.diff.mode != DiffState::Mode::None) {
+        ImDrawList* dl = ImGui::GetForegroundDrawList();
+        const char* label = "Identical";
+        float base_size = ImGui::GetFontSize();
+        ImVec2 base_text = ImGui::CalcTextSize(label);
+        float target_w = pw * 0.7f;
+        float scale = target_w / base_text.x;
+        float font_size = std::min(base_size * scale, 200.0f);
+        ImVec2 text_sz = ImGui::GetFont()->CalcTextSizeA(font_size, FLT_MAX, 0.0f, label);
+        float tx = widget_pos.x + (pw - text_sz.x) * 0.5f;
+        float ty = widget_pos.y + (ph - text_sz.y) * 0.5f;
+        dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx+2, ty+2), IM_COL32(0,0,0,160), label);
+        dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx, ty), IM_COL32(0,255,120,220), label);
+    }
+
+    render_magnifier(state, 0, widget_pos, pw, ph,
+                     imgA.width, imgA.height, true, img_hovered);
+    render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height, true);
 }
 
 // ─── render_overlay_software ──────────────────────────────────────────────────
@@ -728,7 +895,7 @@ void ImagePanel::render_ssim_software(AppState& state) {
     if (state.roi.has_roi || state.roi.dragging)
         render_roi_overlay(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
 
-    render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
+    render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height, true);
 }
 
 // ─── Mouse pan helper ─────────────────────────────────────────────────────────
@@ -1007,7 +1174,8 @@ static void draw_image_border(ImDrawList* dl, ImVec2 widget_pos,
 
 void ImagePanel::render_crosshair(const AppState& state, int panel_idx,
                                    ImVec2 widget_pos, int view_w, int view_h,
-                                   int img_w, int img_h) {
+                                   int img_w, int img_h,
+                                   bool is_diff_panel) {
     if (!state.show_crosshair) return;
 
     ImVec2 mouse = ImGui::GetMousePos();
@@ -1056,6 +1224,76 @@ void ImagePanel::render_crosshair(const AppState& state, int panel_idx,
                           ImVec2(tx + text_size.x + 3, ty + text_size.y + 2),
                           IM_COL32(0, 0, 0, 200), 3.0f);
         dl->AddText(ImVec2(tx, ty), IM_COL32(255, 255, 0, 240), coord_buf);
+
+        // Pixel RGB value below coordinate
+        int idx_a = state.swap_images ? 1 : 0;
+        int idx_b = state.swap_images ? 0 : 1;
+        const ImageEntry& imgA_cr = state.images[idx_a];
+        const ImageEntry& imgB_cr = state.images[idx_b];
+        int actual_idx = state.swap_images ? (1 - panel_idx) : panel_idx;
+        const ImageEntry& img = state.images[actual_idx];
+
+        char pv_buf[64];
+        ImU32 pv_color = IM_COL32(200, 220, 255, 240);
+        bool pv_drawn = false;
+
+        if (is_diff_panel && imgA_cr.loaded && imgB_cr.loaded &&
+            img_x < imgA_cr.width && img_y < imgA_cr.height &&
+            img_x < imgB_cr.width && img_y < imgB_cr.height) {
+            // Diff panel: |A-B| 값 표시
+            char sr[16], sg[16], sb[16];
+            if (imgA_cr.ppm_maxval > 0 && !imgA_cr.pixels_orig.empty() &&
+                imgB_cr.ppm_maxval > 0 && !imgB_cr.pixels_orig.empty()) {
+                int oa = (img_y * imgA_cr.width + img_x) * 3;
+                int ob = (img_y * imgB_cr.width + img_x) * 3;
+                int dr = std::abs((int)imgA_cr.pixels_orig[oa]   - (int)imgB_cr.pixels_orig[ob]);
+                int dg = std::abs((int)imgA_cr.pixels_orig[oa+1] - (int)imgB_cr.pixels_orig[ob+1]);
+                int db = std::abs((int)imgA_cr.pixels_orig[oa+2] - (int)imgB_cr.pixels_orig[ob+2]);
+                fmt_int_pixel(sr, sizeof(sr), dr, state.pixel_format);
+                fmt_int_pixel(sg, sizeof(sg), dg, state.pixel_format);
+                fmt_int_pixel(sb, sizeof(sb), db, state.pixel_format);
+                std::snprintf(pv_buf, sizeof(pv_buf), "[%s, %s, %s]", sr, sg, sb);
+                pv_color = IM_COL32(0, 255, 255, 240);  // cyan
+                pv_drawn = true;
+            } else if (!imgA_cr.pixels.empty() && !imgB_cr.pixels.empty()) {
+                int oa = (img_y * imgA_cr.width + img_x) * 4;
+                int ob = (img_y * imgB_cr.width + img_x) * 4;
+                int dr = std::abs((int)imgA_cr.pixels[oa]   - (int)imgB_cr.pixels[ob]);
+                int dg = std::abs((int)imgA_cr.pixels[oa+1] - (int)imgB_cr.pixels[ob+1]);
+                int db = std::abs((int)imgA_cr.pixels[oa+2] - (int)imgB_cr.pixels[ob+2]);
+                fmt_int_pixel(sr, sizeof(sr), dr, state.pixel_format);
+                fmt_int_pixel(sg, sizeof(sg), dg, state.pixel_format);
+                fmt_int_pixel(sb, sizeof(sb), db, state.pixel_format);
+                std::snprintf(pv_buf, sizeof(pv_buf), "[%s, %s, %s]", sr, sg, sb);
+                pv_color = IM_COL32(0, 255, 255, 240);  // cyan
+                pv_drawn = true;
+            }
+        }
+        if (!pv_drawn && img.loaded && !img.pixels.empty()) {
+            // 일반 패널: 이미지 원본 픽셀값 표시
+            char sr[16], sg[16], sb[16];
+            if (img.ppm_maxval > 0 && !img.pixels_orig.empty()) {
+                int oidx = (img_y * img.width + img_x) * 3;
+                fmt_int_pixel(sr, sizeof(sr), img.pixels_orig[oidx],   state.pixel_format);
+                fmt_int_pixel(sg, sizeof(sg), img.pixels_orig[oidx+1], state.pixel_format);
+                fmt_int_pixel(sb, sizeof(sb), img.pixels_orig[oidx+2], state.pixel_format);
+            } else {
+                int off = (img_y * img.width + img_x) * 4;
+                fmt_int_pixel(sr, sizeof(sr), img.pixels[off],   state.pixel_format);
+                fmt_int_pixel(sg, sizeof(sg), img.pixels[off+1], state.pixel_format);
+                fmt_int_pixel(sb, sizeof(sb), img.pixels[off+2], state.pixel_format);
+            }
+            std::snprintf(pv_buf, sizeof(pv_buf), "%s, %s, %s", sr, sg, sb);
+            pv_drawn = true;
+        }
+        if (pv_drawn) {
+            ImVec2 pv_size = ImGui::CalcTextSize(pv_buf);
+            float pv_y = ty + text_size.y + 2.0f;
+            dl->AddRectFilled(ImVec2(tx - 3, pv_y - 1),
+                              ImVec2(tx + pv_size.x + 3, pv_y + pv_size.y + 1),
+                              IM_COL32(0, 0, 0, 200), 3.0f);
+            dl->AddText(ImVec2(tx, pv_y), pv_color, pv_buf);
+        }
     }
 
     // If sync viewports, draw crosshair on OTHER panel too (using same image coords)
@@ -1066,6 +1304,273 @@ void ImagePanel::render_crosshair(const AppState& state, int panel_idx,
         // mouse is hovering a different panel and converting via image coords.
         // For simplicity, we rely on the foreground draw list being shared — the
         // calling code handles both panels.
+    }
+}
+
+// ─── render_magnifier ─────────────────────────────────────────────────────────
+// Ctrl+5 홀드 + 마우스 호버 → 16×16 픽셀 영역을 16배 확대한 매그니파이어 툴팁
+
+void ImagePanel::render_magnifier(const AppState& state, int panel_idx,
+                                   ImVec2 widget_pos, int view_w, int view_h,
+                                   int img_w, int img_h, bool is_diff_panel,
+                                   bool img_hovered) {
+    // Ctrl+M 토글로 모든 모드에서 제어
+    // 16x 이상 줌에서는 개별 픽셀이 충분히 크므로 자동 숨김
+    const ViewportState& vp = state.views[panel_idx];
+    bool show_mag = img_hovered && vp.zoom < 16.0f && state.magnifier_active;
+    if (!show_mag) return;
+
+    ImGuiIO& io = ImGui::GetIO();
+    ImVec2 mouse = ImGui::GetMousePos();
+    if (mouse.x < widget_pos.x || mouse.x > widget_pos.x + view_w ||
+        mouse.y < widget_pos.y || mouse.y > widget_pos.y + view_h)
+        return;
+    float half_vw = view_w * 0.5f;
+    float half_vh = view_h * 0.5f;
+    float half_iw = img_w * 0.5f;
+    float half_ih = img_h * 0.5f;
+
+    // Screen → image coordinate
+    float screen_x = mouse.x - widget_pos.x;
+    float screen_y = mouse.y - widget_pos.y;
+    float img_fx = (screen_x - half_vw) / vp.zoom - vp.pan_x + half_iw;
+    float img_fy = (screen_y - half_vh) / vp.zoom - vp.pan_y + half_ih;
+
+    int center_x = static_cast<int>(std::floor(img_fx));
+    int center_y = static_cast<int>(std::floor(img_fy));
+
+    // 중심 픽셀이 이미지 범위 밖이면 표시하지 않음
+    if (center_x < 0 || center_x >= img_w || center_y < 0 || center_y >= img_h)
+        return;
+
+    const int radius = 8;          // ±8 = 16×16 영역
+    const int cell_size = 16;      // 각 픽셀을 16×16로 확대 (16배 줌)
+    const int grid_size = radius * 2;  // 16
+    const float tooltip_size = static_cast<float>(grid_size * cell_size);  // 512
+
+    // 툴팁 위치: 마우스 오른쪽 아래, 화면 밖으로 나가면 조정
+    float tx = mouse.x + 20.0f;
+    float ty = mouse.y + 20.0f;
+    ImVec2 display_size = io.DisplaySize;
+    if (tx + tooltip_size + 4 > display_size.x)
+        tx = mouse.x - tooltip_size - 20.0f;
+    if (ty + tooltip_size + 4 > display_size.y)
+        ty = mouse.y - tooltip_size - 20.0f;
+    if (tx < 0) tx = 0;
+    if (ty < 0) ty = 0;
+
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+
+    // 배경
+    dl->AddRectFilled(ImVec2(tx - 2, ty - 2),
+                      ImVec2(tx + tooltip_size + 2, ty + tooltip_size + 2),
+                      IM_COL32(0, 0, 0, 255), 4.0f);
+
+    int idx_a = state.swap_images ? 1 : 0;
+    int idx_b = state.swap_images ? 0 : 1;
+    const ImageEntry& imgA = state.images[idx_a];
+    const ImageEntry& imgB = state.images[idx_b];
+
+    int actual_idx = state.swap_images ? (1 - panel_idx) : panel_idx;
+    const ImageEntry& img = state.images[actual_idx];
+
+    for (int dy = -radius; dy < radius; ++dy) {
+        for (int dx = -radius; dx < radius; ++dx) {
+            int px = center_x + dx;
+            int py = center_y + dy;
+
+            uint8_t r = 0, g = 0, b = 0;
+
+            if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
+                if (is_diff_panel && imgA.loaded && imgB.loaded &&
+                    px < imgA.width && py < imgA.height &&
+                    px < imgB.width && py < imgB.height &&
+                    ((!imgA.pixels.empty() && !imgB.pixels.empty()) ||
+                     (!imgA.pixels_f32.empty() && !imgB.pixels_f32.empty()))) {
+                    // SSIM: precomputed heatmap에서 직접 읽기
+                    if (state.diff.mode == DiffState::Mode::SSIM) {
+                        if (!state.diff.ssim_pixels.empty() &&
+                            px < state.diff.ssim_w && py < state.diff.ssim_h) {
+                            int soff = (py * state.diff.ssim_w + px) * 4;
+                            r = state.diff.ssim_pixels[soff + 0];
+                            g = state.diff.ssim_pixels[soff + 1];
+                            b = state.diff.ssim_pixels[soff + 2];
+                        }
+                    } else {
+                        // |A-B| 계산 (float [0,1]) — pixels_f32 우선, pixels 폴백
+                        int off_a = (py * imgA.width + px) * 4;
+                        int off_b = (py * imgB.width + px) * 4;
+                        float diff[3], aVal[3];
+
+                        if (!imgA.pixels_f32.empty() && !imgB.pixels_f32.empty()) {
+                            for (int c = 0; c < 3; ++c) {
+                                aVal[c] = imgA.pixels_f32[off_a + c];
+                                diff[c] = std::fabs(imgA.pixels_f32[off_a + c] - imgB.pixels_f32[off_b + c]);
+                            }
+                        } else {
+                            for (int c = 0; c < 3; ++c) {
+                                aVal[c] = imgA.pixels[off_a + c] / 255.0f;
+                                diff[c] = std::fabs(imgA.pixels[off_a + c] / 255.0f - imgB.pixels[off_b + c] / 255.0f);
+                            }
+                        }
+
+                        if (state.diff.mode == DiffState::Mode::PixelRelative) {
+                            constexpr float eps = 0.001f;
+                            for (int c = 0; c < 3; ++c)
+                                diff[c] = diff[c] / std::max(aVal[c] + eps, eps);
+                        }
+
+                        float amp = state.diff.amplify;
+                        if (state.diff.mode == DiffState::Mode::Highlight) {
+                            float max_d = std::max({diff[0], diff[1], diff[2]}) * amp;
+                            if (max_d > 0.0f) {
+                                float bright = 0.502f + std::clamp(max_d, 0.0f, 1.0f) * 0.498f;
+                                r = (uint8_t)(bright * 255); g = 0; b = 0;
+                            }
+                        } else if (state.diff.mode == DiffState::Mode::FalseColor) {
+                            float intensity = (diff[0] + diff[1] + diff[2]) / 3.0f;
+                            uint8_t fc[3];
+                            falsecolor(intensity * amp, fc);
+                            r = fc[0]; g = fc[1]; b = fc[2];
+                        } else if (state.diff.mode == DiffState::Mode::Enhance) {
+                            int emin = state.diff.enhance_min;
+                            int emax = state.diff.enhance_max;
+                            int range = (emax > emin) ? (emax - emin) : 1;
+                            bool all_zero = (diff[0] == 0.0f && diff[1] == 0.0f && diff[2] == 0.0f);
+                            if (!all_zero) {
+                                auto remap_ch = [&](float d) -> uint8_t {
+                                    if (d == 0.0f) return 0;
+                                    int iv = (int)(d * 255.0f);
+                                    return (uint8_t)std::clamp(128 + (iv - emin) * 127 / range, 0, 255);
+                                };
+                                r = remap_ch(diff[0]); g = remap_ch(diff[1]); b = remap_ch(diff[2]);
+                            }
+                        } else {
+                            // PixelAbsolute (default)
+                            r = (uint8_t)(std::clamp(diff[0]*amp, 0.0f, 1.0f) * 255);
+                            g = (uint8_t)(std::clamp(diff[1]*amp, 0.0f, 1.0f) * 255);
+                            b = (uint8_t)(std::clamp(diff[2]*amp, 0.0f, 1.0f) * 255);
+                        }
+                    }
+                } else if (img.loaded && !img.pixels.empty()) {
+                    // 일반 모드: 이미지 픽셀 읽기
+                    int off = (py * img.width + px) * 4;
+                    r = img.pixels[off];
+                    g = img.pixels[off + 1];
+                    b = img.pixels[off + 2];
+                }
+            }
+
+            float rx = tx + (dx + radius) * cell_size;
+            float ry = ty + (dy + radius) * cell_size;
+            dl->AddRectFilled(ImVec2(rx, ry),
+                              ImVec2(rx + cell_size, ry + cell_size),
+                              IM_COL32(r, g, b, 255));
+        }
+    }
+
+    // 그리드 라인
+    ImU32 grid_col = IM_COL32(80, 80, 80, 120);
+    for (int i = 0; i <= grid_size; ++i) {
+        float x = tx + i * cell_size;
+        float y = ty + i * cell_size;
+        dl->AddLine(ImVec2(x, ty), ImVec2(x, ty + tooltip_size), grid_col, 1.0f);
+        dl->AddLine(ImVec2(tx, y), ImVec2(tx + tooltip_size, y), grid_col, 1.0f);
+    }
+
+    // 중심 픽셀 노란색 테두리
+    float cx = tx + radius * cell_size;
+    float cy = ty + radius * cell_size;
+    dl->AddRect(ImVec2(cx, cy), ImVec2(cx + cell_size, cy + cell_size),
+                IM_COL32(255, 255, 0, 255), 0.0f, 0, 2.0f);
+
+    // 좌표 라벨
+    char label[48];
+    std::snprintf(label, sizeof(label), "(%d, %d)", center_x, center_y);
+    ImVec2 label_sz = ImGui::CalcTextSize(label);
+    float lx = tx + (tooltip_size - label_sz.x) * 0.5f;
+    float ly = ty + tooltip_size + 4.0f;
+    dl->AddRectFilled(ImVec2(lx - 3, ly - 1),
+                      ImVec2(lx + label_sz.x + 3, ly + label_sz.y + 1),
+                      IM_COL32(0, 0, 0, 200), 3.0f);
+    dl->AddText(ImVec2(lx, ly), IM_COL32(255, 255, 0, 240), label);
+
+    // 모든 Diff 모드: 중심 픽셀의 diff값 표시
+    if (is_diff_panel && state.diff.mode != DiffState::Mode::None &&
+        imgA.loaded && imgB.loaded &&
+        center_x >= 0 && center_x < imgA.width && center_x < imgB.width &&
+        center_y >= 0 && center_y < imgA.height && center_y < imgB.height) {
+        char sr[16], sg[16], sb[16];
+        bool has_diff = false;
+
+        if (imgA.ppm_maxval > 0 && !imgA.pixels_orig.empty() &&
+            imgB.ppm_maxval > 0 && !imgB.pixels_orig.empty()) {
+            int oa = (center_y * imgA.width + center_x) * 3;
+            int ob = (center_y * imgB.width + center_x) * 3;
+            fmt_int_pixel(sr, sizeof(sr),
+                std::abs((int)imgA.pixels_orig[oa + 0] - (int)imgB.pixels_orig[ob + 0]), state.pixel_format);
+            fmt_int_pixel(sg, sizeof(sg),
+                std::abs((int)imgA.pixels_orig[oa + 1] - (int)imgB.pixels_orig[ob + 1]), state.pixel_format);
+            fmt_int_pixel(sb, sizeof(sb),
+                std::abs((int)imgA.pixels_orig[oa + 2] - (int)imgB.pixels_orig[ob + 2]), state.pixel_format);
+            has_diff = true;
+        } else if (!imgA.pixels.empty() && !imgB.pixels.empty()) {
+            int off_a = (center_y * imgA.width + center_x) * 4;
+            int off_b = (center_y * imgB.width + center_x) * 4;
+            fmt_int_pixel(sr, sizeof(sr),
+                std::abs((int)imgA.pixels[off_a + 0] - (int)imgB.pixels[off_b + 0]), state.pixel_format);
+            fmt_int_pixel(sg, sizeof(sg),
+                std::abs((int)imgA.pixels[off_a + 1] - (int)imgB.pixels[off_b + 1]), state.pixel_format);
+            fmt_int_pixel(sb, sizeof(sb),
+                std::abs((int)imgA.pixels[off_a + 2] - (int)imgB.pixels[off_b + 2]), state.pixel_format);
+            has_diff = true;
+        }
+
+        if (has_diff) {
+            char diff_label[64];
+            std::snprintf(diff_label, sizeof(diff_label), "diff: %s, %s, %s", sr, sg, sb);
+            ImVec2 dl_sz = ImGui::CalcTextSize(diff_label);
+            float dlx = tx + (tooltip_size - dl_sz.x) * 0.5f;
+            float dly = ly + label_sz.y + 4.0f;
+            dl->AddRectFilled(ImVec2(dlx - 3, dly - 1),
+                              ImVec2(dlx + dl_sz.x + 3, dly + dl_sz.y + 1),
+                              IM_COL32(0, 0, 0, 200), 3.0f);
+            dl->AddText(ImVec2(dlx, dly), IM_COL32(0, 255, 255, 240), diff_label);
+        }
+    }
+
+    // A/B 패널: 중심 픽셀의 RGB 값 표시
+    if (!is_diff_panel && img.loaded &&
+        center_x >= 0 && center_x < img.width &&
+        center_y >= 0 && center_y < img.height) {
+        char sr[16], sg[16], sb[16];
+        bool has_val = false;
+
+        if (img.ppm_maxval > 0 && !img.pixels_orig.empty()) {
+            int oidx = (center_y * img.width + center_x) * 3;
+            fmt_int_pixel(sr, sizeof(sr), (int)img.pixels_orig[oidx + 0], state.pixel_format);
+            fmt_int_pixel(sg, sizeof(sg), (int)img.pixels_orig[oidx + 1], state.pixel_format);
+            fmt_int_pixel(sb, sizeof(sb), (int)img.pixels_orig[oidx + 2], state.pixel_format);
+            has_val = true;
+        } else if (!img.pixels.empty()) {
+            int off = (center_y * img.width + center_x) * 4;
+            fmt_int_pixel(sr, sizeof(sr), img.pixels[off + 0], state.pixel_format);
+            fmt_int_pixel(sg, sizeof(sg), img.pixels[off + 1], state.pixel_format);
+            fmt_int_pixel(sb, sizeof(sb), img.pixels[off + 2], state.pixel_format);
+            has_val = true;
+        }
+
+        if (has_val) {
+            char rgb_label[64];
+            std::snprintf(rgb_label, sizeof(rgb_label), "RGB: %s, %s, %s", sr, sg, sb);
+            ImVec2 rl_sz = ImGui::CalcTextSize(rgb_label);
+            float rlx = tx + (tooltip_size - rl_sz.x) * 0.5f;
+            float rly = ly + label_sz.y + 4.0f;
+            dl->AddRectFilled(ImVec2(rlx - 3, rly - 1),
+                              ImVec2(rlx + rl_sz.x + 3, rly + rl_sz.y + 1),
+                              IM_COL32(0, 0, 0, 200), 3.0f);
+            dl->AddText(ImVec2(rlx, rly), IM_COL32(200, 220, 255, 240), rgb_label);
+        }
     }
 }
 
@@ -1215,6 +1720,7 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
     // ImGui top → UV(0,0) → FBO bottom → image top.  No flip needed.
     ImTextureID tex = static_cast<ImTextureID>(fbo_.tex_id);
     ImGui::Image(tex, avail, ImVec2(0, 0), ImVec2(1, 1));
+    bool img_hovered = ImGui::IsItemHovered();
 
     ImVec2 widget_pos = ImGui::GetItemRectMin();
     if (state.roi.active) {
@@ -1242,6 +1748,8 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
         render_pixel_values(state, panel_idx, widget_pos, pw, ph);
     }
 
+    render_magnifier(state, panel_idx, widget_pos, pw, ph,
+                     img.width, img.height, false, img_hovered);
     render_crosshair(state, panel_idx, widget_pos, pw, ph, img.width, img.height);
 
     if (panel_idx == 0) {
@@ -1401,6 +1909,17 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
         return;
     }
 
+    // Compute diff pixel list (lazy, cached by image dimensions)
+    if (!imgA.pixels.empty() && !imgB.pixels.empty()) {
+        compute_diff_pixel_list(imgA, imgB, state.diff_listing);
+    }
+
+    // Enhance mode: compute global min/max of non-zero diff
+    if (state.diff.mode == DiffState::Mode::Enhance)
+        compute_enhance_range(state.diff_listing, state.diff);
+    float enh_min_f = state.diff.enhance_max > 0 ? state.diff.enhance_min / 255.0f : 0.0f;
+    float enh_max_f = state.diff.enhance_max / 255.0f;
+
     ImVec2 avail = ImGui::GetContentRegionAvail();
     int    pw    = std::max(1, static_cast<int>(avail.x));
     int    ph    = std::max(1, static_cast<int>(avail.y));
@@ -1419,7 +1938,8 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
                          pw, ph,
                          state.diff.mode, state.diff.amplify,
                          state.channel_mode,
-                         state.diff.threshold);
+                         state.diff.threshold,
+                         enh_min_f, enh_max_f);
     fbo_.unbind();
 
     // Highlight mode: count non-zero diff pixels (CPU-side, no GPU readback)
@@ -1433,6 +1953,7 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
 
     ImTextureID tex = static_cast<ImTextureID>(fbo_.tex_id);
     ImGui::Image(tex, avail, ImVec2(0, 0), ImVec2(1, 1));
+    bool img_hovered = ImGui::IsItemHovered();
 
     ImVec2 widget_pos = ImGui::GetItemRectMin();
     if (state.roi.active) {
@@ -1460,7 +1981,25 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
         render_diff_pixel_values(state, widget_pos, pw, ph);
     }
 
-    render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height);
+    // "Identical" overlay when images are the same
+    if (state.diff_listing.identical && state.diff.mode != DiffState::Mode::None) {
+        ImDrawList* dl = ImGui::GetForegroundDrawList();
+        const char* label = "Identical";
+        float base_size = ImGui::GetFontSize();
+        ImVec2 base_text = ImGui::CalcTextSize(label);
+        float target_w = pw * 0.7f;
+        float scale = target_w / base_text.x;
+        float font_size = std::min(base_size * scale, 200.0f);
+        ImVec2 text_sz = ImGui::GetFont()->CalcTextSizeA(font_size, FLT_MAX, 0.0f, label);
+        float tx = widget_pos.x + (pw - text_sz.x) * 0.5f;
+        float ty = widget_pos.y + (ph - text_sz.y) * 0.5f;
+        dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx+2, ty+2), IM_COL32(0,0,0,160), label);
+        dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx, ty), IM_COL32(0,255,120,220), label);
+    }
+
+    render_magnifier(state, 0, widget_pos, pw, ph,
+                     imgA.width, imgA.height, true, img_hovered);
+    render_crosshair(state, 0, widget_pos, pw, ph, imgA.width, imgA.height, true);
 }
 
 // ─── render_diff_pixel_values ─────────────────────────────────────────────

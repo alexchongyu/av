@@ -803,6 +803,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Display", "Ctrl+R",                     "Rotate image CCW 90 degrees" },
         { "Display", "Shift+Space",                "Swap A/B images" },
         { "Display", "M",                          "Toggle crosshair overlay" },
+        { "Display", "Ctrl+M",                     "Toggle magnifier (non-diff mode)" },
         { "Display", "P",                          "Pathfinder: image minimap" },
         { "Display", "Ctrl+P",                     "Pathfinder: schematic mode" },
         // Channel
@@ -829,12 +830,13 @@ static void render_hotkey_help_window(AppState& state) {
         { "Sequence", "Shift+Up",                  "Slideshow interval +1s" },
         { "Sequence", "Shift+Down",                "Slideshow interval -1s" },
         // Diff
-        { "Diff", "Ctrl+D",                        "Disable diff mode" },
-        { "Diff", "Ctrl+3",                        "Diff: Pixel Absolute" },
-        { "Diff", "Ctrl+4",                        "Diff: Pixel Relative" },
-        { "Diff", "Ctrl+5",                        "Diff: Highlight (red)" },
-        { "Diff", "Ctrl+6",                        "Diff: False Color" },
-        { "Diff", "Ctrl+7",                        "Diff: SSIM" },
+        { "Diff", "Ctrl+D",                        "Toggle diff pixel listing window" },
+        { "Diff", "Ctrl+3",                        "Toggle Diff: Pixel Absolute" },
+        { "Diff", "Ctrl+4",                        "Toggle Diff: Pixel Relative" },
+        { "Diff", "Ctrl+5",                        "Toggle Diff: Enhance (remap + magnifier)" },
+        { "Diff", "Ctrl+6",                        "Toggle Diff: False Color" },
+        { "Diff", "Ctrl+7",                        "Toggle Diff: SSIM" },
+        { "Diff", "Ctrl+9",                        "Toggle Diff: Highlight (red)" },
         { "Diff", "[",                             "Decrease diff amplify" },
         { "Diff", "]",                             "Increase diff amplify" },
         { "Diff", "\\",                            "Reset diff amplify (1.0x)" },
@@ -850,7 +852,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Help", "Ctrl+Shift+H",                  "Toggle this hotkey reference" },
         // CLI Options
         { "CLI", "av [image_a] [image_b]",          "Open one or two images" },
-        { "CLI", "--diff-mode <mode>",              "none|abs|rel|highlight|falsecolor|ssim  (default: none)" },
+        { "CLI", "--diff-mode <mode>",              "none|abs|rel|highlight|falsecolor|ssim|enhance  (default: none)" },
         { "CLI", "--zoom <factor>",                 "fit|1|2.0 etc.  (default: fit)" },
         { "CLI", "--sync / --no-sync",              "Enable/disable viewport sync  (default: on)" },
         { "CLI", "--amplify <val>",                 "Diff amplification 0.1-100  (default: 1.0)" },
@@ -897,6 +899,167 @@ static void render_hotkey_help_window(AppState& state) {
 
     ImGui::End();
     if (state.font_medium) ImGui::PopFont();
+}
+
+// ─── render_diff_listing_window ──────────────────────────────────────────────
+
+static void render_diff_listing_window(AppState& state) {
+    if (!state.diff_listing.show) return;
+    if (!state.diff_listing.computed || state.diff_listing.identical) {
+        state.diff_listing.show = false;
+        return;
+    }
+
+    auto& dl = state.diff_listing;
+    int total = static_cast<int>(dl.pixels.size());
+
+    // 이미지 크기 (헤더 표시용)
+    int img_total_pixels = 0;
+    if (state.images[0].loaded && state.images[1].loaded) {
+        img_total_pixels = std::min(state.images[0].width, state.images[1].width)
+                         * std::min(state.images[0].height, state.images[1].height);
+    }
+
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+
+    // 반응형 그룹 수 결정 (뷰포트 전체 너비 기준)
+    const float group_w = 460.0f;
+    const float padding = 40.0f;  // 스크롤바 + 여백
+    float avail_w = vp->WorkSize.x * 0.9f;
+    int num_groups = (int)(avail_w / group_w);
+    if (num_groups >= 4)      num_groups = 4;
+    else if (num_groups >= 2) num_groups = 2;
+    else                      num_groups = 1;
+
+    float win_w = num_groups * group_w + padding;
+    win_w = std::min(win_w, vp->WorkSize.x * 0.95f);
+
+    ImGui::SetNextWindowSizeConstraints(ImVec2(win_w, 200), ImVec2(win_w, vp->WorkSize.y * 0.85f));
+    ImGui::SetNextWindowPos(
+        ImVec2(vp->WorkPos.x + (vp->WorkSize.x - win_w) * 0.5f,
+               vp->WorkPos.y + vp->WorkSize.y * 0.05f),
+        ImGuiCond_Appearing);
+
+    if (state.font_medium) ImGui::PushFont(state.font_medium);
+    bool open = true;
+    if (!ImGui::Begin("Diff Pixels", &open, ImGuiWindowFlags_NoMove)) {
+        ImGui::End();
+        if (state.font_medium) ImGui::PopFont();
+        if (!open) dl.show = false;
+        return;
+    }
+
+    // 헤더: Showing #N ~ #M / total
+    int start = dl.start_from;
+    int end   = std::min(start + dl.per_page, total);
+    int count = end - start;
+    ImGui::Text("Showing #%d ~ #%d / %d different  (%d total pixels)",
+                start + 1, end, total, img_total_pixels);
+    ImGui::Separator();
+
+    int items_per_col = (count + num_groups - 1) / num_groups;
+    int total_cols = num_groups * 5;
+
+    if (ImGui::BeginTable("diffpx", total_cols,
+            ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
+        for (int g = 0; g < num_groups; ++g) {
+            ImGui::TableSetupColumn("#",       ImGuiTableColumnFlags_WidthFixed, 50.0f);
+            ImGui::TableSetupColumn("Pos",     ImGuiTableColumnFlags_WidthFixed, 90.0f);
+            ImGui::TableSetupColumn("A(RGB)",  ImGuiTableColumnFlags_WidthFixed, 110.0f);
+            ImGui::TableSetupColumn("B(RGB)",  ImGuiTableColumnFlags_WidthFixed, 110.0f);
+            ImGui::TableSetupColumn("D(RGB)",  ImGuiTableColumnFlags_WidthFixed, 100.0f);
+        }
+        ImGui::TableHeadersRow();
+
+        for (int i = 0; i < items_per_col; ++i) {
+            ImGui::TableNextRow();
+            for (int g = 0; g < num_groups; ++g) {
+                int idx = start + i * num_groups + g;
+                if (idx >= end) continue;
+                auto& p = dl.pixels[idx];
+                int base = g * 5;
+                ImGui::TableSetColumnIndex(base + 0);
+                ImGui::Text("%d", idx + 1);
+                ImGui::TableSetColumnIndex(base + 1);
+                ImGui::Text("(%d,%d)", p.x, p.y);
+                ImGui::TableSetColumnIndex(base + 2);
+                ImGui::Text("%d,%d,%d", p.ar, p.ag, p.ab);
+                ImGui::TableSetColumnIndex(base + 3);
+                ImGui::Text("%d,%d,%d", p.br, p.bg, p.bb);
+                ImGui::TableSetColumnIndex(base + 4);
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                   "%d,%d,%d", p.dr, p.dg, p.db);
+            }
+        }
+        ImGui::EndTable();
+    }
+
+    // List from # + Go to pixel #
+    ImGui::Separator();
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("List from #");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(100.0f);
+    bool list_enter = ImGui::InputInt("##list_from", &dl.list_from_num,
+                                       0, 0, ImGuiInputTextFlags_EnterReturnsTrue);
+    if (list_enter) {
+        dl.start_from = std::clamp(dl.list_from_num, 1, total) - 1;
+    }
+
+    ImGui::SameLine();
+    ImGui::Text("|");
+    ImGui::SameLine();
+    ImGui::Text("Go to pixel #");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(100.0f);
+    bool enter_pressed = ImGui::InputInt("##goto_px", &dl.goto_num,
+                                          0, 0, ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::SameLine();
+    if (ImGui::Button("Go") || enter_pressed) {
+        int px_idx = std::clamp(dl.goto_num, 1, total) - 1;  // 0-based
+        auto& gp = dl.pixels[px_idx];
+
+        // 32× zoom + 해당 픽셀 중앙 정렬
+        float half_iw = state.images[0].width  * 0.5f;
+        float half_ih = state.images[0].height * 0.5f;
+        float target_x = static_cast<float>(gp.x) + 0.5f;
+        float target_y = static_cast<float>(gp.y) + 0.5f;
+
+        for (int vi = 0; vi < 2; ++vi) {
+            viewport_set_zoom(state.views[vi], 32.0f);
+            state.views[vi].pan_x = half_iw - target_x;
+            state.views[vi].pan_y = half_ih - target_y;
+            state.views[vi].fit = false;
+        }
+
+        // 목록도 해당 위치로 이동
+        dl.start_from = px_idx;
+        dl.list_from_num = px_idx + 1;
+    }
+
+    // Prev / Next 네비게이션
+    ImGui::Separator();
+    if (dl.start_from > 0) {
+        if (ImGui::Button("< Prev")) {
+            dl.start_from = std::max(0, dl.start_from - dl.per_page);
+            dl.list_from_num = dl.start_from + 1;
+        }
+        ImGui::SameLine();
+    }
+    if (dl.start_from + dl.per_page < total) {
+        if (ImGui::Button("Next >")) {
+            dl.start_from = std::min(total - 1, dl.start_from + dl.per_page);
+            dl.list_from_num = dl.start_from + 1;
+        }
+    }
+    ImGui::SameLine();
+    float close_w = ImGui::CalcTextSize("Close").x + 20;
+    ImGui::SetCursorPosX(ImGui::GetWindowWidth() - close_w - 8);
+    if (ImGui::Button("Close")) dl.show = false;
+
+    ImGui::End();
+    if (state.font_medium) ImGui::PopFont();
+    if (!open) dl.show = false;
 }
 
 // ─── render ───────────────────────────────────────────────────────────────────
@@ -1248,6 +1411,7 @@ void MainWindow::render(AppState& state) {
     render_roi_stats_window(state);
     render_scatter_plot_window(state);
     render_hotkey_help_window(state);
+    render_diff_listing_window(state);
 
     // ── Open Images window ────────────────────────────────────────────────────
     render_open_images_window(state);

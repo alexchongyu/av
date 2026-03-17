@@ -11,6 +11,7 @@ static const char* diff_mode_name(DiffState::Mode m) {
     case DiffState::Mode::Highlight:     return "Highlight";
     case DiffState::Mode::FalseColor:    return "FalseColor";
     case DiffState::Mode::SSIM:          return "SSIM";
+    case DiffState::Mode::Enhance:      return "Enhance";
     default:                             return "?";
     }
 }

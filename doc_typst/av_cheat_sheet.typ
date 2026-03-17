@@ -73,7 +73,7 @@
 #align(center)[
   #text(size: 20pt, weight: "bold")[av #text(size: 12pt, weight: "regular", fill: luma(80))[\u{2014} Advanced Pixel Lens Cheat Sheet]]
   #v(0.15em)
-  #text(size: 8pt, fill: luma(120))[v0.13 \u{2014} 2026\-03\-16]
+  #text(size: 8pt, fill: luma(120))[v0.14 \u{2014} 2026\-03\-17]
 ]
 
 #v(0.3em)
@@ -142,6 +142,7 @@ av [image_a] [image_b] [options]
   [#key("h") #key("j") #key("k") #key("l")], [좌 / 하 / 상 / 우],
   [#key("←") #key("↓") #key("↑") #key("→")], [방향키 이동],
   [#key("Shift") + 이동],                      [빠른 이동 (×5)],
+  [#key("Cmd+Shift") + #key("H") #key("J") #key("K") #key("L")], [각 방향 끝단으로 이동],
   [#key("G")],                                  [이미지 중심으로],
 )
 
@@ -259,6 +260,7 @@ av [image_a] [image_b] [options]
   [#key("Shift+Space")],   [A/B 이미지 스왑],
   [#key("R")],             [90° 회전],
   [#key("Ctrl+R")],        [역방향 회전],
+  [#key("Ctrl+Shift+H")],  [핫키 도움말 토글],
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

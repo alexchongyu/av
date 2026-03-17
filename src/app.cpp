@@ -36,7 +36,7 @@ static void print_help(const char* prog) {
         "Usage: " << prog << " [options] [imageA] [imageB]\n"
         "\n"
         "Options:\n"
-        "  --diff-mode <mode>   none|abs|rel|highlight|falsecolor|ssim  (default: none)\n"
+        "  --diff-mode <mode>   none|abs|rel|highlight|falsecolor|ssim|enhance  (default: none)\n"
         "  --zoom <factor>      fit|1|2.0 etc.                (default: fit)\n"
         "  --sync               Enable viewport sync          (default: on)\n"
         "  --no-sync            Disable viewport sync\n"
@@ -83,6 +83,7 @@ CliOptions parse_cli(int argc, char* argv[]) {
             else if (m == "highlight")  opts.diff_mode = DiffState::Mode::Highlight;
             else if (m == "falsecolor") opts.diff_mode = DiffState::Mode::FalseColor;
             else if (m == "ssim")       opts.diff_mode = DiffState::Mode::SSIM;
+            else if (m == "enhance")   opts.diff_mode = DiffState::Mode::Enhance;
             else { std::cerr << "Unknown diff-mode: " << m << "\n"; std::exit(1); }
         } else if (arg == "--zoom") {
             std::string z = next();
@@ -167,6 +168,7 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 
     // ── Close popups ──────────────────────────────────────────────────────────
     case SDL_SCANCODE_ESCAPE:
+        if (state.diff_listing.show) { state.diff_listing.show = false; break; }
         if (state.show_hotkey_help)  { state.show_hotkey_help  = false; break; }
         if (state.show_histogram)    { state.show_histogram    = false; break; }
         if (state.show_hline_cut)    { state.show_hline_cut    = false; break; }
@@ -214,15 +216,37 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         break;
     case SDL_SCANCODE_0: case SDL_SCANCODE_1: case SDL_SCANCODE_2:
     case SDL_SCANCODE_3: case SDL_SCANCODE_4: case SDL_SCANCODE_5:
-    case SDL_SCANCODE_6: case SDL_SCANCODE_7: case SDL_SCANCODE_8: {
+    case SDL_SCANCODE_6: case SDL_SCANCODE_7: case SDL_SCANCODE_8:
+    case SDL_SCANCODE_9: {
         if (ctrl) {
             // ctrl+number: diff mode shortcuts
             int key_num = (scancode == SDL_SCANCODE_0) ? 0 : (scancode - SDL_SCANCODE_1 + 1);
-            if      (key_num == 3) state.diff.mode = DiffState::Mode::PixelAbsolute;
-            else if (key_num == 4) state.diff.mode = DiffState::Mode::PixelRelative;
-            else if (key_num == 5) state.diff.mode = DiffState::Mode::Highlight;
-            else if (key_num == 6) state.diff.mode = DiffState::Mode::FalseColor;
-            else if (key_num == 7) state.diff.mode = DiffState::Mode::SSIM;
+            if      (key_num == 3) {
+                state.diff.mode = (state.diff.mode == DiffState::Mode::PixelAbsolute)
+                    ? DiffState::Mode::None : DiffState::Mode::PixelAbsolute;
+                state.diff_listing.computed = false;
+            }
+            else if (key_num == 4) {
+                state.diff.mode = (state.diff.mode == DiffState::Mode::PixelRelative)
+                    ? DiffState::Mode::None : DiffState::Mode::PixelRelative;
+                state.diff_listing.computed = false;
+            }
+            else if (key_num == 5) {
+                state.diff.mode = (state.diff.mode == DiffState::Mode::Enhance)
+                    ? DiffState::Mode::None : DiffState::Mode::Enhance;
+                state.diff_listing.computed = false;
+                state.diff.enhance_range_computed = false;
+            }
+            else if (key_num == 6) {
+                state.diff.mode = (state.diff.mode == DiffState::Mode::FalseColor)
+                    ? DiffState::Mode::None : DiffState::Mode::FalseColor;
+                state.diff_listing.computed = false;
+            }
+            else if (key_num == 7) {
+                state.diff.mode = (state.diff.mode == DiffState::Mode::SSIM)
+                    ? DiffState::Mode::None : DiffState::Mode::SSIM;
+                state.diff_listing.computed = false;
+            }
             else if (key_num == 8) {
                 // Ctrl+8: tolerance diff — set threshold to 1 if disabled, or toggle off
                 if (state.diff.threshold == 0)
@@ -230,9 +254,16 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
                 else
                     state.diff.threshold = 0;
             }
+            else if (key_num == 9) {
+                // Ctrl+9: Highlight diff mode toggle (moved from Ctrl+5)
+                state.diff.mode = (state.diff.mode == DiffState::Mode::Highlight)
+                    ? DiffState::Mode::None : DiffState::Mode::Highlight;
+                state.diff_listing.computed = false;
+            }
             break;
         }
         int key_num = (scancode == SDL_SCANCODE_0) ? 0 : (scancode - SDL_SCANCODE_1 + 1);
+        if (key_num > 8) break;  // 9 key: Ctrl+9 only (Highlight toggle)
         float zoom = std::pow(2.0f, static_cast<float>(key_num));
         viewport_set_zoom(vA, zoom);
         viewport_center(vA);
@@ -336,7 +367,11 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 
     // ── Diff mode ─────────────────────────────────────────────────────────────
     case SDL_SCANCODE_D:
-        if (ctrl) state.diff.mode = DiffState::Mode::None;
+        if (ctrl) {
+            // diff 리스팅 윈도우 토글
+            state.diff_listing.show = !state.diff_listing.show;
+            if (state.diff_listing.show) state.diff_listing.start_from = 0;
+        }
         break;
 
     // ── Diff amplify / Tolerance threshold ──────────────────────────────────
@@ -503,9 +538,11 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         }
         break;
 
-    // ── Crosshair overlay 토글 (M) ─────────────────────────────────────────────
+    // ── Crosshair overlay 토글 (M) / Magnifier 토글 (Ctrl+M) ─────────────────
     case SDL_SCANCODE_M:
-        if (!ctrl && !shift && !gui) {
+        if (ctrl && !shift && !gui) {
+            state.magnifier_active = !state.magnifier_active;
+        } else if (!ctrl && !shift && !gui) {
             state.show_crosshair = !state.show_crosshair;
         }
         break;

@@ -27,7 +27,8 @@ public:
                 int view_w, int view_h,
                 DiffState::Mode mode, float amplify,
                 ChannelMode channel,
-                int threshold = 0);
+                int threshold = 0,
+                float enh_min = 0.0f, float enh_max = 0.0f);
 
     bool valid() const { return shader_.valid(); }
 
