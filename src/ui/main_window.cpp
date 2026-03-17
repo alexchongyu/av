@@ -778,6 +778,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Navigation", "K / Up",                  "Pan up (1px)" },
         { "Navigation", "J / Down",                "Pan down (1px)" },
         { "Navigation", "Shift + H,L,K,J / Arrow", "Fast pan (pan_step px)" },
+        { "Navigation", "Cmd+Shift + H,L,K,J",     "Jump to edge" },
         { "Navigation", "G",                       "Center image" },
         { "Navigation", "Mouse Left Drag",         "Pan image" },
         // Zoom

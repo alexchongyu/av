@@ -73,7 +73,7 @@ CliOptions parse_cli(int argc, char* argv[]) {
             print_help(argv[0]);
             std::exit(0);
         } else if (arg == "--version") {
-            std::cout << "av 0.13\n";
+            std::cout << "av 0.14\n";
             std::exit(0);
         } else if (arg == "--diff-mode") {
             std::string m = next();
@@ -258,6 +258,11 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
             state.show_hotkey_help = !state.show_hotkey_help;
             break;
         }
+        if (gui && shift) {
+            vA.pan_x = 1e6f; vA.fit = false;
+            if (state.sync_viewports) { vB.pan_x = 1e6f; vB.fit = false; }
+            break;
+        }
         if (ctrl) {
             state.show_histogram = !state.show_histogram;
             if (state.show_histogram) {
@@ -269,10 +274,15 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         }
         [[fallthrough]];
     case SDL_SCANCODE_LEFT:
-        viewport_pan(vA, -step, 0.0f);
-        if (state.sync_viewports) viewport_pan(vB, -step, 0.0f);
+        viewport_pan(vA, +step, 0.0f);
+        if (state.sync_viewports) viewport_pan(vB, +step, 0.0f);
         break;
     case SDL_SCANCODE_L:
+        if (gui && shift) {
+            vA.pan_x = -1e6f; vA.fit = false;
+            if (state.sync_viewports) { vB.pan_x = -1e6f; vB.fit = false; }
+            break;
+        }
         if (ctrl) {
             state.show_hline_cut = !state.show_hline_cut;
             if (state.show_hline_cut) {
@@ -284,10 +294,15 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         }
         [[fallthrough]];
     case SDL_SCANCODE_RIGHT:
-        viewport_pan(vA, +step, 0.0f);
-        if (state.sync_viewports) viewport_pan(vB, +step, 0.0f);
+        viewport_pan(vA, -step, 0.0f);
+        if (state.sync_viewports) viewport_pan(vB, -step, 0.0f);
         break;
     case SDL_SCANCODE_K:
+        if (gui && shift) {
+            vA.pan_y = 1e6f; vA.fit = false;
+            if (state.sync_viewports) { vB.pan_y = 1e6f; vB.fit = false; }
+            break;
+        }
         viewport_pan(vA, 0.0f, +step);
         if (state.sync_viewports) viewport_pan(vB, 0.0f, +step);
         break;
@@ -301,6 +316,11 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         }
         break;
     case SDL_SCANCODE_J:
+        if (gui && shift) {
+            vA.pan_y = -1e6f; vA.fit = false;
+            if (state.sync_viewports) { vB.pan_y = -1e6f; vB.fit = false; }
+            break;
+        }
         viewport_pan(vA, 0.0f, -step);
         if (state.sync_viewports) viewport_pan(vB, 0.0f, -step);
         break;
