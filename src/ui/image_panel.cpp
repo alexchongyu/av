@@ -372,19 +372,29 @@ void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
                 falsecolor(intensity * amplify, fc);
                 dst[0] = fc[0]; dst[1] = fc[1]; dst[2] = fc[2]; dst[3] = 255;
             } else if (mode == DiffState::Mode::Enhance) {
-                bool all_zero = (diff[0] == 0.0f && diff[1] == 0.0f && diff[2] == 0.0f);
-                if (all_zero) {
+                int ch_idx = (channel == ChannelMode::Red) ? 0 :
+                             (channel == ChannelMode::Green) ? 1 :
+                             (channel == ChannelMode::Blue) ? 2 : -1;
+                bool zero_check = (ch_idx >= 0) ? (diff[ch_idx] == 0.0f)
+                                 : (diff[0] == 0.0f && diff[1] == 0.0f && diff[2] == 0.0f);
+                if (zero_check) {
                     dst[0] = dst[1] = dst[2] = 0; dst[3] = 255;
                 } else {
                     float range = (enh_max > enh_min) ? (enh_max - enh_min) : (1.0f/255.0f);
-                    for (int c = 0; c < 3; ++c) {
-                        if (diff[c] == 0.0f) { dst[c] = 0; }
-                        else {
-                            float t = std::clamp((diff[c] - enh_min) / range, 0.0f, 1.0f);
-                            dst[c] = static_cast<uint8_t>(128.0f + t * 127.0f);
+                    if (ch_idx >= 0) {
+                        float t = std::clamp((diff[ch_idx] - enh_min) / range, 0.0f, 1.0f);
+                        uint8_t v = (diff[ch_idx] > 0.0f) ? static_cast<uint8_t>(128.0f + t * 127.0f) : 0;
+                        dst[0] = dst[1] = dst[2] = v; dst[3] = 255;
+                    } else {
+                        for (int c = 0; c < 3; ++c) {
+                            if (diff[c] == 0.0f) { dst[c] = 0; }
+                            else {
+                                float t = std::clamp((diff[c] - enh_min) / range, 0.0f, 1.0f);
+                                dst[c] = static_cast<uint8_t>(128.0f + t * 127.0f);
+                            }
                         }
+                        dst[3] = 255;
                     }
-                    dst[3] = 255;
                 }
             } else {
                 float d[3] = { diff[0]*amplify, diff[1]*amplify, diff[2]*amplify };
@@ -580,7 +590,7 @@ static std::pair<int,int> count_nonzero_diff_pixels(
 static std::pair<int,int> apply_threshold_to_diff(
     const ImageEntry& imgA, const ImageEntry& imgB,
     uint8_t* buf, int view_w, int view_h,
-    const ViewportState& vp, int threshold)
+    const ViewportState& vp, int threshold, ChannelMode channel)
 {
     if (threshold <= 0) return {0, 0};
 
@@ -601,10 +611,16 @@ static std::pair<int,int> apply_threshold_to_diff(
             float a[4], b_val[4];
             sample_pixel(imgA, img_fx, img_fy, vp.zoom, a);
             sample_pixel(imgB, img_fx, img_fy, vp.zoom, b_val);
-            float max_diff = 0.0f;
-            for (int c = 0; c < 3; ++c) {
-                float d = std::fabs(a[c] - b_val[c]);
-                if (d > max_diff) max_diff = d;
+            float max_diff;
+            if      (channel == ChannelMode::Red)   max_diff = std::fabs(a[0] - b_val[0]);
+            else if (channel == ChannelMode::Green) max_diff = std::fabs(a[1] - b_val[1]);
+            else if (channel == ChannelMode::Blue)  max_diff = std::fabs(a[2] - b_val[2]);
+            else {
+                max_diff = 0.0f;
+                for (int c = 0; c < 3; ++c) {
+                    float d = std::fabs(a[c] - b_val[c]);
+                    if (d > max_diff) max_diff = d;
+                }
             }
 
             ++total;
@@ -711,7 +727,7 @@ void ImagePanel::render_diff_software(AppState& state) {
     // Apply tolerance threshold post-processing
     if (state.diff.threshold > 0) {
         auto [exceed, total] = apply_threshold_to_diff(
-            imgA, imgB, soft_buf_.data(), pw, ph, vp, state.diff.threshold);
+            imgA, imgB, soft_buf_.data(), pw, ph, vp, state.diff.threshold, state.channel_mode);
         state.diff.threshold_exceed_count = exceed;
         state.diff.threshold_total_count  = total;
     }
@@ -1575,6 +1591,11 @@ void ImagePanel::render_magnifier(const AppState& state, int panel_idx,
                 }
             }
 
+            // 채널 모드 필터 적용 (shader u_channel 로직과 동일)
+            if (state.channel_mode == ChannelMode::Red)   { g = r; b = r; }
+            else if (state.channel_mode == ChannelMode::Green) { r = g; b = g; }
+            else if (state.channel_mode == ChannelMode::Blue)  { r = b; g = b; }
+
             float rx = tx + (dx + radius) * cell_size;
             float ry = ty + (dy + radius) * cell_size;
             dl->AddRectFilled(ImVec2(rx, ry),
@@ -1642,14 +1663,27 @@ void ImagePanel::render_magnifier(const AppState& state, int panel_idx,
 
         if (has_diff) {
             char diff_label[64];
-            std::snprintf(diff_label, sizeof(diff_label), "diff: %s, %s, %s", sr, sg, sb);
+            ImU32 diff_col;
+            if (state.channel_mode == ChannelMode::Red) {
+                std::snprintf(diff_label, sizeof(diff_label), "diff(R): %s", sr);
+                diff_col = IM_COL32(255, 100, 100, 240);
+            } else if (state.channel_mode == ChannelMode::Green) {
+                std::snprintf(diff_label, sizeof(diff_label), "diff(G): %s", sg);
+                diff_col = IM_COL32(100, 255, 100, 240);
+            } else if (state.channel_mode == ChannelMode::Blue) {
+                std::snprintf(diff_label, sizeof(diff_label), "diff(B): %s", sb);
+                diff_col = IM_COL32(100, 130, 255, 240);
+            } else {
+                std::snprintf(diff_label, sizeof(diff_label), "diff: %s, %s, %s", sr, sg, sb);
+                diff_col = IM_COL32(0, 255, 255, 240);
+            }
             ImVec2 dl_sz = ImGui::CalcTextSize(diff_label);
             float dlx = tx + (tooltip_size - dl_sz.x) * 0.5f;
             float dly = ly + label_sz.y + 4.0f;
             dl->AddRectFilled(ImVec2(dlx - 3, dly - 1),
                               ImVec2(dlx + dl_sz.x + 3, dly + dl_sz.y + 1),
                               IM_COL32(0, 0, 0, 200), 3.0f);
-            dl->AddText(ImVec2(dlx, dly), IM_COL32(0, 255, 255, 240), diff_label);
+            dl->AddText(ImVec2(dlx, dly), diff_col, diff_label);
         }
     }
 
@@ -1676,14 +1710,27 @@ void ImagePanel::render_magnifier(const AppState& state, int panel_idx,
 
         if (has_val) {
             char rgb_label[64];
-            std::snprintf(rgb_label, sizeof(rgb_label), "RGB: %s, %s, %s", sr, sg, sb);
+            ImU32 rgb_col;
+            if (state.channel_mode == ChannelMode::Red) {
+                std::snprintf(rgb_label, sizeof(rgb_label), "R: %s", sr);
+                rgb_col = IM_COL32(255, 100, 100, 240);
+            } else if (state.channel_mode == ChannelMode::Green) {
+                std::snprintf(rgb_label, sizeof(rgb_label), "G: %s", sg);
+                rgb_col = IM_COL32(100, 255, 100, 240);
+            } else if (state.channel_mode == ChannelMode::Blue) {
+                std::snprintf(rgb_label, sizeof(rgb_label), "B: %s", sb);
+                rgb_col = IM_COL32(100, 130, 255, 240);
+            } else {
+                std::snprintf(rgb_label, sizeof(rgb_label), "RGB: %s, %s, %s", sr, sg, sb);
+                rgb_col = IM_COL32(200, 220, 255, 240);
+            }
             ImVec2 rl_sz = ImGui::CalcTextSize(rgb_label);
             float rlx = tx + (tooltip_size - rl_sz.x) * 0.5f;
             float rly = ly + label_sz.y + 4.0f;
             dl->AddRectFilled(ImVec2(rlx - 3, rly - 1),
                               ImVec2(rlx + rl_sz.x + 3, rly + rl_sz.y + 1),
                               IM_COL32(0, 0, 0, 200), 3.0f);
-            dl->AddText(ImVec2(rlx, rly), IM_COL32(200, 220, 255, 240), rgb_label);
+            dl->AddText(ImVec2(rlx, rly), rgb_col, rgb_label);
         }
     }
 }
