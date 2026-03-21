@@ -1100,6 +1100,8 @@ void MainWindow::render(AppState& state) {
                 if (state.images[other].loaded)
                     free_image(state.images[other]);
             }
+            if (state.images[target].loaded)
+                free_image(state.images[target]);
             load_image(state.open_state.opened_path, state.images[target]);
             state.views[target].fit   = true;
             state.views[target].pan_x = 0.0f;
@@ -1589,17 +1591,24 @@ void MainWindow::render(AppState& state) {
             }
 
             // Measure text for balloon sizing
+            bool show_r = (state.channel_mode == ChannelMode::RGB || state.channel_mode == ChannelMode::Red);
+            bool show_g = (state.channel_mode == ChannelMode::RGB || state.channel_mode == ChannelMode::Green);
+            bool show_b = (state.channel_mode == ChannelMode::RGB || state.channel_mode == ChannelMode::Blue);
+
             ImVec2 sz_pos = ImGui::CalcTextSize(line_pos);
-            ImVec2 sz_r   = ImGui::CalcTextSize(line_r);
-            ImVec2 sz_g   = ImGui::CalcTextSize(line_g);
-            ImVec2 sz_b   = ImGui::CalcTextSize(line_b);
+            ImVec2 sz_r   = show_r ? ImGui::CalcTextSize(line_r) : ImVec2(0,0);
+            ImVec2 sz_g   = show_g ? ImGui::CalcTextSize(line_g) : ImVec2(0,0);
+            ImVec2 sz_b   = show_b ? ImGui::CalcTextSize(line_b) : ImVec2(0,0);
 
             float pad     = 12.0f;
             float gap_y   = 6.0f;
             float rgb_gap = 8.0f;
             float font_h  = ImGui::GetFontSize();
 
-            float line2_w = sz_r.x + rgb_gap + sz_g.x + rgb_gap + sz_b.x;
+            float line2_w = 0.0f;
+            if (show_r) line2_w += sz_r.x;
+            if (show_g) { if (line2_w > 0) line2_w += rgb_gap; line2_w += sz_g.x; }
+            if (show_b) { if (line2_w > 0) line2_w += rgb_gap; line2_w += sz_b.x; }
             float content_w = (sz_pos.x > line2_w ? sz_pos.x : line2_w);
             float box_w   = content_w + pad * 2.0f;
             float box_h   = font_h + gap_y + font_h + pad * 2.0f;
@@ -1626,14 +1635,20 @@ void MainWindow::render(AppState& state) {
             dl->AddText(cur_font, font_h, ImVec2(bx + pad, by + pad),
                         IM_COL32(220, 220, 220, 255), line_pos);
 
-            // Line 2: R G B in channel colours
+            // Line 2: R G B in channel colours (filtered by channel mode)
             float y2 = by + pad + font_h + gap_y;
             float x2 = bx + pad;
-            dl->AddText(cur_font, font_h, ImVec2(x2, y2), IM_COL32(255, 100, 100, 255), line_r);
-            x2 += sz_r.x + rgb_gap;
-            dl->AddText(cur_font, font_h, ImVec2(x2, y2), IM_COL32(100, 255, 100, 255), line_g);
-            x2 += sz_g.x + rgb_gap;
-            dl->AddText(cur_font, font_h, ImVec2(x2, y2), IM_COL32(100, 130, 255, 255), line_b);
+            if (show_r) {
+                dl->AddText(cur_font, font_h, ImVec2(x2, y2), IM_COL32(255, 100, 100, 255), line_r);
+                x2 += sz_r.x + rgb_gap;
+            }
+            if (show_g) {
+                dl->AddText(cur_font, font_h, ImVec2(x2, y2), IM_COL32(100, 255, 100, 255), line_g);
+                x2 += sz_g.x + rgb_gap;
+            }
+            if (show_b) {
+                dl->AddText(cur_font, font_h, ImVec2(x2, y2), IM_COL32(100, 130, 255, 255), line_b);
+            }
         } while (false);
         if (state.font_large) ImGui::PopFont();
     }

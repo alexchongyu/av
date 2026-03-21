@@ -139,9 +139,14 @@ void main() {
         vec3 t = clamp((d - vec3(u_enhance_min)) / range, 0.0, 1.0);
         vec3 mapped = vec3(0.502) + t * 0.498;   // [128/255, 1.0]
         // per-channel: zero diff → black
-        result.r = (d.r > 0.0) ? mapped.r : 0.0;
-        result.g = (d.g > 0.0) ? mapped.g : 0.0;
-        result.b = (d.b > 0.0) ? mapped.b : 0.0;
+        if (u_channel == 1)      result = vec3((d.r > 0.0) ? mapped.r : 0.0);
+        else if (u_channel == 2) result = vec3((d.g > 0.0) ? mapped.g : 0.0);
+        else if (u_channel == 3) result = vec3((d.b > 0.0) ? mapped.b : 0.0);
+        else {
+            result.r = (d.r > 0.0) ? mapped.r : 0.0;
+            result.g = (d.g > 0.0) ? mapped.g : 0.0;
+            result.b = (d.b > 0.0) ? mapped.b : 0.0;
+        }
     } else if (u_diff_mode == 2) {    // FalseColor
         float intensity;
         if (u_channel == 1) intensity = diff.r;
@@ -162,7 +167,11 @@ void main() {
     // Tolerance threshold: suppress pixels below threshold
     if (u_threshold > 0) {
         float th = float(u_threshold) / 255.0;
-        float max_diff = max(max(diff.r, diff.g), diff.b);
+        float max_diff;
+        if (u_channel == 1)      max_diff = diff.r;
+        else if (u_channel == 2) max_diff = diff.g;
+        else if (u_channel == 3) max_diff = diff.b;
+        else                     max_diff = max(max(diff.r, diff.g), diff.b);
         if (max_diff <= th) {
             out_color = vec4(0.157, 0.157, 0.157, 1.0);  // dark gray (40/255)
         }
