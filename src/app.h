@@ -78,6 +78,9 @@ struct DiffListingState {
     bool show      = false;
     bool computed   = false;
     bool identical  = false;
+    bool identical_r = false;  // all dr == 0
+    bool identical_g = false;  // all dg == 0
+    bool identical_b = false;  // all db == 0
     std::vector<DiffPixelInfo> pixels;  // 차이 픽셀 목록
     int  start_from = 0;                // 표시 시작 인덱스 (0-based)
     int  per_page   = 50;               // 페이지당 표시 개수
@@ -89,6 +92,7 @@ struct DiffListingState {
 
     void reset() {
         show = false; computed = false; identical = false;
+        identical_r = false; identical_g = false; identical_b = false;
         pixels.clear(); start_from = 0; goto_num = 1; list_from_num = 1;
         cache_img_a_w = cache_img_a_h = -1;
         cache_img_b_w = cache_img_b_h = -1;

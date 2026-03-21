@@ -905,13 +905,38 @@ static void render_hotkey_help_window(AppState& state) {
 
 static void render_diff_listing_window(AppState& state) {
     if (!state.diff_listing.show) return;
-    if (!state.diff_listing.computed || state.diff_listing.identical) {
+
+    // 채널 모드 판별
+    bool single_ch = (state.channel_mode != ChannelMode::RGB);
+    bool ch_identical = state.diff_listing.identical;
+    if (!ch_identical && single_ch) {
+        if (state.channel_mode == ChannelMode::Red)   ch_identical = state.diff_listing.identical_r;
+        if (state.channel_mode == ChannelMode::Green) ch_identical = state.diff_listing.identical_g;
+        if (state.channel_mode == ChannelMode::Blue)  ch_identical = state.diff_listing.identical_b;
+    }
+
+    if (!state.diff_listing.computed || ch_identical) {
         state.diff_listing.show = false;
         return;
     }
 
     auto& dl = state.diff_listing;
-    int total = static_cast<int>(dl.pixels.size());
+
+    // 단색 모드: 선택 채널 diff != 0 인 픽셀만 필터링
+    std::vector<int> filtered_indices;
+    if (single_ch) {
+        for (int i = 0; i < static_cast<int>(dl.pixels.size()); ++i) {
+            auto& p = dl.pixels[i];
+            int d = 0;
+            if (state.channel_mode == ChannelMode::Red)   d = p.dr;
+            if (state.channel_mode == ChannelMode::Green) d = p.dg;
+            if (state.channel_mode == ChannelMode::Blue)  d = p.db;
+            if (d != 0) filtered_indices.push_back(i);
+        }
+    }
+
+    int total = single_ch ? static_cast<int>(filtered_indices.size())
+                          : static_cast<int>(dl.pixels.size());
 
     // 이미지 크기 (헤더 표시용)
     int img_total_pixels = 0;
@@ -922,10 +947,20 @@ static void render_diff_listing_window(AppState& state) {
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
 
+    // 컬럼 너비: 단색 vs RGB
+    const char* ch_label = "RGB";
+    float col_a_w = 110.0f, col_b_w = 110.0f, col_d_w = 100.0f;
+    if (single_ch) {
+        if (state.channel_mode == ChannelMode::Red)   ch_label = "R";
+        if (state.channel_mode == ChannelMode::Green) ch_label = "G";
+        if (state.channel_mode == ChannelMode::Blue)  ch_label = "B";
+        col_a_w = 50.0f; col_b_w = 50.0f; col_d_w = 50.0f;
+    }
+    float cols_w = 50.0f + 90.0f + col_a_w + col_b_w + col_d_w;  // # + Pos + A + B + D
+
     // 반응형 그룹 수 결정 (뷰포트 전체 너비 기준)
-    // cell padding + border를 포함한 실제 그룹 너비 계산
     float cell_pad = ImGui::GetStyle().CellPadding.x;
-    const float group_w = 460.0f + 5 * (cell_pad * 2.0f) + 6.0f;
+    const float group_w = cols_w + 5 * (cell_pad * 2.0f) + 6.0f;
     const float padding = 40.0f;  // 스크롤바 + 여백
     float avail_w = vp->WorkSize.x * 0.95f;
     int num_groups = std::clamp((int)(avail_w / group_w), 1, 4);
@@ -959,35 +994,60 @@ static void render_diff_listing_window(AppState& state) {
     int items_per_col = (count + num_groups - 1) / num_groups;
     int total_cols = num_groups * 5;
 
+    // 헤더 레이블 생성
+    char hdr_a[16], hdr_b[16], hdr_d[16];
+    snprintf(hdr_a, sizeof(hdr_a), "A(%s)", ch_label);
+    snprintf(hdr_b, sizeof(hdr_b), "B(%s)", ch_label);
+    snprintf(hdr_d, sizeof(hdr_d), "D(%s)", ch_label);
+
     if (ImGui::BeginTable("diffpx", total_cols,
             ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit)) {
         for (int g = 0; g < num_groups; ++g) {
-            ImGui::TableSetupColumn("#",       ImGuiTableColumnFlags_WidthFixed, 50.0f);
-            ImGui::TableSetupColumn("Pos",     ImGuiTableColumnFlags_WidthFixed, 90.0f);
-            ImGui::TableSetupColumn("A(RGB)",  ImGuiTableColumnFlags_WidthFixed, 110.0f);
-            ImGui::TableSetupColumn("B(RGB)",  ImGuiTableColumnFlags_WidthFixed, 110.0f);
-            ImGui::TableSetupColumn("D(RGB)",  ImGuiTableColumnFlags_WidthFixed, 100.0f);
+            ImGui::TableSetupColumn("#",     ImGuiTableColumnFlags_WidthFixed, 50.0f);
+            ImGui::TableSetupColumn("Pos",   ImGuiTableColumnFlags_WidthFixed, 90.0f);
+            ImGui::TableSetupColumn(hdr_a,   ImGuiTableColumnFlags_WidthFixed, col_a_w);
+            ImGui::TableSetupColumn(hdr_b,   ImGuiTableColumnFlags_WidthFixed, col_b_w);
+            ImGui::TableSetupColumn(hdr_d,   ImGuiTableColumnFlags_WidthFixed, col_d_w);
         }
         ImGui::TableHeadersRow();
 
         for (int i = 0; i < items_per_col; ++i) {
             ImGui::TableNextRow();
             for (int g = 0; g < num_groups; ++g) {
-                int idx = start + i * num_groups + g;
-                if (idx >= end) continue;
-                auto& p = dl.pixels[idx];
+                int vi = start + i * num_groups + g;
+                if (vi >= end) continue;
+                int px_i = single_ch ? filtered_indices[vi] : vi;
+                auto& p = dl.pixels[px_i];
                 int base = g * 5;
                 ImGui::TableSetColumnIndex(base + 0);
-                ImGui::Text("%d", idx + 1);
+                ImGui::Text("%d", vi + 1);
                 ImGui::TableSetColumnIndex(base + 1);
                 ImGui::Text("(%d,%d)", p.x, p.y);
                 ImGui::TableSetColumnIndex(base + 2);
-                ImGui::Text("%d,%d,%d", p.ar, p.ag, p.ab);
+                if (single_ch) {
+                    int va = (state.channel_mode == ChannelMode::Red) ? p.ar :
+                             (state.channel_mode == ChannelMode::Green) ? p.ag : p.ab;
+                    ImGui::Text("%d", va);
+                } else {
+                    ImGui::Text("%d,%d,%d", p.ar, p.ag, p.ab);
+                }
                 ImGui::TableSetColumnIndex(base + 3);
-                ImGui::Text("%d,%d,%d", p.br, p.bg, p.bb);
+                if (single_ch) {
+                    int vb = (state.channel_mode == ChannelMode::Red) ? p.br :
+                             (state.channel_mode == ChannelMode::Green) ? p.bg : p.bb;
+                    ImGui::Text("%d", vb);
+                } else {
+                    ImGui::Text("%d,%d,%d", p.br, p.bg, p.bb);
+                }
                 ImGui::TableSetColumnIndex(base + 4);
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
-                                   "%d,%d,%d", p.dr, p.dg, p.db);
+                if (single_ch) {
+                    int vd = (state.channel_mode == ChannelMode::Red) ? p.dr :
+                             (state.channel_mode == ChannelMode::Green) ? p.dg : p.db;
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%d", vd);
+                } else {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                       "%d,%d,%d", p.dr, p.dg, p.db);
+                }
             }
         }
         ImGui::EndTable();
@@ -1015,7 +1075,8 @@ static void render_diff_listing_window(AppState& state) {
                                           0, 0, ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::SameLine();
     if (ImGui::Button("Go") || enter_pressed) {
-        int px_idx = std::clamp(dl.goto_num, 1, total) - 1;  // 0-based
+        int clamped = std::clamp(dl.goto_num, 1, total) - 1;  // 0-based in filtered/full list
+        int px_idx = single_ch ? filtered_indices[clamped] : clamped;
         auto& gp = dl.pixels[px_idx];
 
         // 32× zoom + 해당 픽셀 중앙 정렬
@@ -1032,8 +1093,8 @@ static void render_diff_listing_window(AppState& state) {
         }
 
         // 목록도 해당 위치로 이동
-        dl.start_from = px_idx;
-        dl.list_from_num = px_idx + 1;
+        dl.start_from = clamped;
+        dl.list_from_num = clamped + 1;
     }
 
     // Prev / Next 네비게이션

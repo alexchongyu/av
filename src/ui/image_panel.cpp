@@ -444,6 +444,9 @@ static void compute_diff_pixel_list(
 
     listing.pixels.clear();
     listing.identical = true;
+    listing.identical_r = true;
+    listing.identical_g = true;
+    listing.identical_b = true;
     listing.computed  = true;
     listing.cache_img_a_w = imgA.width;  listing.cache_img_a_h = imgA.height;
     listing.cache_img_b_w = imgB.width;  listing.cache_img_b_h = imgB.height;
@@ -470,6 +473,9 @@ static void compute_diff_pixel_list(
                 int db = std::abs((int)pA[offA+2] - (int)pB[offB+2]);
                 if (dr != 0 || dg != 0 || db != 0) {
                     listing.identical = false;
+                    if (dr != 0) listing.identical_r = false;
+                    if (dg != 0) listing.identical_g = false;
+                    if (db != 0) listing.identical_b = false;
                     listing.pixels.push_back({
                         x, y,
                         (int)pA[offA+0], (int)pA[offA+1], (int)pA[offA+2],
@@ -498,6 +504,9 @@ static void compute_diff_pixel_list(
                 int db = std::abs(ab - bb);
                 if (dr != 0 || dg != 0 || db != 0) {
                     listing.identical = false;
+                    if (dr != 0) listing.identical_r = false;
+                    if (dg != 0) listing.identical_g = false;
+                    if (db != 0) listing.identical_b = false;
                     listing.pixels.push_back({
                         x, y, ar, ag, ab, br, bg, bb, dr, dg, db
                     });
@@ -517,6 +526,9 @@ static void compute_diff_pixel_list(
                 int db = std::abs((int)pA[offA+2] - (int)pB[offB+2]);
                 if (dr != 0 || dg != 0 || db != 0) {
                     listing.identical = false;
+                    if (dr != 0) listing.identical_r = false;
+                    if (dg != 0) listing.identical_g = false;
+                    if (db != 0) listing.identical_b = false;
                     listing.pixels.push_back({
                         x, y,
                         pA[offA+0], pA[offA+1], pA[offA+2],
@@ -762,20 +774,28 @@ void ImagePanel::render_diff_software(AppState& state) {
     if (vp.zoom >= 32.0f && imgA.loaded && imgB.loaded)
         render_diff_pixel_values(state, widget_pos, pw, ph);
 
-    // "Identical" overlay when images are the same
-    if (state.diff_listing.identical && state.diff.mode != DiffState::Mode::None) {
-        ImDrawList* dl = ImGui::GetForegroundDrawList();
-        const char* label = "Identical";
-        float base_size = ImGui::GetFontSize();
-        ImVec2 base_text = ImGui::CalcTextSize(label);
-        float target_w = pw * 0.7f;
-        float scale = target_w / base_text.x;
-        float font_size = std::min(base_size * scale, 200.0f);
-        ImVec2 text_sz = ImGui::GetFont()->CalcTextSizeA(font_size, FLT_MAX, 0.0f, label);
-        float tx = widget_pos.x + (pw - text_sz.x) * 0.5f;
-        float ty = widget_pos.y + (ph - text_sz.y) * 0.5f;
-        dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx+2, ty+2), IM_COL32(0,0,0,160), label);
-        dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx, ty), IM_COL32(0,255,120,220), label);
+    // "Identical" overlay when images are the same (channel-aware)
+    {
+        bool ch_identical = state.diff_listing.identical;
+        if (!ch_identical && state.channel_mode != ChannelMode::RGB) {
+            if (state.channel_mode == ChannelMode::Red)   ch_identical = state.diff_listing.identical_r;
+            if (state.channel_mode == ChannelMode::Green) ch_identical = state.diff_listing.identical_g;
+            if (state.channel_mode == ChannelMode::Blue)  ch_identical = state.diff_listing.identical_b;
+        }
+        if (ch_identical && state.diff.mode != DiffState::Mode::None) {
+            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            const char* label = "Identical";
+            float base_size = ImGui::GetFontSize();
+            ImVec2 base_text = ImGui::CalcTextSize(label);
+            float target_w = pw * 0.7f;
+            float scale = target_w / base_text.x;
+            float font_size = std::min(base_size * scale, 200.0f);
+            ImVec2 text_sz = ImGui::GetFont()->CalcTextSizeA(font_size, FLT_MAX, 0.0f, label);
+            float tx = widget_pos.x + (pw - text_sz.x) * 0.5f;
+            float ty = widget_pos.y + (ph - text_sz.y) * 0.5f;
+            dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx+2, ty+2), IM_COL32(0,0,0,160), label);
+            dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx, ty), IM_COL32(0,255,120,220), label);
+        }
     }
 
     update_mouse_constraint(state, 0, widget_pos, pw, ph,
@@ -2149,20 +2169,28 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
         render_diff_pixel_values(state, widget_pos, pw, ph);
     }
 
-    // "Identical" overlay when images are the same
-    if (state.diff_listing.identical && state.diff.mode != DiffState::Mode::None) {
-        ImDrawList* dl = ImGui::GetForegroundDrawList();
-        const char* label = "Identical";
-        float base_size = ImGui::GetFontSize();
-        ImVec2 base_text = ImGui::CalcTextSize(label);
-        float target_w = pw * 0.7f;
-        float scale = target_w / base_text.x;
-        float font_size = std::min(base_size * scale, 200.0f);
-        ImVec2 text_sz = ImGui::GetFont()->CalcTextSizeA(font_size, FLT_MAX, 0.0f, label);
-        float tx = widget_pos.x + (pw - text_sz.x) * 0.5f;
-        float ty = widget_pos.y + (ph - text_sz.y) * 0.5f;
-        dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx+2, ty+2), IM_COL32(0,0,0,160), label);
-        dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx, ty), IM_COL32(0,255,120,220), label);
+    // "Identical" overlay when images are the same (channel-aware)
+    {
+        bool ch_identical = state.diff_listing.identical;
+        if (!ch_identical && state.channel_mode != ChannelMode::RGB) {
+            if (state.channel_mode == ChannelMode::Red)   ch_identical = state.diff_listing.identical_r;
+            if (state.channel_mode == ChannelMode::Green) ch_identical = state.diff_listing.identical_g;
+            if (state.channel_mode == ChannelMode::Blue)  ch_identical = state.diff_listing.identical_b;
+        }
+        if (ch_identical && state.diff.mode != DiffState::Mode::None) {
+            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            const char* label = "Identical";
+            float base_size = ImGui::GetFontSize();
+            ImVec2 base_text = ImGui::CalcTextSize(label);
+            float target_w = pw * 0.7f;
+            float scale = target_w / base_text.x;
+            float font_size = std::min(base_size * scale, 200.0f);
+            ImVec2 text_sz = ImGui::GetFont()->CalcTextSizeA(font_size, FLT_MAX, 0.0f, label);
+            float tx = widget_pos.x + (pw - text_sz.x) * 0.5f;
+            float ty = widget_pos.y + (ph - text_sz.y) * 0.5f;
+            dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx+2, ty+2), IM_COL32(0,0,0,160), label);
+            dl->AddText(ImGui::GetFont(), font_size, ImVec2(tx, ty), IM_COL32(0,255,120,220), label);
+        }
     }
 
     update_mouse_constraint(state, 0, widget_pos, pw, ph,
