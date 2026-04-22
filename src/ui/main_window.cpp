@@ -748,6 +748,53 @@ void MainWindow::render_menubar(AppState& state) {
     ImGui::EndMenuBar();
 }
 
+// ─── render_copy_mode_overlay ─────────────────────────────────────────────────
+// Shows hint banner while Ctrl/Cmd+C copy mode awaits 1/2/3, and a brief
+// "Copied" toast after successful copy. Also enforces a 5-second timeout.
+
+static void render_copy_mode_overlay(AppState& state) {
+    double now = ImGui::GetTime();
+
+    // Timeout: silently drop mode after 5 seconds.
+    if (state.copy_mode.active && (now - state.copy_mode.started_at) > 5.0) {
+        state.copy_mode.reset();
+    }
+
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+
+    auto draw_banner = [&](const char* text, ImU32 bg, ImU32 fg) {
+        ImFont* font = ImGui::GetFont();
+        float font_size = 22.0f;
+        ImVec2 text_sz = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text);
+        float pad_x = 24.0f, pad_y = 12.0f;
+        float bw = text_sz.x + pad_x * 2.0f;
+        float bh = text_sz.y + pad_y * 2.0f;
+        float bx = vp->WorkPos.x + (vp->WorkSize.x - bw) * 0.5f;
+        float by = vp->WorkPos.y + vp->WorkSize.y - bh - 40.0f;
+        dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + bw, by + bh), bg, 6.0f);
+        dl->AddRect      (ImVec2(bx, by), ImVec2(bx + bw, by + bh), fg, 6.0f, 0, 1.5f);
+        dl->AddText(font, font_size, ImVec2(bx + pad_x, by + pad_y), fg, text);
+    };
+
+    if (state.copy_mode.active) {
+        draw_banner("Copy:  1 = A    2 = B    3 = Diff    (Esc to cancel)",
+                    IM_COL32(20, 20, 30, 210), IM_COL32(255, 220, 80, 255));
+        return;
+    }
+
+    if (state.copy_mode.last_copied >= 0 && now < state.copy_mode.toast_until) {
+        const char* label =
+            (state.copy_mode.last_copied == 0) ? "Copied: Image A" :
+            (state.copy_mode.last_copied == 1) ? "Copied: Image B" :
+                                                  "Copied: Diff image";
+        draw_banner(label,
+                    IM_COL32(10, 40, 20, 210), IM_COL32(120, 255, 160, 255));
+    } else if (state.copy_mode.last_copied >= 0) {
+        state.copy_mode.last_copied = -1;  // clear once toast expires
+    }
+}
+
 // ─── render_hotkey_help_window ────────────────────────────────────────────────
 
 static void render_hotkey_help_window(AppState& state) {
@@ -848,6 +895,10 @@ static void render_hotkey_help_window(AppState& state) {
         { "File", "Shift+Ctrl+O",                  "Open image file" },
         { "File", "Shift+Ctrl+S",                  "Save dialog" },
         { "File", "Q",                             "Quit" },
+        // Copy
+        { "Copy", "Ctrl/Cmd+C, then 1",            "Copy Image A to clipboard as PNG" },
+        { "Copy", "Ctrl/Cmd+C, then 2",            "Copy Image B to clipboard as PNG" },
+        { "Copy", "Ctrl/Cmd+C, then 3",            "Copy Diff image to clipboard as PNG" },
         // Help
         { "Help", "Ctrl+Shift+H",                  "Toggle this hotkey reference" },
         // CLI Options
@@ -1474,6 +1525,7 @@ void MainWindow::render(AppState& state) {
     render_scatter_plot_window(state);
     render_hotkey_help_window(state);
     render_diff_listing_window(state);
+    render_copy_mode_overlay(state);
 
     // ── Open Images window ────────────────────────────────────────────────────
     render_open_images_window(state);

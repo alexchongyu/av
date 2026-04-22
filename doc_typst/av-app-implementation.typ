@@ -3267,15 +3267,237 @@ pixel_format=0
 - `save_app_ini()`: 메인 루프 종료 후, 정리 전에 실행
 
 // ──────────────────────────────────────────────
+// Ch 13 — Phase 7: v0.15–v0.17 기능 확장
+// ──────────────────────────────────────────────
+
+= Phase 7: v0.15\~v0.17 기능 확장
+
+v0.15에서 Magnifier 도구와 마우스 제한 기능이 추가되었고, v0.17에서 경계 off\-by\-one 버그가 수정되었다.
+
+== Magnifier (돋보기) <sec-magnifier>
+
+`Ctrl+M` 토글로 제어하는 16×16 픽셀 영역 확대 툴팁이다. 마우스 커서 근처의 이미지 픽셀을 32배 확대하여 표시한다.
+
+=== 상태 필드
+
+`AppState::magnifier_active` (bool, 기본값 `true`) — 매그니파이어 활성 여부. `av.ini`에 `magnifier_active=0|1`로 영속화된다.
+
+=== 동작 조건
+
+- `magnifier_active == true`
+- 커서가 이미지 패널 위에 있을 때 (`img_hovered`)
+- 줌 배율이 32× 미만일 때 (32× 이상에서는 개별 픽셀이 충분히 커서 자동 숨김)
+
+=== 렌더링 방식
+
+`ImagePanel::render_magnifier()` 함수에서 구현한다. 커서 위치를 스크린 좌표에서 이미지 좌표로 변환한 뒤, 중심 픽셀 주변 16×16 영역을 `ImDrawList`로 32×32 크기의 셀로 확대 렌더링한다.
+
+```cpp
+int center_x = static_cast<int>(std::floor(img_fx));
+int center_y = static_cast<int>(std::floor(img_fy));
+```
+
+이미지 범위 밖의 셀은 체커보드 패턴으로 표시하고, 중심 픽셀은 흰색 테두리로 하이라이트한다. 마우스 오른쪽 아래에 배치하되, 화면 밖으로 나가면 반대쪽으로 자동 조정한다.
+
+=== 키 바인딩
+
+#figure(
+  table(
+    columns: (1.5fr, 3fr),
+    align: (left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*키*][*동작*],
+    [`Ctrl+M`], [Magnifier 토글 (av.ini 영속화)],
+  ),
+  caption: [Magnifier 키 바인딩],
+)
+
+== 마우스 제한 (Mouse Constraint) <sec-mouse-constraint>
+
+Magnifier 활성 상태에서 `Ctrl` 키를 홀드하면, SDL의 `SDL_SetWindowMouseRect()`를 사용하여 마우스 커서를 이미지 경계 내부로 제한한다. 이를 통해 픽셀 단위 정밀 검사 시 커서가 이미지 영역을 벗어나지 않는다.
+
+=== 상태 필드
+
+`AppState::mouse_constrained` (bool) — 마우스 제한이 활성화되어 있는지 여부. `Ctrl` 릴리스 또는 `magnifier_active` 비활성 시 해제된다.
+
+=== 제한 영역 계산
+
+`ImagePanel::update_mouse_constraint()` 함수에서 이미지의 스크린 상 바운딩 박스를 계산한다.
+
+```cpp
+float x0 = widget_pos.x + (pan_x - half_iw) * zoom + half_vw;
+float y0 = widget_pos.y + (pan_y - half_ih) * zoom + half_vh;
+float x1 = x0 + img_w * zoom;
+float y1 = y0 + img_h * zoom;
+```
+
+이 영역을 위젯 경계와 교차시켜 `SDL_Rect`를 구성한다.
+
+=== 해제 조건
+
+- `Ctrl` 키 릴리스 (`main_window.cpp`에서 감지)
+- `Ctrl+M`으로 magnifier 비활성화 시 (`app.cpp` 키 핸들러)
+
+두 경우 모두 `SDL_SetWindowMouseRect(window, nullptr)`를 호출하여 제한을 해제한다.
+
+=== A/B 패널 간 간섭 방지
+
+듀얼 패널 모드에서 비활성 패널의 `update_mouse_constraint()`가 활성 패널의 제한을 해제하지 않도록, `img_hovered`가 `false`이고 이미 제한이 설정되어 있으면 해당 패널은 제한 해제를 건너뛴다.
+
+== 마우스 제한 경계 Off\-by\-one 수정 (v0.17) <sec-constraint-offbyone>
+
+0.5× 줌 등 축소 상태에서 마우스 제한 영역이 이미지 가장자리 픽셀에 도달하지 못하는 off\-by\-one 버그를 수정했다.
+
+=== 근본 원인
+
+줌 < 1×에서 하나의 스크린 픽셀이 여러 이미지 픽셀을 커버한다. `floor()` 좌표 변환은 커버 범위의 첫 번째 픽셀만 선택하므로, 이미지 마지막 픽셀이 스크린 픽셀 경계의 소수점 위치에 해당하면 도달 불가능해진다.
+
+*예시* (img\_w\=1080, zoom\=0.5):
+- 마지막 스크린 좌표 1139에서: `img_fx = (1139\-600)/0.5 = 1078.0` → `floor(1078) = 1078`
+- 픽셀 1079는 스크린 위치 1139.5에 해당하여 정수 좌표로 도달 불가
+
+=== 수정 내용
+
+3개 함수에 걸친 수정:
+
++ *`update_mouse_constraint()`*: 좌/상 경계에 `floor()`, 우/하 경계에 `floor()+1`을 사용하여 이미지를 부분적으로라도 커버하는 스크린 픽셀을 모두 포함. 위젯 경계 clamp로 초과 방지.
+
++ *`render_magnifier()`*: `mouse_constrained` 모드에서 `center_x/y`를 `std::clamp(center_x, 0, img_w\-1)`로 클램핑. 확장된 영역 끝에서 `floor()` 결과가 `img_w`가 되는 경우를 마지막 유효 픽셀로 보정.
+
++ *`render_crosshair()`*: 동일하게 `mouse_constrained` 모드에서 `img_x/y`를 클램핑하여 좌표 라벨이 마지막 픽셀까지 표시.
+
+=== 줌 레벨별 영향
+
+#figure(
+  table(
+    columns: (1fr, 2fr, 2fr),
+    align: (center, left, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*줌*][*확장 효과*][*영향*],
+    [0.25×], [경계 1px 확장, 클램핑 적용], [마지막 픽셀 도달 가능],
+    [0.5×], [경계 1px 확장, 클램핑 적용], [주요 수정 대상],
+    [1.0×], [x1이 정수 → 1px 확장], [무해 (동일 픽셀)],
+    [2.0×], [x1이 정수 → 1px 확장], [무해 (이미 도달 가능)],
+  ),
+  caption: [줌 레벨별 off\-by\-one 수정 영향],
+)
+
+== PPM P5/P6 16\-bit 바이너리 로더
+
+자체 PPM 파서에 P5(PGM)/P6(PPM) 바이너리 포맷의 16\-bit 로딩을 추가하여, maxval > 255인 이미지의 원본 정밀도를 보존한다.
+
+=== 구현
+
+`image_loader.cpp`의 `load_ppm_raw()` 함수에서 헤더의 maxval이 255 초과이면 빅엔디안 2바이트씩 읽어 16\-bit 값을 `pixels_orig` 벡터에 저장한다. 표시용 8\-bit RGBA 버퍼(`pixels`)에는 `value * 255 / maxval`로 다운스케일한 값을 저장하고, 픽셀값 표시에서는 `pixels_orig`의 원본값을 사용한다.
+
+== 전체 토글 옵션 av.ini 영속화
+
+기존 `show_borders`, `pixel_format`에 더하여 모든 토글 옵션을 `av.ini`에 영속화한다.
+
+=== 추가 영속화 필드
+
+#figure(
+  table(
+    columns: (2fr, 1fr, 3fr),
+    align: (left, center, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*INI 키*][*기본값*][*설명*],
+    [`magnifier_active`], [`1`], [Magnifier 토글 상태],
+    [`show_crosshair`], [`0`], [Crosshair 오버레이],
+    [`show_ui`], [`1`], [UI 표시],
+    [`show_info`], [`1`], [정보 패널],
+    [`show_pixel_balloon`], [`0`], [픽셀 풍선말],
+    [`show_pathfinder`], [`0`], [Pathfinder 미니맵],
+    [`show_schematic`], [`0`], [Schematic 모드],
+    [`sync_viewports`], [`1`], [뷰포트 동기화],
+  ),
+  caption: [av.ini 영속화 대상 토글 옵션],
+)
+
+#pagebreak()
+
+= Phase 8: v0.20 클립보드 복사 기능
+
+== Image Copy Mode (Ctrl/Cmd+C → 1/2/3)
+
+두 이미지 중 하나 또는 Diff 이미지를 PNG 형식으로 시스템 클립보드에 복사하는 2단계 키 시퀀스 기능을 추가하였다. 기존에는 우클릭 컨텍스트 메뉴의 "Copy to Clipboard" 만 제공했으나, 키보드만으로 빠르게 복사할 수 있는 경로가 필요했다.
+
+=== UX 시퀀스
+
++ 사용자가 #raw("Ctrl+C") (Linux/Windows) 또는 #raw("Cmd+C") (macOS) 를 누르면 화면 하단 중앙에 힌트 배너가 표시된다.
++ 힌트: *Copy: 1 = A, 2 = B, 3 = Diff (Esc to cancel)*
++ 이어서 #raw("1") / #raw("2") / #raw("3") 중 하나를 누르면 해당 이미지가 PNG로 클립보드에 복사되고, 1.5초간 "Copied: …" 토스트가 표시된다.
++ #raw("Esc") 또는 그 외 키를 누르면 모드가 취소된다.
++ 5초 타임아웃 후 자동 해제.
+
+=== 상태 구조 (`AppState::CopyModeState`)
+
+#figure(
+  table(
+    columns: (2fr, 1fr, 3fr),
+    align: (left, center, left),
+    fill: (_, y) => if y == 0 { luma(225) } else if calc.odd(y) { luma(252) } else { white },
+    table.header[*필드*][*타입*][*용도*],
+    [`active`],     [`bool`],   [복사 모드 활성 여부],
+    [`started_at`], [`double`], [진입 시각 (`ImGui::GetTime()`). 5초 타임아웃 계산],
+    [`toast_until`],[`double`], ["Copied" 토스트 표시 종료 시각],
+    [`last_copied`],[`int`],    [0=A, 1=B, 2=Diff, -1=없음],
+  ),
+  caption: [복사 모드 상태 필드],
+)
+
+=== 키 이벤트 인터셉트
+
+`handle_keyboard()` 함수 시작부에서 `copy_mode.active` 를 검사하여:
+
+- #raw("1") / #raw("2") / #raw("3") (일반 및 keypad) → `clipboard_copy_image(state, target)` 호출 후 모드 리셋.
+- 그 외 키 → 모드 리셋만 수행, #raw("Esc") 는 스왑 없이 삼킴, 나머지는 정상 처리 진행 (fall-through).
+
+진입 조건은 #raw("SDL_SCANCODE_C") + #raw("(ctrl || gui)") 조합이며, `ImGui::GetIO().WantCaptureKeyboard` 가 참이면 (즉 텍스트 입력 포커스 중) 모드에 진입하지 않는다. 이는 텍스트 박스 안의 시스템 기본 복사 동작을 방해하지 않기 위함이다.
+
+=== 복사 로직 (`src/clipboard_image.{h,cpp}`)
+
+기존 `ImagePanel::copy_panel_to_clipboard()` 의 내부 로직을 자유 함수 `clipboard_copy_image(AppState&, int target_type)` 로 분리하여 UI 레이어 의존성을 제거하였다. 기존 메서드는 얇은 래퍼로 축소.
+
+함수는 `swap_images` 상태를 반영하여:
+
+- `target_type == 0` → `state.images[swap ? 1 : 0]` (A)
+- `target_type == 1` → `state.images[swap ? 0 : 1]` (B)
+- `target_type == 2` → `compute_diff_cpu(imgA, imgB, state.diff)` 로 현재 diff 모드 기준의 RGBA8 Diff 버퍼 생성
+
+RGBA 데이터를 `stbi_write_png_to_func` 로 메모리 PNG로 인코딩한 뒤, `SDL_SetClipboardData()` 로 `image/png` MIME 타입으로 클립보드에 등록한다. SDL3 가 macOS/Linux (X11 및 Wayland) / Windows 의 클립보드 관리자를 플랫폼 추상화하므로 별도 플랫폼 분기가 불필요하다.
+
+=== 오버레이 렌더링 (`render_copy_mode_overlay`)
+
+`main_window.cpp` 의 프레임 루프 말미에서 매 프레임 호출:
+
+- 타임아웃 검사: `now - started_at > 5.0` 이면 `reset()`.
+- `active` 이면 힌트 배너 그리기 (어두운 배경 + 노란 테두리/텍스트).
+- `last_copied >= 0 && now < toast_until` 이면 "Copied: …" 토스트 그리기 (어두운 녹색 배경 + 밝은 녹색 테두리).
+- 토스트 만료 후 `last_copied = -1` 로 초기화.
+
+ImGui 윈도우가 아닌 `GetForegroundDrawList()` 에 직접 그려 모든 UI 위에 표시된다.
+
+=== Linux 호환성
+
+모든 구성 요소가 이미 플랫폼 독립적이다:
+
+- `SDL_SetClipboardData()` — SDL3 X11/Wayland 백엔드가 자동 대응.
+- `stb_image_write.h` — 헤더 전용, 외부 의존성 없음.
+- 신설 `clipboard_image.cpp` 도 플랫폼 조건부 코드 없음.
+
+`CMakeLists.txt` 의 기존 #raw("if(UNIX AND NOT APPLE)") 분기와 AppImage 빌드 타깃이 그대로 적용된다.
+
+// ──────────────────────────────────────────────
 // 마무리 페이지
 // ──────────────────────────────────────────────
 
 #pagebreak()
 #align(center + horizon)[
   #text(size: 11pt, fill: luma(120))[
-    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.13 \
+    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.20 \
     #v(0.3em)
-    2026\-03\-16 \
+    2026\-04\-22 \
     #v(0.3em)
     이 문서는 av 이미지 뷰어/비교기의 완전한 구현 참조 문서입니다.
   ]

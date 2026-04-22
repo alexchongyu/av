@@ -73,7 +73,7 @@
 #align(center)[
   #text(size: 20pt, weight: "bold")[av #text(size: 12pt, weight: "regular", fill: luma(80))[\u{2014} Advanced Pixel Lens Cheat Sheet]]
   #v(0.15em)
-  #text(size: 8pt, fill: luma(120))[v0.14 \u{2014} 2026\-03\-17]
+  #text(size: 8pt, fill: luma(120))[v0.20 \u{2014} 2026\-04\-22]
 ]
 
 #v(0.3em)
@@ -247,6 +247,18 @@ av [image_a] [image_b] [options]
   [#key("Q")],             [종료],
 )
 
+*클립보드 복사 (2단계 키)*
+#table(
+  columns: (1.3fr, 2fr),
+  stroke: none,
+  inset: (x: 3pt, y: 1.5pt),
+  fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
+  [#key("Ctrl/Cmd+C") \u{2192} #key("1")], [Image A를 PNG로 복사],
+  [#key("Ctrl/Cmd+C") \u{2192} #key("2")], [Image B를 PNG로 복사],
+  [#key("Ctrl/Cmd+C") \u{2192} #key("3")], [Diff 이미지를 PNG로 복사],
+  [#key("Esc") / 5초 타임아웃],              [복사 모드 취소],
+)
+
 *기타*
 #table(
   columns: (1fr, 2.2fr),
@@ -277,10 +289,27 @@ av [image_a] [image_b] [options]
   [우클릭 드래그],       [영역 줌 (Drag\-to\-Zoom)],
   [스크롤 휠],           [줌 인/아웃],
   [ROI 모드 + 드래그],   [영역 선택 (통계/분석)],
+  [#key("Ctrl") 홀드 (Magnifier ON)], [마우스를 이미지 경계 내로 제한],
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SECTION 4: 지원 포맷
+// SECTION 4a: Magnifier
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#section("Magnifier (돋보기)")
+
+#table(
+  columns: (1.2fr, 2fr),
+  stroke: none,
+  inset: (x: 3pt, y: 2pt),
+  fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
+  [#key("Ctrl+M")],         [Magnifier 토글 (av.ini 영속화)],
+  [커서 호버],               [16×16 영역을 32배 확대 툴팁],
+  [줌 ≥ 32×],               [자동 숨김 (픽셀이 충분히 큼)],
+  [#key("Ctrl") 홀드],      [마우스를 이미지 경계로 제한],
+)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 4b: 지원 포맷
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #section("지원 포맷")
 

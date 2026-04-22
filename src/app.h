@@ -271,6 +271,16 @@ struct AppState {
     // ─── Feature: Diff Listing Window (Ctrl+D) ───────────────────────────
     DiffListingState diff_listing;
 
+    // ─── Feature: Image Copy Mode (Ctrl/Cmd+C → 1/2/3) ──────────────────
+    struct CopyModeState {
+        bool   active     = false;
+        double started_at = 0.0;   // ImGui::GetTime() on entry
+        double toast_until = 0.0;  // end time for "Copied" feedback toast
+        int    last_copied = -1;   // 0=A, 1=B, 2=Diff, -1=none
+        void reset() { active = false; started_at = 0.0; }
+    };
+    CopyModeState copy_mode;
+
     // ─── Feature: Slideshow ─────────────────────────────────────────────────
     struct SlideshowState {
         bool  active    = false;

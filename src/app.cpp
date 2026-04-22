@@ -2,8 +2,10 @@
 #include "viewport.h"
 #include "image_loader.h"
 #include "image_open.h"
+#include "clipboard_image.h"
 
 #include <SDL3/SDL.h>
+#include <imgui.h>
 
 #include <iostream>
 #include <fstream>
@@ -153,6 +155,28 @@ void apply_cli_options(AppState& state, const CliOptions& opts) {
 
 void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool alt, bool gui) {
     (void)alt;
+
+    // ── Copy mode (Ctrl/Cmd+C → 1/2/3) ────────────────────────────────────────
+    // When active, intercept digit keys for image copy and swallow other input.
+    if (state.copy_mode.active) {
+        int target = -1;
+        if (scancode == SDL_SCANCODE_1 || scancode == SDL_SCANCODE_KP_1) target = 0;
+        else if (scancode == SDL_SCANCODE_2 || scancode == SDL_SCANCODE_KP_2) target = 1;
+        else if (scancode == SDL_SCANCODE_3 || scancode == SDL_SCANCODE_KP_3) target = 2;
+
+        if (target >= 0) {
+            if (clipboard_copy_image(state, target)) {
+                state.copy_mode.last_copied = target;
+                state.copy_mode.toast_until = ImGui::GetTime() + 1.5;
+            }
+            state.copy_mode.reset();
+            return;
+        }
+        // Any other key (including Esc) cancels the mode.
+        state.copy_mode.reset();
+        if (scancode == SDL_SCANCODE_ESCAPE) return;
+        // Fall through so non-digit keys still perform their normal action.
+    }
 
     auto& vA = state.views[0];
     auto& vB = state.views[1];
@@ -459,6 +483,14 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         break;
     case SDL_SCANCODE_C:
         if (shift) state.channel_mode = ChannelMode::RGB;
+        else if ((ctrl || gui) && !alt && !ImGui::GetIO().WantTextInput) {
+            // Ctrl/Cmd+C: enter image copy mode (hint overlay + awaits 1/2/3)
+            // WantTextInput (not WantCaptureKeyboard): only block when an actual
+            // text-input widget is focused. Otherwise diff-mode panel focus would
+            // silently swallow the entry.
+            state.copy_mode.active = true;
+            state.copy_mode.started_at = ImGui::GetTime();
+        }
         break;
 
     // ── UI toggles ────────────────────────────────────────────────────────────

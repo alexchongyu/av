@@ -115,6 +115,7 @@ set(AV_SOURCES
     src/stb_impl.cpp
     src/image_save.cpp
     src/image_open.cpp
+    src/clipboard_image.cpp
     src/soft_renderer.cpp
     src/chart_export.cpp
     src/ui/main_window.cpp
