@@ -797,7 +797,8 @@ void ImagePanel::render_diff_software(AppState& state) {
             if (state.channel_mode == ChannelMode::Green) ch_identical = state.diff_listing.identical_g;
             if (state.channel_mode == ChannelMode::Blue)  ch_identical = state.diff_listing.identical_b;
         }
-        if (ch_identical && state.diff.mode != DiffState::Mode::None) {
+        if (ch_identical && state.diff.mode != DiffState::Mode::None
+                         && state.diff.mode != DiffState::Mode::AlphaBlend) {
             ImDrawList* dl = ImGui::GetForegroundDrawList();
             const char* label = "Identical";
             float base_size = ImGui::GetFontSize();
@@ -2154,7 +2155,8 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
             if (state.channel_mode == ChannelMode::Green) ch_identical = state.diff_listing.identical_g;
             if (state.channel_mode == ChannelMode::Blue)  ch_identical = state.diff_listing.identical_b;
         }
-        if (ch_identical && state.diff.mode != DiffState::Mode::None) {
+        if (ch_identical && state.diff.mode != DiffState::Mode::None
+                         && state.diff.mode != DiffState::Mode::AlphaBlend) {
             ImDrawList* dl = ImGui::GetForegroundDrawList();
             const char* label = "Identical";
             float base_size = ImGui::GetFontSize();
