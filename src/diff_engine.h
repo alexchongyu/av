@@ -28,7 +28,8 @@ public:
                 DiffState::Mode mode, float amplify,
                 ChannelMode channel,
                 int threshold = 0,
-                float enh_min = 0.0f, float enh_max = 0.0f);
+                float enh_min = 0.0f, float enh_max = 0.0f,
+                float alpha = 0.5f);
 
     bool valid() const { return shader_.valid(); }
 

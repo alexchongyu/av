@@ -73,7 +73,7 @@
 #align(center)[
   #text(size: 20pt, weight: "bold")[av #text(size: 12pt, weight: "regular", fill: luma(80))[\u{2014} Advanced Pixel Lens Cheat Sheet]]
   #v(0.15em)
-  #text(size: 8pt, fill: luma(120))[v0.21 \u{2014} 2026\-04\-23]
+  #text(size: 8pt, fill: luma(120))[v0.22 \u{2014} 2026\-04\-23]
 ]
 
 #v(0.3em)
@@ -153,23 +153,26 @@ av [image_a] [image_b] [options]
   inset: (x: 3pt, y: 1.5pt),
   fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
   [#key("Ctrl+D")], [None (diff 끄기)],
+  [#key("Ctrl+2")], [Alpha Blend (A·B 혼합)],
   [#key("Ctrl+3")], [Absolute diff],
   [#key("Ctrl+4")], [Relative diff],
-  [#key("Ctrl+5")], [False color],
-  [#key("Ctrl+6")], [SSIM],
-  [#key("Ctrl+7")], [Tolerance diff 토글],
-  [#key("Shift+]") / #key("Shift+[")], [Threshold +1 / \-1],
+  [#key("Ctrl+5")], [Enhance (remap)],
+  [#key("Ctrl+6")], [False color],
+  [#key("Ctrl+7")], [SSIM],
+  [#key("Ctrl+8")], [Tolerance diff 토글],
+  [#key("Ctrl+9")], [Highlight],
   [#key("Ctrl+\\")], [Threshold 리셋],
 )
 
-*Diff 증폭*
+*Diff 주 파라미터 (모드별)*
 #table(
-  columns: (1fr, 2.2fr),
+  columns: (1.2fr, 2.2fr),
   stroke: none,
   inset: (x: 3pt, y: 1.5pt),
   fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
-  [#key("[") / #key("]")], [증폭 \-0.5 / +0.5],
-  [#key("\\")],            [증폭 리셋 (1.0)],
+  [#key("[") / #key("]")],           [증폭 \u{2212}0.5 / +0.5 (AlphaBlend: alpha \u{2213}1%)],
+  [#key("Shift+[") / #key("Shift+]")], [Threshold \u{2213}1 (AlphaBlend: alpha \u{2213}10%)],
+  [#key("\\")],                      [증폭 리셋 (AlphaBlend: alpha=50%)],
 )
 
 *채널 선택*

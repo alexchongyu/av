@@ -42,10 +42,12 @@ struct DiffState {
         Highlight,
         FalseColor,
         SSIM,
-        Enhance       // Ctrl+5: [min,max] → [128,255] remap + auto magnifier
+        Enhance,      // Ctrl+5: [min,max] → [128,255] remap + auto magnifier
+        AlphaBlend    // Ctrl+2: diff 패널에 A·B 알파블렌딩
     };
     Mode  mode           = Mode::None;
     float amplify        = 1.0f;       // diff amplification factor
+    float alpha          = 0.5f;       // AlphaBlend 비율 (0=A만, 1=B만)
     float ssim_score     = -1.0f;      // -1 = not computed
     uintptr_t ssim_texture_id = 0;     // SSIM heatmap texture (GLuint or SDL_Texture*)
     bool  ssim_computing = false;

@@ -3585,6 +3585,105 @@ struct FilenameToastState {
 - *재진입 (빠른 연타)*: `filename_toast.until` 덮어쓰기만 하면 OK. `open_state` pending 은 한 프레임당 하나만 처리되므로 연타 시 최종 대상만 로드 \u{2014} UX 상 자연스러움.
 - *패널 스왑*: `sequences[]` 는 data slot 기준. `swap_images` 플래그는 시각 표시(A/B 라벨) 에만 영향, 내부 인덱싱과 분리.
 
+#pagebreak()
+
+= Phase 10: v0.22 Alpha Blend Diff Mode
+
+== 배경
+
+기존 diff 모드(PixelAbsolute, Relative, FalseColor, Highlight, SSIM, Enhance)는 모두 A와 B의 *차분* 을 다양하게 가공한다. 그러나 두 이미지의 *혼합* 비율을 자유롭게 조절하며 시각적으로 전환(cross\-fade) 하는 수요는 별도이며, 기존 Overlay (`O` 키)는 A/B 패널 자체를 대체하는 방식이다. Diff 패널(별도 canvas) 에서 A·B 를 선형 블렌드하는 새로운 diff 모드를 추가한다.
+
+== 설계
+
+=== DiffState 확장
+
+```cpp
+enum class Mode {
+    None, PixelAbsolute, PixelRelative, Highlight,
+    FalseColor, SSIM, Enhance,
+    AlphaBlend                       // NEW (Ctrl+2)
+};
+float alpha = 0.5f;                  // NEW: 0=A만, 1=B만
+```
+
+=== 블렌드 공식
+
+```
+out.rgb = (1 - alpha) · A.rgb  +  alpha · B.rgb
+```
+
+단일 uniform `u_alpha` 추가, GPU/CPU 양쪽에 `u_diff_mode == 5` 분기 구현.
+
+=== 키 매핑 (컨텍스트 전환)
+
+`[`/`]` 는 기존 "diff 모드의 주 파라미터 조절" 컨벤션을 따른다:
+
+#table(
+  columns: (1.5fr, 2fr, 2fr),
+  stroke: 0.3pt + luma(180),
+  inset: (x: 5pt, y: 3pt),
+  align: (left, left, left),
+  table.header[*키*][*일반 diff 모드*][*AlphaBlend 모드*],
+  [`[` / `]`],                 [amplify \u{2212}0.5 / +0.5],       [alpha \u{2212}1% / +1%],
+  [`Shift+[` / `Shift+]`],     [threshold \u{2212}1 / +1],         [alpha \u{2212}10% / +10%],
+  [`\`],                       [amplify = 1.0 리셋],               [alpha = 50% 리셋],
+  [`Ctrl+\`],                  [threshold = 0 리셋 (공통)],        [좌동],
+)
+
+화살표 키 대신 `[`/`]` 를 택한 이유는 기존 diff 파라미터 컨벤션의 *일관성* 때문이다. 화살표는 패닝과 충돌하며, 모드별 의미 전환 시 컨텍스트 파악이 더 어렵다.
+
+=== 렌더링
+
+*GPU* (`shader_sources.h` DIFF_FRAG_SRC):
+- `uniform float u_alpha` 추가.
+- `if (u_diff_mode == 5)` 분기에서 `mix(a.rgb, b.rgb, u_alpha)` 로 직접 계산.
+- 채널 필터 (`u_channel`) 는 기존과 동일하게 R/G/B 단일 채널 추출 지원.
+- Tolerance threshold 는 AlphaBlend 모드에서 무의미하므로 스킵 (`u_diff_mode != 5` 가드).
+
+*CPU* (`image_panel.cpp::cpu_render_diff`):
+- AlphaBlend 분기를 최상단에 추가 → `diff[]` 계산 자체를 건너뜀.
+- 나머지 diff 모드 분기는 `else { ... }` 블록으로 묶어 상호 배타.
+- Grid overlay 는 공통 처리 (zoom ≥ 16x).
+
+=== 비율 HUD
+
+Diff 패널 좌상단에 `A: 40%  —  B: 60%` 텍스트를 항상 표시 (AlphaBlend 모드 한정). 기존 `copy_mode_overlay` 와 동일한 `GetWindowDrawList()` 패턴 재사용, 20px 폰트, 반투명 배경.
+
+=== 단일 이미지 가드
+
+B 이미지가 로드되지 않은 상태에서 Ctrl+2 토글 시:
+```cpp
+if (mode == AlphaBlend && !(imgA.loaded && imgB.loaded)) {
+    filename_toast = "B image required for Alpha Blend";  // 1.8초 경고
+}
+```
+
+Diff 패널은 어차피 A+B 둘 다 필요하므로, 경고 후 토글 상태는 유지되지만 시각 효과는 없음.
+
+== 변경 파일
+
+#table(
+  columns: (2fr, 3fr),
+  stroke: 0.3pt + luma(180),
+  inset: (x: 6pt, y: 3pt),
+  align: (left, left),
+  table.header[*파일*][*변경 내용*],
+  [`src/app.h`],               [`DiffState::Mode::AlphaBlend` enum, `DiffState::alpha` 필드],
+  [`src/shader_sources.h`],    [DIFF_FRAG_SRC 에 `u_alpha` uniform + mode=5 분기],
+  [`src/app.cpp`],             [Ctrl+2 토글, `[`/`]`/`\` 컨텍스트 민감 처리, 단일 이미지 경고 토스트],
+  [`src/diff_engine.{h,cpp}`], [`render()` 시그니처에 `alpha` 추가, AlphaBlend mode_int=5, `u_alpha` uniform set],
+  [`src/ui/image_panel.{h,cpp}`], [`cpu_render_diff` 에 AlphaBlend 분기, 비율 HUD, 호출부 alpha 전달],
+  [`src/ui/main_window.cpp`],  [Help entries: Ctrl+2 + `[`/`]`/`\` 모드별 설명 갱신],
+)
+
+== 엣지 케이스
+
+- *A, B 크기 차이*: 기존 diff 렌더와 동일한 좌표계 사용 — `min(w_A, w_B)` 영역만 블렌드. out\-of\-bounds 는 기본 배경색.
+- *HDR (float32) vs LDR*: `sample_pixel()` 이 공통 추상화 — alpha mix 는 float 연산 후 clamp+255 스케일.
+- *Mode 전환 시 alpha 유지*: Ctrl+2 off → 다른 diff 모드 on → 다시 Ctrl+2 → 이전 `state.diff.alpha` 그대로 복귀.
+- *Channel 필터*: AlphaBlend 모드에서도 Shift+R/G/B 로 단일 채널 블렌드 가능 (셰이더 + CPU 양쪽 구현).
+- *Threshold 비호환*: AlphaBlend 모드는 threshold 적용 제외 (shader guard).
+
 // ──────────────────────────────────────────────
 // 마무리 페이지
 // ──────────────────────────────────────────────
@@ -3592,7 +3691,7 @@ struct FilenameToastState {
 #pagebreak()
 #align(center + horizon)[
   #text(size: 11pt, fill: luma(120))[
-    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.21 \
+    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.22 \
     #v(0.3em)
     2026\-04\-23 \
     #v(0.3em)

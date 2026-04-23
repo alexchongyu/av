@@ -261,7 +261,20 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         if (ctrl) {
             // ctrl+number: diff mode shortcuts
             int key_num = (scancode == SDL_SCANCODE_0) ? 0 : (scancode - SDL_SCANCODE_1 + 1);
-            if      (key_num == 3) {
+            if      (key_num == 2) {
+                state.diff.mode = (state.diff.mode == DiffState::Mode::AlphaBlend)
+                    ? DiffState::Mode::None : DiffState::Mode::AlphaBlend;
+                state.diff_listing.computed = false;
+                // B 미로드 상태에서 AlphaBlend 토글 시 경고 토스트
+                if (state.diff.mode == DiffState::Mode::AlphaBlend &&
+                    (!state.images[0].loaded || !state.images[1].loaded)) {
+                    state.filename_toast.filename = "B image required for Alpha Blend";
+                    state.filename_toast.panel    = 1;
+                    state.filename_toast.until    = ImGui::GetTime() + 1.8;
+                    state.filename_toast.failed   = true;
+                }
+            }
+            else if (key_num == 3) {
                 state.diff.mode = (state.diff.mode == DiffState::Mode::PixelAbsolute)
                     ? DiffState::Mode::None : DiffState::Mode::PixelAbsolute;
                 state.diff_listing.computed = false;
@@ -414,18 +427,26 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         }
         break;
 
-    // ── Diff amplify / Tolerance threshold ──────────────────────────────────
+    // ── Diff 주 파라미터 조절 ────────────────────────────────────────────────
+    // [ / ]: AlphaBlend 모드 → alpha ±1% (Shift: ±10%)
+    //        그 외 diff 모드 → amplify ±0.5 (Shift: threshold ±1)
+    // \    : AlphaBlend 모드 → alpha = 0.5 (Ctrl+\: threshold 0)
+    //        그 외 → amplify = 1.0
     case SDL_SCANCODE_LEFTBRACKET:
-        if (shift) {
-            // Shift+[: threshold -1
+        if (state.diff.mode == DiffState::Mode::AlphaBlend) {
+            float step = shift ? 0.10f : 0.01f;
+            state.diff.alpha = std::max(0.0f, state.diff.alpha - step);
+        } else if (shift) {
             state.diff.threshold = std::max(0, state.diff.threshold - 1);
         } else {
             state.diff.amplify = std::max(0.5f, state.diff.amplify - 0.5f);
         }
         break;
     case SDL_SCANCODE_RIGHTBRACKET:
-        if (shift) {
-            // Shift+]: threshold +1
+        if (state.diff.mode == DiffState::Mode::AlphaBlend) {
+            float step = shift ? 0.10f : 0.01f;
+            state.diff.alpha = std::min(1.0f, state.diff.alpha + step);
+        } else if (shift) {
             state.diff.threshold = std::min(255, state.diff.threshold + 1);
         } else {
             state.diff.amplify = std::min(100.0f, state.diff.amplify + 0.5f);
@@ -433,8 +454,9 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         break;
     case SDL_SCANCODE_BACKSLASH:
         if (ctrl) {
-            // Ctrl+\: reset threshold
             state.diff.threshold = 0;
+        } else if (state.diff.mode == DiffState::Mode::AlphaBlend) {
+            state.diff.alpha = 0.5f;
         } else {
             state.diff.amplify = 1.0f;
         }

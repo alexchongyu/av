@@ -86,6 +86,7 @@ uniform int   u_channel;     // 0=RGB, 1=R, 2=G, 3=B
 uniform int   u_threshold;  // 0=disabled; diff > threshold/255 => highlight
 uniform float u_enhance_min;   // normalized [0,1]
 uniform float u_enhance_max;   // normalized [0,1]
+uniform float u_alpha;         // AlphaBlend (mode 5) 비율: 0=A만, 1=B만
 
 in  vec2 v_uv;
 out vec4 out_color;
@@ -120,7 +121,13 @@ void main() {
     }
 
     vec3 result;
-    if (u_diff_mode == 3) {    // Highlight
+    if (u_diff_mode == 5) {    // AlphaBlend: A·B 선형 혼합
+        vec3 blend = mix(a.rgb, b.rgb, u_alpha);
+        if      (u_channel == 1) result = vec3(blend.r);
+        else if (u_channel == 2) result = vec3(blend.g);
+        else if (u_channel == 3) result = vec3(blend.b);
+        else                     result = blend;
+    } else if (u_diff_mode == 3) {    // Highlight
         float max_d;
         if (u_channel == 1) max_d = diff.r;
         else if (u_channel == 2) max_d = diff.g;
@@ -164,8 +171,8 @@ void main() {
 
     out_color = vec4(result, 1.0);
 
-    // Tolerance threshold: suppress pixels below threshold
-    if (u_threshold > 0) {
+    // Tolerance threshold: suppress pixels below threshold (AlphaBlend 모드 제외)
+    if (u_threshold > 0 && u_diff_mode != 5) {
         float th = float(u_threshold) / 255.0;
         float max_diff;
         if (u_channel == 1)      max_diff = diff.r;

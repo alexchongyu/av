@@ -322,7 +322,8 @@ void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
                                   int view_w, int view_h,
                                   DiffState::Mode mode, float amplify,
                                   ChannelMode channel,
-                                  float enh_min, float enh_max) {
+                                  float enh_min, float enh_max,
+                                  float alpha) {
     float half_vw = view_w * 0.5f, half_vh = view_h * 0.5f;
     float half_iw = imgA.width * 0.5f, half_ih = imgA.height * 0.5f;
 
@@ -340,6 +341,18 @@ void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
             float a[4], b_val[4];
             sample_pixel(imgA, img_fx, img_fy, vp.zoom, a);
             sample_pixel(imgB, img_fx, img_fy, vp.zoom, b_val);
+
+            // AlphaBlend: diff 계산을 건너뛰고 단순 선형 혼합
+            if (mode == DiffState::Mode::AlphaBlend) {
+                float blend[3];
+                for (int c = 0; c < 3; ++c)
+                    blend[c] = std::clamp((1.0f - alpha) * a[c] + alpha * b_val[c], 0.0f, 1.0f);
+                if      (channel == ChannelMode::Red)   { dst[0]=dst[1]=dst[2] = (uint8_t)(blend[0]*255); }
+                else if (channel == ChannelMode::Green) { dst[0]=dst[1]=dst[2] = (uint8_t)(blend[1]*255); }
+                else if (channel == ChannelMode::Blue)  { dst[0]=dst[1]=dst[2] = (uint8_t)(blend[2]*255); }
+                else { dst[0]=(uint8_t)(blend[0]*255); dst[1]=(uint8_t)(blend[1]*255); dst[2]=(uint8_t)(blend[2]*255); }
+                dst[3] = 255;
+            } else {
 
             float diff[3] = { std::fabs(a[0]-b_val[0]), std::fabs(a[1]-b_val[1]), std::fabs(a[2]-b_val[2]) };
 
@@ -405,6 +418,7 @@ void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
                 else { r = std::clamp(d[0], 0.0f, 1.0f); g = std::clamp(d[1], 0.0f, 1.0f); b_out = std::clamp(d[2], 0.0f, 1.0f); }
                 dst[0] = (uint8_t)(r*255); dst[1] = (uint8_t)(g*255); dst[2] = (uint8_t)(b_out*255); dst[3] = 255;
             }
+            } // end of else (not AlphaBlend)
 
             // Grid overlay (no channel filter needed — already applied in diff logic)
             if (vp.zoom >= 16.0f) {
@@ -2065,7 +2079,8 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
                          state.diff.mode, state.diff.amplify,
                          state.channel_mode,
                          state.diff.threshold,
-                         enh_min_f, enh_max_f);
+                         enh_min_f, enh_max_f,
+                         state.diff.alpha);
     fbo_.unbind();
 
     // Highlight mode: count non-zero diff pixels (CPU-side, no GPU readback)
@@ -2107,6 +2122,28 @@ void ImagePanel::render_diff(AppState& state, DiffRenderer& diff_renderer) {
 
     if (vp.zoom >= 32.0f && imgA.loaded && imgB.loaded) {
         render_diff_pixel_values(state, widget_pos, pw, ph);
+    }
+
+    // AlphaBlend mode: 비율 HUD (diff 패널 좌상단)
+    if (state.diff.mode == DiffState::Mode::AlphaBlend) {
+        int pct_b = static_cast<int>(std::round(state.diff.alpha * 100.0f));
+        int pct_a = 100 - pct_b;
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "A: %d%%  —  B: %d%%", pct_a, pct_b);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImFont* font = ImGui::GetFont();
+        float fs = 20.0f;
+        ImVec2 ts = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, buf);
+        float px = widget_pos.x + 12.0f;
+        float py = widget_pos.y + 12.0f;
+        float pad = 8.0f;
+        dl->AddRectFilled(ImVec2(px - pad, py - pad/2),
+                          ImVec2(px + ts.x + pad, py + ts.y + pad/2),
+                          IM_COL32(15, 20, 30, 210), 4.0f);
+        dl->AddRect(ImVec2(px - pad, py - pad/2),
+                    ImVec2(px + ts.x + pad, py + ts.y + pad/2),
+                    IM_COL32(120, 200, 255, 255), 4.0f, 0, 1.5f);
+        dl->AddText(font, fs, ImVec2(px, py), IM_COL32(220, 240, 255, 255), buf);
     }
 
     // "Identical" overlay when images are the same (channel-aware)

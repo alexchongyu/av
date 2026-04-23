@@ -76,7 +76,8 @@ private:
                          int view_w, int view_h,
                          DiffState::Mode mode, float amplify,
                          ChannelMode channel,
-                         float enh_min = 0.0f, float enh_max = 0.0f);
+                         float enh_min = 0.0f, float enh_max = 0.0f,
+                         float alpha = 0.5f);
     void cpu_render_overlay(const ImageEntry& imgA, const ImageEntry& imgB,
                             const ViewportState& vp, uint8_t* buf,
                             int view_w, int view_h,
