@@ -61,6 +61,15 @@ if [[ ! -f "$BINARY" ]]; then
     exit 1
 fi
 echo "    바이너리: $BINARY  ($(du -sh "$BINARY" | cut -f1))"
+
+# ── AppImage 파일명에 현재 버전 주입 (av --version 으로부터 추출) ─────────────
+AV_VER="$("$BINARY" --version 2>/dev/null | awk '{print $2}' || true)"
+if [[ -n "$AV_VER" ]]; then
+    OUTPUT="$BIN_DIR/av-${AV_VER}-${LD_ARCH}.AppImage"
+    echo "    버전:    ${AV_VER}  →  $(basename "$OUTPUT")"
+else
+    echo "    경고: av --version 추출 실패, 기본 파일명 사용 → $(basename "$OUTPUT")"
+fi
 echo ""
 
 # ── [2/5] 빌드 도구 다운로드 ─────────────────────────────────────────────────

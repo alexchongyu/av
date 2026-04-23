@@ -13,12 +13,15 @@ if(NOT DEFINED SOURCE_DIR OR NOT DEFINED OUT_HEADER OR NOT DEFINED OUT_TYPST OR 
     message(FATAL_ERROR "GenVersion: missing -D SOURCE_DIR / OUT_HEADER / OUT_TYPST / FALLBACK")
 endif()
 
+# 우선순위: (1) .git + git describe → (2) VERSION.txt (오프라인 동기용)
+#          → (3) FALLBACK (CMakeLists.txt 의 AV_VERSION_FALLBACK)
 find_package(Git QUIET)
 
-set(GIT_VERSION "${FALLBACK}")
+set(GIT_VERSION "")
 set(GIT_DATE    "")
 
-if(Git_FOUND)
+# (1) .git 이 있으면 git describe 사용
+if(Git_FOUND AND EXISTS "${SOURCE_DIR}/.git")
     execute_process(
         COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty --match "v*"
         WORKING_DIRECTORY ${SOURCE_DIR}
@@ -40,6 +43,20 @@ if(Git_FOUND)
     )
 endif()
 
+# (2) VERSION.txt (오프라인 동기 시나리오 — 맥의 sync-linux.sh 가 생성 후 전송)
+if("${GIT_VERSION}" STREQUAL "" AND EXISTS "${SOURCE_DIR}/VERSION.txt")
+    file(READ "${SOURCE_DIR}/VERSION.txt" GIT_VERSION)
+    string(STRIP "${GIT_VERSION}" GIT_VERSION)
+endif()
+if("${GIT_DATE}" STREQUAL "" AND EXISTS "${SOURCE_DIR}/VERSION_DATE.txt")
+    file(READ "${SOURCE_DIR}/VERSION_DATE.txt" GIT_DATE)
+    string(STRIP "${GIT_DATE}" GIT_DATE)
+endif()
+
+# (3) 최종 fallback
+if("${GIT_VERSION}" STREQUAL "")
+    set(GIT_VERSION "${FALLBACK}")
+endif()
 if("${GIT_DATE}" STREQUAL "")
     string(TIMESTAMP GIT_DATE "%Y-%m-%d")
 endif()
