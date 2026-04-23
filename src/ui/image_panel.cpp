@@ -57,12 +57,13 @@ bool ImagePanel::init() {
     return true;
 }
 
-// Forward declaration
+// Forward declaration. `active` = 활성 패널 강조 (더 두꺼운 선 + 밝은 색).
 static void draw_image_border(ImDrawList* dl, ImVec2 widget_pos,
                                float view_w, float view_h,
                                float img_w,  float img_h,
                                float pan_x,  float pan_y, float zoom,
-                               ImU32 border_col);
+                               ImU32 border_col,
+                               bool  active = false);
 
 // ─── Software renderer helpers ─────────────────────────────────────────────────
 
@@ -229,7 +230,8 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
                           static_cast<float>(pw), static_cast<float>(ph),
                           static_cast<float>(img.width), static_cast<float>(img.height),
                           vp.pan_x, vp.pan_y, vp.zoom,
-                          static_cast<ImU32>(state.border_colors[panel_idx]));
+                          static_cast<ImU32>(state.border_colors[panel_idx]),
+                          /*active=*/ panel_idx == state.active_panel);
 
     if (state.roi.has_roi || state.roi.dragging) {
         render_roi_overlay(state, panel_idx, widget_pos, pw, ph,
@@ -968,17 +970,21 @@ void ImagePanel::handle_mouse_pan(AppState& state, int panel_idx) {
         }
     }
 
-    // Scroll to zoom
+    // Scroll to zoom — Alt+Wheel: 시퀀스 네비게이션 (커서 아래 패널 대상)
     if (ImGui::IsItemHovered()) {
         float wheel = ImGui::GetIO().MouseWheel;
         if (wheel != 0.0f) {
-            auto& v = state.views[panel_idx];
-            if (wheel > 0) viewport_zoom_in(v);
-            else           viewport_zoom_out(v);
-            if (state.sync_viewports) {
-                auto& ov = state.views[1 - panel_idx];
-                ov.zoom = v.zoom;
-                ov.fit  = false;
+            if (ImGui::GetIO().KeyAlt) {
+                sequence_navigate(state, panel_idx, (wheel > 0) ? +1 : -1);
+            } else {
+                auto& v = state.views[panel_idx];
+                if (wheel > 0) viewport_zoom_in(v);
+                else           viewport_zoom_out(v);
+                if (state.sync_viewports) {
+                    auto& ov = state.views[1 - panel_idx];
+                    ov.zoom = v.zoom;
+                    ov.fit  = false;
+                }
             }
         }
     }
@@ -1162,7 +1168,8 @@ static void draw_image_border(ImDrawList* dl, ImVec2 widget_pos,
                                float view_w, float view_h,
                                float img_w,  float img_h,
                                float pan_x,  float pan_y, float zoom,
-                               ImU32 border_col) {
+                               ImU32 border_col,
+                               bool  active) {
     float half_vw = view_w * 0.5f;
     float half_vh = view_h * 0.5f;
     float half_iw = img_w  * 0.5f;
@@ -1179,21 +1186,25 @@ static void draw_image_border(ImDrawList* dl, ImVec2 widget_pos,
 
     ImU32 shadow_col = IM_COL32(0, 0, 0, 160);
 
+    // 활성 패널: 선 두께를 키워 시각적 차별화.
+    float line_w   = active ? 4.0f : 2.0f;
+    float shadow_w = active ? 5.0f : 3.0f;
+
     // Vertical edge: draw only if x is inside viewport; clamp y range
     auto draw_v_edge = [&](float ex, float ey0, float ey1) {
         if (ex < vx0 || ex > vx1) return;
         float cy0 = std::max(ey0, vy0), cy1 = std::min(ey1, vy1);
         if (cy0 >= cy1) return;
-        dl->AddLine(ImVec2(ex + 1.0f, cy0 + 1.0f), ImVec2(ex + 1.0f, cy1 + 1.0f), shadow_col, 3.0f);
-        dl->AddLine(ImVec2(ex,         cy0),         ImVec2(ex,         cy1),         border_col, 2.0f);
+        dl->AddLine(ImVec2(ex + 1.0f, cy0 + 1.0f), ImVec2(ex + 1.0f, cy1 + 1.0f), shadow_col, shadow_w);
+        dl->AddLine(ImVec2(ex,         cy0),         ImVec2(ex,         cy1),         border_col, line_w);
     };
     // Horizontal edge: draw only if y is inside viewport; clamp x range
     auto draw_h_edge = [&](float ey, float ex0, float ex1) {
         if (ey < vy0 || ey > vy1) return;
         float cx0 = std::max(ex0, vx0), cx1 = std::min(ex1, vx1);
         if (cx0 >= cx1) return;
-        dl->AddLine(ImVec2(cx0 + 1.0f, ey + 1.0f), ImVec2(cx1 + 1.0f, ey + 1.0f), shadow_col, 3.0f);
-        dl->AddLine(ImVec2(cx0,         ey),         ImVec2(cx1,         ey),         border_col, 2.0f);
+        dl->AddLine(ImVec2(cx0 + 1.0f, ey + 1.0f), ImVec2(cx1 + 1.0f, ey + 1.0f), shadow_col, shadow_w);
+        dl->AddLine(ImVec2(cx0,         ey),         ImVec2(cx1,         ey),         border_col, line_w);
     };
 
     draw_v_edge(x0, y0, y1);  // left edge
@@ -1849,7 +1860,8 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
                           static_cast<float>(pw), static_cast<float>(ph),
                           static_cast<float>(img.width), static_cast<float>(img.height),
                           vp.pan_x, vp.pan_y, vp.zoom,
-                          static_cast<ImU32>(state.border_colors[panel_idx]));
+                          static_cast<ImU32>(state.border_colors[panel_idx]),
+                          /*active=*/ panel_idx == state.active_panel);
 
     if (state.roi.has_roi || state.roi.dragging) {
         render_roi_overlay(state, panel_idx, widget_pos, pw, ph,

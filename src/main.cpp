@@ -364,14 +364,14 @@ int main(int argc, char* argv[]) {
     if (!state.font_medium)
         state.font_medium = io.Fonts->Fonts[0];  // fallback to default
 
-    // Load images from CLI
+    // Load images from CLI (공용 헬퍼 경유 — 시퀀스/토스트/viewport 일괄 처리)
     if (!cli.image_a.empty()) {
-        if (!load_image(cli.image_a, state.images[0])) {
+        if (!load_image_and_populate_sequence(state, 0, cli.image_a)) {
             std::cerr << "Failed to load image A: " << cli.image_a << "\n";
         }
     }
     if (!cli.image_b.empty()) {
-        if (!load_image(cli.image_b, state.images[1])) {
+        if (!load_image_and_populate_sequence(state, 1, cli.image_b)) {
             std::cerr << "Failed to load image B: " << cli.image_b << "\n";
         }
     }
@@ -411,11 +411,8 @@ int main(int argc, char* argv[]) {
             } else if (event.type == SDL_EVENT_DROP_FILE) {
                 const char* dropped = event.drop.data;
                 if (dropped) {
-                    if (!state.images[0].loaded) {
-                        load_image(dropped, state.images[0]);
-                    } else {
-                        load_image(dropped, state.images[1]);
-                    }
+                    int target = state.images[0].loaded ? 1 : 0;
+                    load_image_and_populate_sequence(state, target, dropped);
                 }
             } else if (event.type == SDL_EVENT_WINDOW_MOVED) {
                 state.window_moving = true;
@@ -436,17 +433,7 @@ int main(int argc, char* argv[]) {
             float dt = io.DeltaTime;
             state.slideshow.countdown -= dt;
             if (state.slideshow.countdown <= 0.0f) {
-                // Advance sequence
-                int ap = state.slideshow.panel;
-                auto& seq = state.sequences[ap];
-                if (!seq.files.empty() && seq.current_index >= 0) {
-                    int n_files = (int)seq.files.size();
-                    seq.current_index = (seq.current_index + 1) % n_files;
-                    state.open_state.opened_path  = seq.files[seq.current_index];
-                    state.open_state.open_target   = ap;
-                    state.open_state.open_pending  = true;
-                    state.open_state.clear_other   = false;
-                }
+                sequence_navigate(state, state.slideshow.panel, +1);
                 state.slideshow.countdown = state.slideshow.interval;
             }
         }

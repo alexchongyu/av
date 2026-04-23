@@ -3488,6 +3488,103 @@ ImGui 윈도우가 아닌 `GetForegroundDrawList()` 에 직접 그려 모든 UI 
 
 `CMakeLists.txt` 의 기존 #raw("if(UNIX AND NOT APPLE)") 분기와 AppImage 빌드 타깃이 그대로 적용된다.
 
+#pagebreak()
+
+= Phase 9: v0.21 디렉토리 네비게이션 통합
+
+== 배경
+
+v0.15 이전부터 #raw("SequenceState sequences[2]"), #raw("scan_image_directory()"), LRU #raw("ImageCache") 등 디렉토리 탐색 인프라가 존재했으나, 다음 구멍이 남아 있었다:
+
+1. *CLI 실행 경로* (`av a.png b.png`) 와 *drag\-drop 경로* 에서 `sequences[]` 가 채워지지 않아, 다이얼로그로 한 번 파일을 열기 전까지 N 키가 무반응.
+2. *로딩 파일명 피드백 부재*: fullscreen / no\-border 모드에서는 타이틀바가 숨겨져 어떤 파일이 현재 표시 중인지 확인 불가.
+3. *마우스 바인딩 부재*: TAB 으로 활성 패널 전환 후 N 을 누르는 2단계 동작 필요.
+4. *활성 패널 시각 표시 부재*: TAB 전환 시 어느 쪽이 활성인지 즉시 알아보기 어려움.
+
+== 설계
+
+=== 공용 로드 헬퍼
+
+모든 이미지 로드 경로(CLI / drop / Open Dialog / 시퀀스 네비게이션)를 단일화:
+
+```cpp
+bool load_image_and_populate_sequence(AppState& state, int panel,
+                                      const std::string& path);
+```
+
+- `free_image` + `load_image` + `scan_image_directory` + viewport 리셋 + diff 캐시 무효화 + `filename_toast` 갱신을 한 번에.
+- `src/image_loader.cpp` 의 #raw("rotate_image_cw") 바로 앞에 구현.
+
+=== 공용 네비게이션 함수
+
+```cpp
+void sequence_navigate(AppState& state, int panel, int dir);
+```
+
+- wrap\-around (`% n_files`) 포함, 빈 시퀀스 가드.
+- `open_state` pending 플래그 설정으로 `main_window.cpp` 가 다음 프레임에 로드 수행.
+- 키 / 마우스 / 슬라이드쇼 모두 공용 호출.
+
+=== 키/마우스 바인딩 (vim 홈로우 친화)
+
+#table(
+  columns: (1.2fr, 2.5fr),
+  stroke: 0.3pt + luma(180),
+  inset: (x: 6pt, y: 3pt),
+  align: (left, left),
+  table.header[*트리거*][*동작*],
+  [`a`],                     [이전 이미지 (활성 패널)],
+  [`;`],                     [다음 이미지 (활성 패널)],
+  [`Shift+A`],               [슬라이드쇼 토글 (이전 `a` 키에서 이동)],
+  [`N` / `Shift+N`],         [다음 / 이전 (레거시 호환)],
+  [`Alt + MouseWheel`],      [네비게이션 (커서 아래 패널 \u{2014} TAB 없이 A/B 선택)],
+  [`Tab`],                   [활성 패널 전환],
+)
+
+vim #raw("hjkl") 홈로우에 손을 얹은 상태로 즉시 #raw("a") / #raw(";") 로 탐색 가능하여 PageUp/Down 대비 손 이동이 없다.
+
+=== 파일명 토스트
+
+```cpp
+struct FilenameToastState {
+    std::string filename;   // basename만
+    int         panel;      // 0=A, 1=B (data slot)
+    double      until;      // ImGui::GetTime() 만료 시각
+    bool        failed;     // load 실패 시 "(failed)" 접두사
+};
+```
+
+`render_copy_mode_overlay` 와 동일 패턴 \u{2014} `GetForegroundDrawList()` + 22pt 폰트 + 1.5초 타임아웃. 상단 중앙 배치. swap_images 상태를 반영해 "A:" / "B:" 라벨 매핑.
+
+=== 활성 패널 테두리 강조
+
+#raw("draw_image_border") 에 `bool active=false` 인자 추가. 활성 시 선 두께 2#sym.arrow.r 4px, 그림자 3#sym.arrow.r 5px 로 부스트. 호출 사이트 (2개의 패널 렌더 경로) 에서 `panel_idx == state.active_panel` 을 전달.
+
+== 변경 파일
+
+#table(
+  columns: (2fr, 3fr),
+  stroke: 0.3pt + luma(180),
+  inset: (x: 6pt, y: 3pt),
+  align: (left, left),
+  table.header[*파일*][*변경 내용*],
+  [`src/app.h`],               [`FilenameToastState` + `filename_toast` 멤버 + `sequence_navigate` 선언],
+  [`src/image_loader.h`],      [`load_image_and_populate_sequence` 선언],
+  [`src/image_loader.cpp`],    [공용 로드 헬퍼 구현 + `<filesystem>` / `<imgui.h>` include],
+  [`src/app.cpp`],             [`sequence_navigate` 구현, `SDL_SCANCODE_A` / `SEMICOLON` / `N` 키 핸들러 리워크],
+  [`src/main.cpp`],            [CLI / drop_file / 슬라이드쇼 경로를 공용 헬퍼 경유로 단일화],
+  [`src/ui/main_window.cpp`],  [`open_state` 처리 블록 단일화, `render_filename_toast` 추가, Help entries 갱신],
+  [`src/ui/image_panel.cpp`],  [`draw_image_border` active 파라미터, 호출 사이트 활성 판정, Alt+Wheel 네비게이션],
+)
+
+== 리스크와 엣지 케이스
+
+- *빈 시퀀스* (`files.empty()` 또는 `current_index < 0`): `sequence_navigate` 에서 조기 반환.
+- *단일 파일 디렉토리*: `% 1` #sym.arrow.r 자기 자신 재로드 \u{2014} 토스트가 뜨므로 피드백은 유지.
+- *로드 실패*: `filename_toast.failed = true` #sym.arrow.r 빨간 계열 색상 + "(failed)" 라벨.
+- *재진입 (빠른 연타)*: `filename_toast.until` 덮어쓰기만 하면 OK. `open_state` pending 은 한 프레임당 하나만 처리되므로 연타 시 최종 대상만 로드 \u{2014} UX 상 자연스러움.
+- *패널 스왑*: `sequences[]` 는 data slot 기준. `swap_images` 플래그는 시각 표시(A/B 라벨) 에만 영향, 내부 인덱싱과 분리.
+
 // ──────────────────────────────────────────────
 // 마무리 페이지
 // ──────────────────────────────────────────────
@@ -3495,9 +3592,9 @@ ImGui 윈도우가 아닌 `GetForegroundDrawList()` 에 직접 그려 모든 UI 
 #pagebreak()
 #align(center + horizon)[
   #text(size: 11pt, fill: luma(120))[
-    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.20 \
+    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.21 \
     #v(0.3em)
-    2026\-04\-22 \
+    2026\-04\-23 \
     #v(0.3em)
     이 문서는 av 이미지 뷰어/비교기의 완전한 구현 참조 문서입니다.
   ]

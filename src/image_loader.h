@@ -66,3 +66,14 @@ static const char* const SUPPORTED_IMG_EXTS[] = {
 // current_path와 동일 파일의 인덱스를 current_out에 설정.
 std::vector<std::string> scan_image_directory(const std::string& current_path,
                                                int& current_out);
+
+// AppState forward declaration (avoid circular include with app.h).
+struct AppState;
+
+// 통합 로드 헬퍼: free + load + scan_image_directory + viewport/diff 상태 갱신 +
+// 파일명 토스트 설정. CLI / drag-drop / open dialog / 시퀀스 네비게이션 모든
+// 경로에서 공용으로 사용.
+// 반환: 로드 성공 여부.
+bool load_image_and_populate_sequence(AppState& state,
+                                      int panel,   // 0=A, 1=B (data slot, not visual)
+                                      const std::string& path);

@@ -7,6 +7,22 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 
+// ─── sequence_navigate ───────────────────────────────────────────────────────
+// 공용 시퀀스 탐색 함수. 키/마우스/슬라이드쇼 모두 이 함수를 통해 진행.
+// 실제 로드는 main_window.cpp 의 open_state pending 처리 블록에서 수행.
+void sequence_navigate(AppState& state, int panel, int dir) {
+    if (panel < 0 || panel > 1) return;
+    auto& seq = state.sequences[panel];
+    if (seq.files.empty() || seq.current_index < 0) return;
+    const int n_files = static_cast<int>(seq.files.size());
+    const int step    = (dir >= 0) ? 1 : -1;
+    seq.current_index = (seq.current_index + step + n_files) % n_files;
+    state.open_state.opened_path  = seq.files[seq.current_index];
+    state.open_state.open_target  = panel;
+    state.open_state.open_pending = true;
+    state.open_state.clear_other  = false;
+}
+
 #include <iostream>
 #include <fstream>
 #include <cstring>
@@ -583,39 +599,32 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         }
         break;
 
-    // ── Slideshow 자동 재생 (A) ─────────────────────────────────────────────
+    // ── 시퀀스 탐색 prev (A) / 슬라이드쇼 토글 (Shift+A) ──────────────────────
     case SDL_SCANCODE_A:
-        if (!ctrl && !shift && !gui) {
-            state.slideshow.active = !state.slideshow.active;
-            if (state.slideshow.active) {
-                state.slideshow.countdown = state.slideshow.interval;
-                state.slideshow.panel = state.active_panel;
+        if (!ctrl && !gui) {
+            if (shift) {
+                state.slideshow.active = !state.slideshow.active;
+                if (state.slideshow.active) {
+                    state.slideshow.countdown = state.slideshow.interval;
+                    state.slideshow.panel = state.active_panel;
+                }
+            } else {
+                sequence_navigate(state, state.active_panel, -1);
             }
         }
         break;
 
-    // ── 시퀀스 탐색 (N = 다음, Shift+N = 이전) ────────────────────────────────
-    // 실제 로드는 main_window.cpp에서 처리 (여기서는 플래그만 설정)
+    // ── 시퀀스 탐색 next (;) ─────────────────────────────────────────────────
+    case SDL_SCANCODE_SEMICOLON:
+        if (!ctrl && !shift && !gui) {
+            sequence_navigate(state, state.active_panel, +1);
+        }
+        break;
+
+    // ── 시퀀스 탐색 legacy 핫키 (N = 다음, Shift+N = 이전) ────────────────────
     case SDL_SCANCODE_N:
-        // seq_nav_dir: +1 = next, -1 = prev — AppState에 임시 필드 추가 필요
-        // 간단히: sequences[active_panel].current_index를 변경하고
-        //         main_window.cpp에서 감지하여 로드
-        {
-            int ap = state.active_panel;
-            auto& seq = state.sequences[ap];
-            if (!seq.files.empty() && seq.current_index >= 0) {
-                int n_files = (int)seq.files.size();
-                if (shift) {
-                    seq.current_index = (seq.current_index - 1 + n_files) % n_files;
-                } else {
-                    seq.current_index = (seq.current_index + 1) % n_files;
-                }
-                // 새 파일 로드 요청: open_state 재사용
-                state.open_state.opened_path  = seq.files[seq.current_index];
-                state.open_state.open_target  = ap;
-                state.open_state.open_pending = true;
-                state.open_state.clear_other  = false;
-            }
+        if (!ctrl && !gui) {
+            sequence_navigate(state, state.active_panel, shift ? -1 : +1);
         }
         break;
 

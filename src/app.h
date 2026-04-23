@@ -179,6 +179,14 @@ struct SequenceState {
     int                      current_index = -1;  // 현재 파일 인덱스 (-1=시퀀스 없음)
 };
 
+// 로드된 파일명을 상단 중앙에 잠시 표시하는 토스트 상태.
+struct FilenameToastState {
+    std::string filename;   // basename만 (비어있으면 비활성)
+    int         panel = 0;  // 0=A, 1=B
+    double      until = 0.0; // ImGui::GetTime() 기반 만료 시각
+    bool        failed = false; // load 실패 시 "(failed)" 접두사 표시
+};
+
 // ─── Overlay / Blend comparison state ────────────────────────────────────────
 
 struct OverlayState {
@@ -294,6 +302,9 @@ struct AppState {
     bool     window_moving = false;
     uint64_t last_window_move_tick = 0;  // SDL_GetTicksNS()
 
+    // ─── Feature: Filename toast (on image load / sequence navigate) ────
+    FilenameToastState filename_toast;
+
 };
 
 // ─── Function declarations ────────────────────────────────────────────────────
@@ -307,6 +318,11 @@ void apply_cli_options(AppState& state, const CliOptions& opts);
 // Handle a keyboard event (SDL_SCANCODE_* values).
 // gui: true if Cmd (macOS) / Win key is held.
 void handle_keyboard(AppState& state, int sdl_scancode, bool ctrl, bool shift, bool alt, bool gui = false);
+
+// Advance the given panel's sequence by dir (+1 = next, -1 = prev) with wrap-around.
+// Triggers the open_state pending path so main_window picks up the load next frame.
+// No-op if the panel has no sequence populated.
+void sequence_navigate(AppState& state, int panel, int dir);
 
 // Load/save persistent settings from/to av.ini.
 void load_app_ini(AppState& state);

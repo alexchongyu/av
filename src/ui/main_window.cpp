@@ -795,6 +795,49 @@ static void render_copy_mode_overlay(AppState& state) {
     }
 }
 
+// ─── render_filename_toast ────────────────────────────────────────────────────
+// 이미지 로드 후 파일명을 상단 중앙에 잠시 표시.
+// 타이틀바가 숨겨지는 fullscreen·no-border 모드에서도 어떤 파일이 로드됐는지
+// 사용자에게 알린다.
+
+static void render_filename_toast(AppState& state) {
+    auto& t = state.filename_toast;
+    if (t.filename.empty()) return;
+    double now = ImGui::GetTime();
+    if (now >= t.until) {
+        t.filename.clear();
+        return;
+    }
+
+    // A/B 라벨은 swap_images 를 고려해 "시각적 위치" 기준으로 표기.
+    // panel 은 data slot(0/1); swap 시 0 이 오른쪽에 표시됨.
+    const char* label = (t.panel == 0) ? "A" : "B";
+    if (state.swap_images) label = (t.panel == 0) ? "B" : "A";
+
+    char text[512];
+    if (t.failed)
+        std::snprintf(text, sizeof(text), "%s  (failed):  %s", label, t.filename.c_str());
+    else
+        std::snprintf(text, sizeof(text), "%s:  %s", label, t.filename.c_str());
+
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImFont* font = ImGui::GetFont();
+    float font_size = 22.0f;
+    ImVec2 text_sz = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, text);
+    float pad_x = 20.0f, pad_y = 10.0f;
+    float bw = text_sz.x + pad_x * 2.0f;
+    float bh = text_sz.y + pad_y * 2.0f;
+    float bx = vp->WorkPos.x + (vp->WorkSize.x - bw) * 0.5f;
+    float by = vp->WorkPos.y + 24.0f;
+
+    ImU32 bg = t.failed ? IM_COL32(60, 15, 20, 215) : IM_COL32(15, 20, 30, 215);
+    ImU32 fg = t.failed ? IM_COL32(255, 140, 140, 255) : IM_COL32(200, 230, 255, 255);
+    dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + bw, by + bh), bg, 6.0f);
+    dl->AddRect      (ImVec2(bx, by), ImVec2(bx + bw, by + bh), fg, 6.0f, 0, 1.5f);
+    dl->AddText(font, font_size, ImVec2(bx + pad_x, by + pad_y), fg, text);
+}
+
 // ─── render_hotkey_help_window ────────────────────────────────────────────────
 
 static void render_hotkey_help_window(AppState& state) {
@@ -871,9 +914,12 @@ static void render_hotkey_help_window(AppState& state) {
         { "Overlay", "O",                          "Toggle Overlay/Blend comparison mode" },
         { "Overlay", "Curtain mode",               "Left-drag to move divider; mode in menu" },
         // Sequence
-        { "Sequence", "N",                         "Next image in directory sequence" },
-        { "Sequence", "Shift+N",                   "Previous image in directory sequence" },
-        { "Sequence", "A",                         "Toggle slideshow auto-play" },
+        { "Sequence", ";",                         "Next image in directory sequence (active panel)" },
+        { "Sequence", "A",                         "Previous image in directory sequence (active panel)" },
+        { "Sequence", "N / Shift+N",               "Next / Previous image (legacy)" },
+        { "Sequence", "Tab",                       "Switch active panel (A <-> B)" },
+        { "Sequence", "Alt + MouseWheel",          "Navigate images (panel under cursor)" },
+        { "Sequence", "Shift+A",                   "Toggle slideshow auto-play" },
         { "Sequence", "Shift+Up",                  "Slideshow interval +1s" },
         { "Sequence", "Shift+Down",                "Slideshow interval -1s" },
         // Diff
@@ -1203,7 +1249,7 @@ void MainWindow::render(AppState& state) {
         }
     }
 
-    // ── Process pending image-open (set by SDL dialog callback) ──────────────
+    // ── Process pending image-open (set by SDL dialog callback or sequence nav) ──
     if (state.open_state.open_pending && !state.open_state.opened_path.empty()) {
         int target = state.open_state.open_target;
         if (target >= 0 && target <= 1) {
@@ -1212,19 +1258,8 @@ void MainWindow::render(AppState& state) {
                 if (state.images[other].loaded)
                     free_image(state.images[other]);
             }
-            if (state.images[target].loaded)
-                free_image(state.images[target]);
-            load_image(state.open_state.opened_path, state.images[target]);
-            state.views[target].fit   = true;
-            state.views[target].pan_x = 0.0f;
-            state.views[target].pan_y = 0.0f;
-            state.diff.psnr_computed  = false;  // invalidate PSNR cache
-
-            // 시퀀스 스캔: 새 이미지 로드 시 디렉토리 탐색
-            int cur_idx = -1;
-            state.sequences[target].files = scan_image_directory(
-                state.images[target].path, cur_idx);
-            state.sequences[target].current_index = cur_idx;
+            load_image_and_populate_sequence(state, target,
+                                             state.open_state.opened_path);
         }
         state.open_state.opened_path.clear();
         state.open_state.open_pending = false;
@@ -1526,6 +1561,7 @@ void MainWindow::render(AppState& state) {
     render_hotkey_help_window(state);
     render_diff_listing_window(state);
     render_copy_mode_overlay(state);
+    render_filename_toast(state);
 
     // ── Open Images window ────────────────────────────────────────────────────
     render_open_images_window(state);

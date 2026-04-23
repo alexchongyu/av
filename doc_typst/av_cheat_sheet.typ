@@ -73,7 +73,7 @@
 #align(center)[
   #text(size: 20pt, weight: "bold")[av #text(size: 12pt, weight: "regular", fill: luma(80))[\u{2014} Advanced Pixel Lens Cheat Sheet]]
   #v(0.15em)
-  #text(size: 8pt, fill: luma(120))[v0.20 \u{2014} 2026\-04\-22]
+  #text(size: 8pt, fill: luma(120))[v0.21 \u{2014} 2026\-04\-23]
 ]
 
 #v(0.3em)
@@ -213,7 +213,7 @@ av [image_a] [image_b] [options]
   [#key("Ctrl+E")], [ROI 영역 선택],
   [#key("Ctrl+T")], [Scatter Plot],
   [#key("M")],      [Crosshair 토글],
-  [#key("A")],      [Slideshow 자동 재생],
+  [#key("Shift+A")], [Slideshow 자동 재생],
   [#key("Shift+↑") / #key("Shift+↓")], [Slideshow 간격 조절],
 )
 
@@ -226,15 +226,20 @@ av [image_a] [image_b] [options]
   [#key("O")], [오버레이 토글],
 )
 
-*이미지 시퀀스*
+*이미지 시퀀스 (디렉토리 네비게이션)*
 #table(
-  columns: (1fr, 2.2fr),
+  columns: (1.3fr, 2fr),
   stroke: none,
   inset: (x: 3pt, y: 1.5pt),
   fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
-  [#key("N")],         [다음 이미지],
-  [#key("Shift+N")],   [이전 이미지],
+  [#key(";")],                 [다음 이미지 (활성 패널)],
+  [#key("a")],                 [이전 이미지 (활성 패널)],
+  [#key("Tab")],               [활성 패널 전환 (A \u{2194} B) \u{2014} 테두리 굵게 강조],
+  [#key("Alt") + 휠],          [네비게이션 (커서 아래 패널)],
+  [#key("N") / #key("Shift+N")], [다음/이전 (레거시)],
 )
+
+로딩 직후 파일명이 상단 중앙에 1.5초 토스트로 표시되며, 끝에 도달하면 처음으로 순환합니다. A/B 패널은 서로 다른 디렉토리를 각각 독립적으로 탐색합니다.
 
 *파일*
 #table(

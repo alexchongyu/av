@@ -1,12 +1,15 @@
 #include "image_loader.h"
 #include "render_backend.h"
+#include "app.h"
 
 #include <glad/gl.h>
 #include <SDL3/SDL.h>
 #include <stb_image.h>
+#include <imgui.h>
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -392,6 +395,48 @@ void free_image(ImageEntry& entry) {
     entry.pixels_orig = {};
     entry.ppm_maxval = 0;
     entry.loaded     = false;
+}
+
+// ─── Unified load + sequence population ──────────────────────────────────────
+// 모든 이미지 로드 경로(CLI, drop, open dialog, 시퀀스 네비) 에서 공용으로
+// 호출되는 헬퍼. 파일명 토스트를 항상 설정하므로 사용자는 어떤 경로로
+// 들어왔든 로드된 파일을 시각적으로 확인할 수 있다.
+
+bool load_image_and_populate_sequence(AppState& state, int panel,
+                                      const std::string& path) {
+    if (panel < 0 || panel > 1 || path.empty()) return false;
+
+    // 기존 이미지 해제
+    if (state.images[panel].loaded) {
+        free_image(state.images[panel]);
+    }
+
+    const bool ok = load_image(path, state.images[panel]);
+
+    // Viewport 리셋 (새 이미지에 맞춰 fit)
+    state.views[panel].fit   = true;
+    state.views[panel].pan_x = 0.0f;
+    state.views[panel].pan_y = 0.0f;
+    state.diff.psnr_computed = false;  // diff 캐시 무효화
+
+    // 시퀀스 스캔 (성공했든 실패했든 경로 기반으로 목록 구축)
+    int cur_idx = -1;
+    state.sequences[panel].files = scan_image_directory(path, cur_idx);
+    state.sequences[panel].current_index = cur_idx;
+
+    // 파일명 토스트 (basename만)
+    std::string fname;
+    try {
+        fname = std::filesystem::path(path).filename().string();
+    } catch (...) {
+        fname = path;
+    }
+    state.filename_toast.filename = fname;
+    state.filename_toast.panel    = panel;
+    state.filename_toast.until    = ImGui::GetTime() + 1.5;
+    state.filename_toast.failed   = !ok;
+
+    return ok;
 }
 
 // ─── Rotation helpers ─────────────────────────────────────────────────────────
