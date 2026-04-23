@@ -125,10 +125,32 @@ set(AV_SOURCES
     src/render_backend.cpp
 )
 
+# ── Auto-generated version (git describe) ────────────────────────────────────
+set(AV_VERSION_FALLBACK "v0.22")
+set(AV_GEN_DIR          "${CMAKE_BINARY_DIR}/generated")
+set(AV_VERSION_HEADER   "${AV_GEN_DIR}/version.h")
+set(AV_VERSION_TYPST    "${CMAKE_SOURCE_DIR}/doc_typst/_version.typ")
+file(MAKE_DIRECTORY "${AV_GEN_DIR}")
+
+# Runs at every build — writes only if content changed (no spurious rebuilds).
+add_custom_target(av_gen_version ALL
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+        -DOUT_HEADER=${AV_VERSION_HEADER}
+        -DOUT_TYPST=${AV_VERSION_TYPST}
+        -DFALLBACK=${AV_VERSION_FALLBACK}
+        -P ${CMAKE_SOURCE_DIR}/cmake/GenVersion.cmake
+    BYPRODUCTS ${AV_VERSION_HEADER} ${AV_VERSION_TYPST}
+    COMMENT "Regenerating version.h / _version.typ from git describe"
+    VERBATIM
+)
+
 add_executable(av ${AV_SOURCES})
+add_dependencies(av av_gen_version)
 
 target_include_directories(av PRIVATE
     src
+    ${AV_GEN_DIR}
 )
 
 target_link_libraries(av PRIVATE

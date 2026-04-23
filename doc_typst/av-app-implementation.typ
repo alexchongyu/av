@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────
 
 #import "@preview/cetz:0.4.2": canvas, draw
+#import "_version.typ": AV_VERSION, AV_VERSION_DATE
 
 // ── 문서 메타 ──────────────────────────────────────────
 #set document(
@@ -3691,9 +3692,9 @@ Diff 패널은 어차피 A+B 둘 다 필요하므로, 경고 후 토글 상태�
 #pagebreak()
 #align(center + horizon)[
   #text(size: 11pt, fill: luma(120))[
-    Advanced Pixel Lens #sym.dash.en 구현 가이드 v0.22 \
+    Advanced Pixel Lens #sym.dash.en 구현 가이드 #AV_VERSION \
     #v(0.3em)
-    2026\-04\-23 \
+    #AV_VERSION_DATE \
     #v(0.3em)
     이 문서는 av 이미지 뷰어/비교기의 완전한 구현 참조 문서입니다.
   ]

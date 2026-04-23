@@ -3,6 +3,7 @@
 #include "image_loader.h"
 #include "image_open.h"
 #include "clipboard_image.h"
+#include "version.h"  // AV_VERSION (auto-generated from git describe)
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -91,7 +92,7 @@ CliOptions parse_cli(int argc, char* argv[]) {
             print_help(argv[0]);
             std::exit(0);
         } else if (arg == "--version") {
-            std::cout << "av 0.22\n";
+            std::cout << "av " << AV_VERSION_FULL << "\n";
             std::exit(0);
         } else if (arg == "--diff-mode") {
             std::string m = next();

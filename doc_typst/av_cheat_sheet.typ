@@ -2,6 +2,8 @@
 // av — Cheat Sheet
 // ─────────────────────────────────────────────────────
 
+#import "_version.typ": AV_VERSION, AV_VERSION_DATE
+
 #set document(
   title: "av — Cheat Sheet",
   author: "Alex",
@@ -73,7 +75,7 @@
 #align(center)[
   #text(size: 20pt, weight: "bold")[av #text(size: 12pt, weight: "regular", fill: luma(80))[\u{2014} Advanced Pixel Lens Cheat Sheet]]
   #v(0.15em)
-  #text(size: 8pt, fill: luma(120))[v0.22 \u{2014} 2026\-04\-23]
+  #text(size: 8pt, fill: luma(120))[#AV_VERSION \u{2014} #AV_VERSION_DATE]
 ]
 
 #v(0.3em)
