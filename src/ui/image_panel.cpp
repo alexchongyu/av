@@ -747,8 +747,11 @@ void ImagePanel::render_diff_software(AppState& state) {
                     state.diff.mode, state.diff.amplify, state.channel_mode,
                     enh_min_f, enh_max_f, state.diff.alpha);
 
-    // Highlight mode: count non-zero diff pixels for status bar
-    if (state.diff.mode == DiffState::Mode::Highlight) {
+    // Highlight mode: count non-zero diff pixels for status bar.
+    // Skip when threshold>0 — the threshold pass below unconditionally overwrites
+    // threshold_exceed_count/total_count, so this full viewport pass would be pure
+    // wasted work with no effect on the buffer or the displayed counts.
+    if (state.diff.mode == DiffState::Mode::Highlight && state.diff.threshold == 0) {
         auto [nonzero, total] = count_nonzero_diff_pixels(
             imgA, imgB, pw, ph, vp);
         state.diff.threshold_exceed_count = nonzero;
