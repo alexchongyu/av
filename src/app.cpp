@@ -55,7 +55,7 @@ static void print_help(const char* prog) {
         "Usage: " << prog << " [options] [imageA] [imageB]\n"
         "\n"
         "Options:\n"
-        "  --diff-mode <mode>   none|abs|rel|highlight|falsecolor|ssim|enhance  (default: none)\n"
+        "  --diff-mode <mode>   none|alphablend|abs|rel|highlight|falsecolor|ssim|enhance  (default: none)\n"
         "  --zoom <factor>      fit|1|2.0 etc.                (default: fit)\n"
         "  --sync               Enable viewport sync          (default: on)\n"
         "  --no-sync            Disable viewport sync\n"
@@ -96,14 +96,15 @@ CliOptions parse_cli(int argc, char* argv[]) {
             std::exit(0);
         } else if (arg == "--diff-mode") {
             std::string m = next();
-            if      (m == "none")       opts.diff_mode = DiffState::Mode::None;
-            else if (m == "abs")        opts.diff_mode = DiffState::Mode::PixelAbsolute;
-            else if (m == "rel")        opts.diff_mode = DiffState::Mode::PixelRelative;
-            else if (m == "highlight")  opts.diff_mode = DiffState::Mode::Highlight;
-            else if (m == "falsecolor") opts.diff_mode = DiffState::Mode::FalseColor;
-            else if (m == "ssim")       opts.diff_mode = DiffState::Mode::SSIM;
-            else if (m == "enhance")   opts.diff_mode = DiffState::Mode::Enhance;
-            else { std::cerr << "Unknown diff-mode: " << m << "\n"; std::exit(1); }
+            bool matched = false;
+            for (const auto& d : kDiffModes) {   // single source of truth (app.h)
+                if (d.cli_token && m == d.cli_token) {
+                    opts.diff_mode = d.mode;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) { std::cerr << "Unknown diff-mode: " << m << "\n"; std::exit(1); }
         } else if (arg == "--zoom") {
             std::string z = next();
             if (z == "fit") opts.zoom = 0.0f;

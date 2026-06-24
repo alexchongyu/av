@@ -3,17 +3,9 @@
 #include <imgui.h>
 #include <cstdio>
 
+// Driven by kDiffModes (app.h) so the statusbar can never miss a mode (incl. AlphaBlend).
 static const char* diff_mode_name(DiffState::Mode m) {
-    switch (m) {
-    case DiffState::Mode::None:          return "None";
-    case DiffState::Mode::PixelAbsolute: return "Abs";
-    case DiffState::Mode::PixelRelative: return "Rel";
-    case DiffState::Mode::Highlight:     return "Highlight";
-    case DiffState::Mode::FalseColor:    return "FalseColor";
-    case DiffState::Mode::SSIM:          return "SSIM";
-    case DiffState::Mode::Enhance:      return "Enhance";
-    default:                             return "?";
-    }
+    return diff_short_tag(m);
 }
 
 void StatusBar::render(const AppState& state) {

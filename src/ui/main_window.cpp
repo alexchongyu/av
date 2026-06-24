@@ -33,15 +33,10 @@ static void fmt_balloon_pixel(char* buf, size_t sz, const char* prefix, int val,
 
 namespace {
 
+// Title tag for the active diff mode; nullptr for None (keeps the title clean).
+// Driven by kDiffModes (app.h) so every mode (incl. AlphaBlend/Enhance) is tagged.
 static const char* title_diff_label(DiffState::Mode m) {
-    switch (m) {
-    case DiffState::Mode::PixelAbsolute: return "Abs";
-    case DiffState::Mode::PixelRelative: return "Rel";
-    case DiffState::Mode::Highlight:     return "Highlight";
-    case DiffState::Mode::FalseColor:    return "FalseColor";
-    case DiffState::Mode::SSIM:          return "SSIM";
-    default: return nullptr;
-    }
+    return (m == DiffState::Mode::None) ? nullptr : diff_short_tag(m);
 }
 
 static std::string sv_path_dir(const std::string& p) {
@@ -720,19 +715,13 @@ void MainWindow::render_menubar(AppState& state) {
 
     // ── Diff ──────────────────────────────────────────────────────────────────
     if (ImGui::BeginMenu("Diff")) {
-        bool none = state.diff.mode == DiffState::Mode::None;
-        bool abs_ = state.diff.mode == DiffState::Mode::PixelAbsolute;
-        bool rel_ = state.diff.mode == DiffState::Mode::PixelRelative;
-        bool hl_  = state.diff.mode == DiffState::Mode::Highlight;
-        bool fc_  = state.diff.mode == DiffState::Mode::FalseColor;
-        bool ssim = state.diff.mode == DiffState::Mode::SSIM;
-
-        if (ImGui::MenuItem("Off",        "Ctrl+D", none)) state.diff.mode = DiffState::Mode::None;
-        if (ImGui::MenuItem("Absolute",   "Ctrl+3", abs_)) state.diff.mode = DiffState::Mode::PixelAbsolute;
-        if (ImGui::MenuItem("Relative",   "Ctrl+4", rel_)) state.diff.mode = DiffState::Mode::PixelRelative;
-        if (ImGui::MenuItem("Highlight",  "Ctrl+5", hl_ )) state.diff.mode = DiffState::Mode::Highlight;
-        if (ImGui::MenuItem("FalseColor", "Ctrl+6", fc_ )) state.diff.mode = DiffState::Mode::FalseColor;
-        if (ImGui::MenuItem("SSIM",       "Ctrl+7", ssim)) state.diff.mode = DiffState::Mode::SSIM;
+        // Driven by kDiffModes (app.h): every mode appears with its real hotkey,
+        // so the menu can never drift from the keyboard handler again.
+        for (const auto& d : kDiffModes) {
+            bool sel = state.diff.mode == d.mode;
+            if (ImGui::MenuItem(d.menu_label, d.hotkey, sel))
+                state.diff.mode = d.mode;
+        }
         ImGui::Separator();
         ImGui::SliderFloat("Amplify", &state.diff.amplify, 0.5f, 50.0f, "%.1f");
         ImGui::EndMenu();

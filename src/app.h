@@ -69,6 +69,36 @@ struct DiffState {
     bool  enhance_range_computed = false;
 };
 
+// ─── Diff-mode descriptor: single source of truth ─────────────────────────────
+// Keeps the Diff menu, statusbar tag, window-title tag and --diff-mode CLI in
+// sync. Add a new mode here once and every presentation site picks it up.
+struct DiffModeInfo {
+    DiffState::Mode mode;
+    const char*     menu_label;  // Diff menu text     ("Off", "Alpha Blend", …)
+    const char*     short_tag;   // statusbar/title tag ("None", "Abs", …)
+    const char*     hotkey;      // menu shortcut label ("Ctrl+2", …)
+    const char*     cli_token;   // --diff-mode token   (nullptr = not CLI-settable)
+};
+
+// Order = Diff menu order. Hotkeys mirror handle_keyboard() in app.cpp.
+inline constexpr DiffModeInfo kDiffModes[] = {
+    { DiffState::Mode::None,          "Off",         "None",       "Ctrl+D", "none"       },
+    { DiffState::Mode::AlphaBlend,    "Alpha Blend", "AlphaBlend", "Ctrl+2", "alphablend" },
+    { DiffState::Mode::PixelAbsolute, "Absolute",    "Abs",        "Ctrl+3", "abs"        },
+    { DiffState::Mode::PixelRelative, "Relative",    "Rel",        "Ctrl+4", "rel"        },
+    { DiffState::Mode::Enhance,       "Enhance",     "Enhance",    "Ctrl+5", "enhance"    },
+    { DiffState::Mode::FalseColor,    "FalseColor",  "FalseColor", "Ctrl+6", "falsecolor" },
+    { DiffState::Mode::SSIM,          "SSIM",        "SSIM",       "Ctrl+7", "ssim"       },
+    { DiffState::Mode::Highlight,     "Highlight",   "Highlight",  "Ctrl+9", "highlight"  },
+};
+
+// Short tag for statusbar/title; "?" if somehow unmapped.
+inline const char* diff_short_tag(DiffState::Mode m) {
+    for (const auto& d : kDiffModes)
+        if (d.mode == m) return d.short_tag;
+    return "?";
+}
+
 struct DiffPixelInfo {
     int x, y;           // 이미지 좌표
     int ar, ag, ab;     // Image A 픽셀값 (원본 단위: 8bit=0~255, 10bit=0~1023 등)
