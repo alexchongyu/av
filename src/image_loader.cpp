@@ -406,23 +406,29 @@ bool load_image_and_populate_sequence(AppState& state, int panel,
                                       const std::string& path) {
     if (panel < 0 || panel > 1 || path.empty()) return false;
 
-    // 기존 이미지 해제
-    if (state.images[panel].loaded) {
-        free_image(state.images[panel]);
+    // 임시 엔트리에 로드 — 성공할 때만 패널에 커밋한다.
+    // 실패 시 기존 이미지/viewport/시퀀스를 그대로 보존 (비파괴 로드).
+    ImageEntry tmp;
+    const bool ok = load_image(path, tmp);
+
+    if (ok) {
+        if (state.images[panel].loaded)
+            free_image(state.images[panel]);   // 기존 텍스처/버퍼 해제
+        state.images[panel] = std::move(tmp);
+
+        // Viewport 리셋 (새 이미지에 맞춰 fit)
+        state.views[panel].fit   = true;
+        state.views[panel].pan_x = 0.0f;
+        state.views[panel].pan_y = 0.0f;
+        state.diff.psnr_computed = false;  // diff 캐시 무효화
+
+        // 시퀀스 스캔 (성공 시에만 경로 기반 목록 구축)
+        int cur_idx = -1;
+        state.sequences[panel].files = scan_image_directory(path, cur_idx);
+        state.sequences[panel].current_index = cur_idx;
+    } else if (tmp.texture_id) {
+        free_image(tmp);   // 부분 실패(텍스처 업로드 후 디코드 실패 등) 시 누수 방지
     }
-
-    const bool ok = load_image(path, state.images[panel]);
-
-    // Viewport 리셋 (새 이미지에 맞춰 fit)
-    state.views[panel].fit   = true;
-    state.views[panel].pan_x = 0.0f;
-    state.views[panel].pan_y = 0.0f;
-    state.diff.psnr_computed = false;  // diff 캐시 무효화
-
-    // 시퀀스 스캔 (성공했든 실패했든 경로 기반으로 목록 구축)
-    int cur_idx = -1;
-    state.sequences[panel].files = scan_image_directory(path, cur_idx);
-    state.sequences[panel].current_index = cur_idx;
 
     // 파일명 토스트 (basename만)
     std::string fname;
