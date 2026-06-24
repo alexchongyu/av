@@ -153,8 +153,19 @@ static void av_resize_framebuf(AvState *s) {
     }
     free(s->framebuf);
 
-    int size = s->win_w * s->win_h * s->bpp;
-    s->framebuf = (unsigned char *)calloc(1, (size_t)size);
+    /* Clamp window dimensions before sizing the framebuffer. Window geometry is
+       WM/attacker controlled (ConfigureNotify copies it verbatim); without this
+       a huge window makes win_w*win_h*bpp overflow 32-bit int -> tiny/negative
+       calloc -> out-of-bounds writes. Clamping here keeps win_w/win_h consistent
+       with XCreateImage/XPutImage/hit-testing, and bounds area well under INT_MAX
+       (16384*16384*4 ~= 1.07e9). Ordinary window sizes are unaffected. */
+    if (s->win_w < 1)     s->win_w = 1;
+    if (s->win_h < 1)     s->win_h = 1;
+    if (s->win_w > 16384) s->win_w = 16384;
+    if (s->win_h > 16384) s->win_h = 16384;
+
+    size_t size = (size_t)s->win_w * (size_t)s->win_h * (size_t)s->bpp;
+    s->framebuf = (unsigned char *)calloc(1, size);
     if (!s->framebuf) {
         fprintf(stderr, "[av-x11] framebuf alloc failed\n");
         exit(1);
@@ -228,7 +239,7 @@ static void av_render_panel(AvState *s, int idx, int x0, int y0, int pw, int ph)
                           ((unsigned int)30 << b_shift) |
                           (0xFFu << 24);
         for (int y = y0; y < y0 + ph && y < s->win_h; y++) {
-            unsigned int *row = (unsigned int *)(s->framebuf + y * s->win_w * s->bpp);
+            unsigned int *row = (unsigned int *)(s->framebuf + (size_t)y * s->win_w * s->bpp);
             for (int x = x0; x < x0 + pw && x < s->win_w; x++) {
                 row[x] = bg;
             }
@@ -259,7 +270,7 @@ static void av_render_panel(AvState *s, int idx, int x0, int y0, int pw, int ph)
     for (int sy = 0; sy < ph && (y0 + sy) < s->win_h; sy++) {
         int wy = y0 + sy;
         if (wy < 0) continue;
-        unsigned int *row = (unsigned int *)(s->framebuf + wy * s->win_w * s->bpp);
+        unsigned int *row = (unsigned int *)(s->framebuf + (size_t)wy * s->win_w * s->bpp);
 
         for (int sx = 0; sx < pw && (x0 + sx) < s->win_w; sx++) {
             int wx = x0 + sx;
@@ -389,7 +400,7 @@ static void av_draw_statusbar(AvState *s) {
                           ((unsigned int)45 << s->b_shift) |
                           (0xFFu << 24);
     for (int y = bar_y; y < s->win_h; y++) {
-        unsigned int *row = (unsigned int *)(s->framebuf + y * s->win_w * s->bpp);
+        unsigned int *row = (unsigned int *)(s->framebuf + (size_t)y * s->win_w * s->bpp);
         for (int x = 0; x < s->win_w; x++) {
             row[x] = bar_bg;
         }
@@ -421,7 +432,7 @@ static void av_render(AvState *s) {
                                    ((unsigned int)80 << s->b_shift) |
                                    (0xFFu << 24);
             for (int y = 0; y < s->win_h; y++) {
-                unsigned int *row = (unsigned int *)(s->framebuf + y * s->win_w * s->bpp);
+                unsigned int *row = (unsigned int *)(s->framebuf + (size_t)y * s->win_w * s->bpp);
                 row[div_x] = div_col;
             }
         }
