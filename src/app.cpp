@@ -92,7 +92,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
             print_help(argv[0]);
             std::exit(0);
         } else if (arg == "--version") {
-            std::cout << "av " << AV_VERSION_FULL << "\n";
+            // AV_VERSION_DATE = latest commit date (git log -1 --format=%cs), set by GenVersion.cmake
+            std::cout << "av " << AV_VERSION_FULL << "  (updated " << AV_VERSION_DATE << ")\n";
             std::exit(0);
         } else if (arg == "--diff-mode") {
             std::string m = next();
