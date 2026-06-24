@@ -583,9 +583,9 @@ static ImagePanel s_panel_diff;
 static StatusBar  s_statusbar;
 
 // ─── SSIM computer ────────────────────────────────────────────────────────────
-static SSIMComputer s_ssim_computer;
-static bool          s_ssim_ready  = false;
-static SSIMResult    s_ssim_result;
+static SSIMComputer        s_ssim_computer;
+static std::atomic<bool>   s_ssim_ready{false};   // published by worker thread (release) → read by main (acquire)
+static SSIMResult          s_ssim_result;
 
 // ─── init ─────────────────────────────────────────────────────────────────────
 
@@ -1284,8 +1284,8 @@ void MainWindow::render(AppState& state) {
     }
 
     // ── Upload SSIM result on main thread if ready ────────────────────────────
-    if (s_ssim_ready) {
-        s_ssim_ready = false;
+    if (s_ssim_ready.load(std::memory_order_acquire)) {
+        s_ssim_ready.store(false, std::memory_order_relaxed);
         if (state.diff.ssim_texture_id) {
             if (is_software_mode()) {
                 SDL_DestroyTexture(reinterpret_cast<SDL_Texture*>(state.diff.ssim_texture_id));
@@ -1344,8 +1344,10 @@ void MainWindow::render(AppState& state) {
         state.diff.ssim_score     = -1.0f;
         s_ssim_computer.compute(state.images[0], state.images[1],
             [](SSIMResult result) {
+                // Worker thread: write result, THEN publish the flag with release
+                // ordering so the main thread's acquire-load sees a fully-built result.
                 s_ssim_result = std::move(result);
-                s_ssim_ready  = true;
+                s_ssim_ready.store(true, std::memory_order_release);
             });
     }
     prev_diff_mode = state.diff.mode;
