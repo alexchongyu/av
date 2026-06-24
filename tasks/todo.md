@@ -164,10 +164,12 @@ cmake --build build  → 오류 없음 (경고만)
 - [x] A2. destructive load → 임시 entry 후 성공 시 커밋 — `db845a0`
 - [x] A5. av-x11 size_t 오버플로우 + dim 클램프 (Linux 빌드) — `a5ee191`
 
-### Phase B — 성능
-- [ ] B3. ImageEntry content_version 스탬프 → dim-only 캐시 무효화
-- [ ] B2. 소프트 diff 패스 융합(3→1, ⚠️캐싱 아님) — byte-identical
-- [ ] B1. dead ImageCache 연결(copy-out, double-free 회피) + ±1 프리페치 (medium)
+### Phase B — 성능 ✅ 완료 (push 대기)
+- [x] B3. content_version 스탬프 → diff_listing/scatter/SSIM 캐시 무효화 — `c7935c6`
+- [x] B2. 소프트 diff 안전 부분최적화(Highlight+threshold 중복 패스 제거) — `286fa9f`
+  - ⏸ 완전 융합(3→1)은 헤드리스 byte-검증 불가로 **보류** (GUI 검증 가능 시 진행)
+- [x] B1. ImageCache 연결(copy-out + mtime 검증; double-free/staleness 무회귀) — `aa99486`
+  - ⏸ ±1 프리페치는 보류(코어 캐시만으로 재디코드 제거 달성)
 
 ### Phase C — 리팩터링 (behavior-preserving)
 - [ ] C2-A. diff 히스토그램 is_hdr 게이트 제거(화면==export) (chart_windows.cpp:300)
