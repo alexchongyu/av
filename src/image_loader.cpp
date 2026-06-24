@@ -700,36 +700,6 @@ void ImageCache::evict_lru() {
 #include <string>
 #include <vector>
 
-// Natural sort 비교: 숫자 부분을 수치로 비교
-static int natural_compare(const std::string& a, const std::string& b) {
-    size_t i = 0, j = 0;
-    while (i < a.size() && j < b.size()) {
-        if (std::isdigit((unsigned char)a[i]) && std::isdigit((unsigned char)b[j])) {
-            // 숫자 부분 파싱
-            size_t ni = i, nj = j;
-            while (ni < a.size() && std::isdigit((unsigned char)a[ni])) ++ni;
-            while (nj < b.size() && std::isdigit((unsigned char)b[nj])) ++nj;
-            // 앞 0 제거
-            size_t si = i, sj = j;
-            while (si < ni - 1 && a[si] == '0') ++si;
-            while (sj < nj - 1 && b[sj] == '0') ++sj;
-            size_t la2 = ni - si, lb2 = nj - sj;
-            if (la2 != lb2) return (la2 < lb2) ? -1 : 1;
-            int cmp = a.substr(si, la2).compare(b.substr(sj, lb2));
-            if (cmp != 0) return cmp;
-            i = ni; j = nj;
-        } else {
-            char ca = std::tolower((unsigned char)a[i]);
-            char cb = std::tolower((unsigned char)b[j]);
-            if (ca != cb) return (ca < cb) ? -1 : 1;
-            ++i; ++j;
-        }
-    }
-    if (i < a.size()) return 1;
-    if (j < b.size()) return -1;
-    return 0;
-}
-
 static bool is_image_ext(const std::string& ext) {
     for (int k = 0; SUPPORTED_IMG_EXTS[k]; ++k) {
         if (ext == SUPPORTED_IMG_EXTS[k]) return true;
@@ -769,9 +739,11 @@ std::vector<std::string> scan_image_directory(const std::string& current_path,
         return {};
     }
 
-    // Natural sort
+    // Alphabetical by filename: pure codepoint / LC_ALL=C order (case-sensitive,
+    // uppercase before lowercase, no numeric grouping) — matches the ordering rule
+    // of input_img_file.toml so next/prev navigation follows the same sequence.
     std::sort(result.begin(), result.end(), [](const std::string& a, const std::string& b) {
-        return natural_compare(a, b) < 0;
+        return fs::path(a).filename().string() < fs::path(b).filename().string();
     });
 
     // 현재 파일 인덱스 찾기
