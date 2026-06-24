@@ -154,15 +154,15 @@ cmake --build build  → 오류 없음 (경고만)
 > **승인 대기 중 — 코드 미수정.** 항목별 원자적 커밋 + 빌드/동작 검증 게이트.
 
 ### 0. 베이스라인 (착수 시)
-- [ ] 증분 빌드 성공 확인 + `test/` 이미지로 골든 export(PNG/CSV) 캡처
+- [x] 증분 빌드 성공 확인 (bin/av v0.22-6, known-good)
 
-### Phase A — 치명 버그 (low risk)
-- [ ] A1. SSIM 데이터 레이스 → atomic release/acquire (main_window.cpp)
-- [ ] A3. PPM ASCII CRLF → fopen "wb" 고정 (image_save.cpp:85)
-- [ ] A4. 소프트 AlphaBlend alpha 전달 (image_panel.cpp:744) ⚠️의도된 동작수정
-- [ ] A6. diff 모드 집합 단일 진실원(constexpr 테이블) (app.h + 5사이트)
-- [ ] A2. destructive load → 임시 entry 후 성공 시 커밋 (image_loader.cpp)
-- [ ] A5. av-x11 size_t 오버플로우 + dim 클램프 (av_x11.c)
+### Phase A — 치명 버그 (low risk) ✅ 완료 (origin 대비 push 대기)
+- [x] A1. SSIM 데이터 레이스 → atomic release/acquire — `a56b7da`
+- [x] A3. PPM ASCII CRLF → fopen "wb" 고정 — `abde37f`
+- [x] A4. 소프트 AlphaBlend alpha 전달 ⚠️의도된 동작수정 — `d042d18`
+- [x] A6. diff 모드 집합 단일 진실원(constexpr 테이블) — `5b3d79d`
+- [x] A2. destructive load → 임시 entry 후 성공 시 커밋 — `db845a0`
+- [x] A5. av-x11 size_t 오버플로우 + dim 클램프 (Linux 빌드) — `a5ee191`
 
 ### Phase B — 성능
 - [ ] B3. ImageEntry content_version 스탬프 → dim-only 캐시 무효화
