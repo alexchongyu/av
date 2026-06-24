@@ -1324,20 +1324,29 @@ void MainWindow::render(AppState& state) {
         state.diff.ssim_computing = false;
     }
 
-    // ── Trigger SSIM computation when mode switches ───────────────────────────
+    // ── Trigger SSIM computation when mode switches OR images change ───────────
     static DiffState::Mode prev_diff_mode = DiffState::Mode::None;
-    if (state.diff.mode == DiffState::Mode::SSIM &&
-        prev_diff_mode != DiffState::Mode::SSIM &&
-        state.images[0].loaded && state.images[1].loaded) {
-        state.diff.ssim_computing = true;
-        state.diff.ssim_score     = -1.0f;
-        s_ssim_computer.compute(state.images[0], state.images[1],
-            [](SSIMResult result) {
-                // Worker thread: write result, THEN publish the flag with release
-                // ordering so the main thread's acquire-load sees a fully-built result.
-                s_ssim_result = std::move(result);
-                s_ssim_ready.store(true, std::memory_order_release);
-            });
+    static uint64_t ssim_ver_a = ~0ull, ssim_ver_b = ~0ull;
+    {
+        bool in_ssim = state.diff.mode == DiffState::Mode::SSIM &&
+                       state.images[0].loaded && state.images[1].loaded;
+        bool entered = in_ssim && prev_diff_mode != DiffState::Mode::SSIM;
+        bool content_changed = in_ssim &&
+            (ssim_ver_a != state.images[0].content_version ||
+             ssim_ver_b != state.images[1].content_version);
+        if (in_ssim && (entered || content_changed)) {
+            state.diff.ssim_computing = true;
+            state.diff.ssim_score     = -1.0f;
+            ssim_ver_a = state.images[0].content_version;
+            ssim_ver_b = state.images[1].content_version;
+            s_ssim_computer.compute(state.images[0], state.images[1],
+                [](SSIMResult result) {
+                    // Worker thread: write result, THEN publish the flag with release
+                    // ordering so the main thread's acquire-load sees a fully-built result.
+                    s_ssim_result = std::move(result);
+                    s_ssim_ready.store(true, std::memory_order_release);
+                });
+        }
     }
     prev_diff_mode = state.diff.mode;
 

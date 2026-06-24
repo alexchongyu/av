@@ -22,6 +22,7 @@ struct ImageEntry {
     uintptr_t texture_id = 0;          // GL texture handle or SDL_Texture*
     bool  loaded   = false;
     bool  is_hdr   = false;
+    uint64_t content_version = 0;      // bumped on (re)load/rotate; cache-invalidation key
 };
 
 struct ViewportState {
@@ -121,6 +122,7 @@ struct DiffListingState {
     // 캐시 무효화용
     int  cache_img_a_w = -1, cache_img_a_h = -1;
     int  cache_img_b_w = -1, cache_img_b_h = -1;
+    uint64_t cache_ver_a = ~0ull, cache_ver_b = ~0ull;  // content-version key: catches same-size content changes
 
     void reset() {
         show = false; computed = false; identical = false;
@@ -128,6 +130,7 @@ struct DiffListingState {
         pixels.clear(); start_from = 0; goto_num = 1; list_from_num = 1;
         cache_img_a_w = cache_img_a_h = -1;
         cache_img_b_w = cache_img_b_h = -1;
+        cache_ver_a = cache_ver_b = ~0ull;
     }
 };
 
@@ -255,6 +258,7 @@ struct AppState {
     std::array<ImageEntry, 2>    images;        // [0]=left/A, [1]=right/B
     std::array<ViewportState, 2> views;
     DiffState  diff;
+    uint64_t content_version_counter = 0;  // monotonic source for ImageEntry.content_version
     bool  sync_viewports  = true;
     bool  show_ui         = false;   // U key: toggle menu/statusbar overlay
     bool  show_histogram  = false;

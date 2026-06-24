@@ -510,10 +510,16 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         if (shift) {
             state.channel_mode = ChannelMode::Red;
         } else if (ctrl) {
-            for (auto& img : state.images) if (img.loaded) rotate_image_ccw(img);
+            for (auto& img : state.images) if (img.loaded) {
+                rotate_image_ccw(img);
+                img.content_version = ++state.content_version_counter;  // 회전=콘텐츠 변경
+            }
             for (auto& v : state.views) { v.fit = true; v.pan_x = 0; v.pan_y = 0; }
         } else {
-            for (auto& img : state.images) if (img.loaded) rotate_image_cw(img);
+            for (auto& img : state.images) if (img.loaded) {
+                rotate_image_cw(img);
+                img.content_version = ++state.content_version_counter;
+            }
             for (auto& v : state.views) { v.fit = true; v.pan_x = 0; v.pan_y = 0; }
         }
         break;

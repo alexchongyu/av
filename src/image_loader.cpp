@@ -415,6 +415,7 @@ bool load_image_and_populate_sequence(AppState& state, int panel,
         if (state.images[panel].loaded)
             free_image(state.images[panel]);   // 기존 텍스처/버퍼 해제
         state.images[panel] = std::move(tmp);
+        state.images[panel].content_version = ++state.content_version_counter;  // 캐시 무효화 스탬프
 
         // Viewport 리셋 (새 이미지에 맞춰 fit)
         state.views[panel].fit   = true;

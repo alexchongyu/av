@@ -453,7 +453,9 @@ static void compute_diff_pixel_list(
     // 캐시 체크
     if (listing.computed &&
         listing.cache_img_a_w == imgA.width && listing.cache_img_a_h == imgA.height &&
-        listing.cache_img_b_w == imgB.width && listing.cache_img_b_h == imgB.height) {
+        listing.cache_img_b_w == imgB.width && listing.cache_img_b_h == imgB.height &&
+        listing.cache_ver_a == imgA.content_version &&
+        listing.cache_ver_b == imgB.content_version) {
         return;
     }
 
@@ -465,6 +467,8 @@ static void compute_diff_pixel_list(
     listing.computed  = true;
     listing.cache_img_a_w = imgA.width;  listing.cache_img_a_h = imgA.height;
     listing.cache_img_b_w = imgB.width;  listing.cache_img_b_h = imgB.height;
+    listing.cache_ver_a = imgA.content_version;
+    listing.cache_ver_b = imgB.content_version;
 
     int w = std::min(imgA.width, imgB.width);
     int h = std::min(imgA.height, imgB.height);

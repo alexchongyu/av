@@ -1262,11 +1262,14 @@ void render_scatter_plot_window(AppState& state)
     static ScatterPlotData sp_data;
     static int last_imgA_w = -1, last_imgA_h = -1;
     static int last_imgB_w = -1, last_imgB_h = -1;
+    static uint64_t last_ver_a = ~0ull, last_ver_b = ~0ull;  // catch same-size content changes
 
     bool needs_update = (last_imgA_w != state.images[0].width ||
                          last_imgA_h != state.images[0].height ||
                          last_imgB_w != state.images[1].width ||
-                         last_imgB_h != state.images[1].height);
+                         last_imgB_h != state.images[1].height ||
+                         last_ver_a != state.images[0].content_version ||
+                         last_ver_b != state.images[1].content_version);
 
     if (needs_update || !sp_data.valid) {
         sp_data = extract_scatter_plot(state.images[0], state.images[1], 20000);
@@ -1274,6 +1277,8 @@ void render_scatter_plot_window(AppState& state)
         last_imgA_h = state.images[0].height;
         last_imgB_w = state.images[1].width;
         last_imgB_h = state.images[1].height;
+        last_ver_a = state.images[0].content_version;
+        last_ver_b = state.images[1].content_version;
     }
 
     if (!sp_data.valid || sp_data.sampled == 0) {
