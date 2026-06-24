@@ -81,8 +81,10 @@ static bool save_ppm_impl(const std::string& path, const ImageEntry& img,
     int maxval = (1 << bits) - 1;
     bool multi_byte = (bits > 8);
 
-    // Use "rb"/"wb" on all platforms to avoid CRLF issues
-    FILE* f = std::fopen(path.c_str(), binary ? "wb" : "w");
+    // Always open binary ("wb") on all platforms to avoid CRLF translation.
+    // The P3 (ASCII) path emits newlines explicitly as '\n' (header + each row),
+    // which is valid PPM; text mode would turn them into '\r\n' on Windows.
+    FILE* f = std::fopen(path.c_str(), "wb");
     if (!f) return false;
 
     // Write header
