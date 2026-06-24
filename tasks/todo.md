@@ -147,3 +147,35 @@ cmake --build build  → 오류 없음 (경고만)
 ### 빌드 결과
 - cmake --build → 오류 없음 (링커 경고만)
 - `./bin/av --version` → av 0.1.0 정상 출력
+
+## [계획] 코드 개선 — 버그→성능→리팩터링 (2026-06-24)
+
+> 상세: `plans/av-fix-plan-20260624.md`. 원칙: No regression / 새 버그 금지.
+> **승인 대기 중 — 코드 미수정.** 항목별 원자적 커밋 + 빌드/동작 검증 게이트.
+
+### 0. 베이스라인 (착수 시)
+- [ ] 증분 빌드 성공 확인 + `test/` 이미지로 골든 export(PNG/CSV) 캡처
+
+### Phase A — 치명 버그 (low risk)
+- [ ] A1. SSIM 데이터 레이스 → atomic release/acquire (main_window.cpp)
+- [ ] A3. PPM ASCII CRLF → fopen "wb" 고정 (image_save.cpp:85)
+- [ ] A4. 소프트 AlphaBlend alpha 전달 (image_panel.cpp:744) ⚠️의도된 동작수정
+- [ ] A6. diff 모드 집합 단일 진실원(constexpr 테이블) (app.h + 5사이트)
+- [ ] A2. destructive load → 임시 entry 후 성공 시 커밋 (image_loader.cpp)
+- [ ] A5. av-x11 size_t 오버플로우 + dim 클램프 (av_x11.c)
+
+### Phase B — 성능
+- [ ] B3. ImageEntry content_version 스탬프 → dim-only 캐시 무효화
+- [ ] B2. 소프트 diff 패스 융합(3→1, ⚠️캐싱 아님) — byte-identical
+- [ ] B1. dead ImageCache 연결(copy-out, double-free 회피) + ±1 프리페치 (medium)
+
+### Phase C — 리팩터링 (behavior-preserving)
+- [ ] C2-A. diff 히스토그램 is_hdr 게이트 제거(화면==export) (chart_windows.cpp:300)
+- [ ] C2-B. 화면 차트가 chart_export extractor 호출(중복 제거)
+- [ ] C3. 저장 format switch 단일화 + 다이얼로그 boilerplate helper
+- [ ] C1-1. viewport.h 좌표 헬퍼 추가
+- [ ] C1-2. floor 표준화 ⚠️behavior-change(별도 커밋·승인)
+- [ ] C1-3/4. inline 복사본 사이트별 교체(각 커밋 byte-compare)
+
+### Phase D — 신기능 (A~C 후 재승인)
+- [ ] 후보: 새 diff 모드, TIFF/EXR, JPEG 저장, 라인컷 위치 선택, 분석창 enum화
