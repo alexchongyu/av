@@ -397,6 +397,32 @@ void free_image(ImageEntry& entry) {
     entry.loaded     = false;
 }
 
+// ─── Cache-backed load (copy-out) ─────────────────────────────────────────────
+// Upload a GPU/SDL texture for an already-decoded entry, mirroring load_image's
+// upload logic EXACTLY so a cache-hit upload is identical to a fresh load.
+static uintptr_t upload_entry_texture(const ImageEntry& e) {
+    if (is_software_mode()) return upload_sdl_texture(e.pixels.data(), e.width, e.height);
+    if (e.is_hdr)           return upload_rgba_f32(e.pixels_f32.data(), e.width, e.height);
+    return upload_rgba8(e.pixels.data(), e.width, e.height);
+}
+
+// Load via the LRU cache, but hand the caller an ImageEntry that OWNS its own,
+// freshly-uploaded texture (copy-out). The cache keeps its decoded CPU buffers
+// and its own texture; the display slot never shares a GPU handle with the cache
+// (so free_image on either side can't double-free), and in-place mutation
+// (rotate) of the display slot can't corrupt the cached copy. The cache
+// re-validates the file's mtime/size, so an on-disk change is still picked up
+// (no staleness regression vs. the previous always-decode behavior).
+static bool load_image_cached(const std::string& path, ImageEntry& out) {
+    ImageEntry* hit = g_image_cache.get(path);   // decodes+caches on miss; mtime-validated on hit
+    if (!hit) return false;
+    out = *hit;                                  // deep copy of CPU buffers (and the cache's texture_id)
+    out.texture_id = upload_entry_texture(out);  // replace with an independently-owned texture
+    if (out.texture_id == 0) return false;
+    out.loaded = true;
+    return true;
+}
+
 // ─── Unified load + sequence population ──────────────────────────────────────
 // 모든 이미지 로드 경로(CLI, drop, open dialog, 시퀀스 네비) 에서 공용으로
 // 호출되는 헬퍼. 파일명 토스트를 항상 설정하므로 사용자는 어떤 경로로
@@ -408,8 +434,10 @@ bool load_image_and_populate_sequence(AppState& state, int panel,
 
     // 임시 엔트리에 로드 — 성공할 때만 패널에 커밋한다.
     // 실패 시 기존 이미지/viewport/시퀀스를 그대로 보존 (비파괴 로드).
+    // load_image_cached: LRU 캐시 경유(재방문 시 재디코드 회피), 단 표시 슬롯은
+    // 자체 텍스처를 소유(copy-out)하고 캐시는 mtime 검증으로 디스크 변경을 반영.
     ImageEntry tmp;
-    const bool ok = load_image(path, tmp);
+    const bool ok = load_image_cached(path, tmp);
 
     if (ok) {
         if (state.images[panel].loaded)
@@ -605,15 +633,30 @@ void rotate_image_ccw(ImageEntry& entry) {
 // ─── ImageCache ───────────────────────────────────────────────────────────────
 
 ImageEntry* ImageCache::get(const std::string& path) {
+    // Stat the file so a cached copy is only reused while the file on disk is
+    // unchanged — preserves the previous always-decode behavior's freshness.
+    std::error_code ec_t, ec_s;
+    auto ftime = std::filesystem::last_write_time(path, ec_t);
+    auto fsz   = std::filesystem::file_size(path, ec_s);
+    bool     stat_ok     = !ec_t && !ec_s;
+    int64_t  mtime_ticks = stat_ok ? static_cast<int64_t>(ftime.time_since_epoch().count()) : 0;
+    uint64_t fsize_u     = stat_ok ? static_cast<uint64_t>(fsz) : 0;
+
     // Search cache
-    for (auto& ce : entries_) {
-        if (ce.image.path == path) {
-            ce.last_access = ++access_counter_;
-            return &ce.image;
+    for (auto it = entries_.begin(); it != entries_.end(); ++it) {
+        if (it->image.path == path) {
+            if (stat_ok && it->mtime_ticks == mtime_ticks && it->fsize == fsize_u) {
+                it->last_access = ++access_counter_;
+                return &it->image;                 // fresh hit
+            }
+            // File changed on disk (or stat failed) — drop and re-decode below.
+            free_image(it->image);
+            entries_.erase(it);
+            break;
         }
     }
 
-    // Not in cache — load it
+    // Not in cache (or invalidated) — load it
     if (static_cast<int>(entries_.size()) >= MAX_ENTRIES) {
         evict_lru();
     }
@@ -627,6 +670,8 @@ ImageEntry* ImageCache::get(const std::string& path) {
         return nullptr;
     }
 
+    ce.mtime_ticks = mtime_ticks;
+    ce.fsize       = fsize_u;
     return &ce.image;
 }
 

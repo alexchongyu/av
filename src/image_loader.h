@@ -43,6 +43,8 @@ private:
     struct CacheEntry {
         ImageEntry image;
         uint64_t   last_access = 0;
+        int64_t    mtime_ticks = 0;   // file last-write-time ticks; detects on-disk changes
+        uint64_t   fsize       = 0;   // file size; with mtime, invalidates a stale cached copy
     };
 
     std::vector<CacheEntry> entries_;
