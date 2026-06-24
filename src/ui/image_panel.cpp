@@ -741,7 +741,7 @@ void ImagePanel::render_diff_software(AppState& state) {
 
     cpu_render_diff(imgA, imgB, vp, soft_buf_.data(), pw, ph,
                     state.diff.mode, state.diff.amplify, state.channel_mode,
-                    enh_min_f, enh_max_f);
+                    enh_min_f, enh_max_f, state.diff.alpha);
 
     // Highlight mode: count non-zero diff pixels for status bar
     if (state.diff.mode == DiffState::Mode::Highlight) {
