@@ -1548,6 +1548,25 @@ void MainWindow::render(AppState& state) {
                     }
                 }
             }
+            // ── PSNR (press 'p'): A(Left)=기준, B(Right)=비교 ────────────────────
+            if (state.images[0].loaded && state.images[1].loaded) {
+                ImGui::Separator();
+                if (!state.info_psnr_computed) {
+                    ImGui::TextDisabled("PSNR: press 'p' to compute  (A=ref, B=cmp)");
+                } else if (state.info_psnr_mismatch) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+                                       "PSNR: N/A (size/format mismatch)");
+                } else if (state.info_psnr_db >= 999.0f) {
+                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
+                                       "PSNR: inf  (identical)");
+                } else {
+                    float p = state.info_psnr_db;
+                    ImVec4 col = (p > 40.0f) ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                               : (p > 30.0f) ? ImVec4(1.0f, 0.9f, 0.2f, 1.0f)
+                                             : ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+                    ImGui::TextColored(col, "PSNR: %.2f dB   [A(Left)=ref, B(Right)=cmp]", p);
+                }
+            }
             if (state.font_large) ImGui::PopFont();
         }
         ImGui::End();

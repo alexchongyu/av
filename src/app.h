@@ -299,6 +299,11 @@ struct AppState {
     bool        pair_mode = false;       // A(왼쪽)=기준 dir가 시퀀스 구동, B(오른쪽)=비교 dir
     std::string pair_dir_b;              // 비교 디렉토리 B (고정)
     std::string panel_missing_msg[2];    // 매칭 영상 없음 시 표시할 basename ("" = 정상)
+
+    // ─── Feature: Image Info 창의 PSNR 표시 (p 키) ──────────────────────────
+    bool  info_psnr_computed = false;    // p로 계산됨 (영상 (재)로드 시 false로 리셋)
+    float info_psnr_db       = -1.0f;    // 평균 PSNR(dB), 999=identical/inf
+    bool  info_psnr_mismatch = false;    // 크기/포맷 불일치
     OverlayState overlay;               // Overlay/Blend 비교 모드
     bool         show_scatter_plot = false; // Scatter Plot 창 표시
     bool         windowed_mode = false;    // W key: windowed (title bar) mode

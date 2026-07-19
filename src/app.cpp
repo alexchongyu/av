@@ -2,6 +2,7 @@
 #include "viewport.h"
 #include "image_loader.h"
 #include "image_open.h"
+#include "chart_export.h"  // compute_diff_stats (PSNR readout)
 #include "clipboard_image.h"
 #include "version.h"  // AV_VERSION (auto-generated from git describe)
 
@@ -557,6 +558,29 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         state.show_pixel_info = !state.show_pixel_info;
         break;
     case SDL_SCANCODE_P:
+        // Image Info 창이 떠 있고 두 영상이 모두 로드된 경우:
+        //   plain 'p' = PSNR 계산 (A=기준/왼쪽, B=비교/오른쪽). 그 외에는 기존 pathfinder.
+        if (!ctrl && !gui && state.show_info &&
+            state.images[0].loaded && state.images[1].loaded) {
+            const ImageEntry& A = state.images[0];
+            const ImageEntry& B = state.images[1];
+            bool bothU8  = !A.pixels.empty()     && !B.pixels.empty();
+            bool bothF32 = !A.pixels_f32.empty() && !B.pixels_f32.empty();
+            if (A.width != B.width || A.height != B.height || (!bothU8 && !bothF32)) {
+                state.info_psnr_mismatch = true;   // 크기/포맷 불일치 → N/A
+            } else {
+                DiffExtraStats extra;
+                compute_diff_stats(A, B, extra);   // A=ref, B=cmp (순서 유지)
+                double sum = 0.0; int cnt = 0;
+                for (int c = 0; c < 3; ++c) {
+                    if (extra.psnr[c] > 0.0 && extra.psnr[c] < 999.0) { sum += extra.psnr[c]; ++cnt; }
+                }
+                state.info_psnr_db       = (cnt > 0) ? static_cast<float>(sum / cnt) : 999.0f;
+                state.info_psnr_mismatch = false;
+            }
+            state.info_psnr_computed = true;
+            break;   // 'p' 소비 — pathfinder로 전달하지 않음
+        }
         if (ctrl || gui) {
             state.pathfinder_mode = (state.pathfinder_mode == 2) ? 0 : 2;
         } else {
