@@ -129,3 +129,29 @@ chart_export.h/cpp로 이동할 때 발생하는 중복 정의 문제.
 
 **해결**: C2 전용 편집 5곳을 **잠시 되돌려 C1을 먼저 빌드·검증·커밋**한 뒤, C2를 복원해 빌드·커밋.
 patch hunk 수술보다 안전(각 커밋이 실제로 컴파일됨을 보장). 필드 선언과 그 사용은 같은 커밋에 둔다.
+
+## 렌더 프레임 도중 텍스처 업로드 시 GL_UNPACK 상태 오염 (2026-07-19)
+
+**증상**: `--pair`(또는 일반) 탐색 시, command line 초기 영상은 정상인데 **네비게이션으로
+로드한 영상부터 화면이 깨짐**. 역방향도 깨짐.
+
+**근본 원인**: 이미지 로드(→`glTexImage2D`)가 `MainWindow::render()` 안의 deferred-open
+처리에서 일어난다. 이 시점엔 ImGui/SDL가 `GL_UNPACK_ROW_LENGTH`를 0이 아닌 값(폰트 아틀라스
+폭 등)으로 남겨둔 상태 → `glTexImage2D`가 클라이언트 버퍼를 잘못된 stride로 읽어 힙 over-read
+→ 텍스처 손상. 초기 로드는 이벤트 루프 **전**(상태 깨끗)이라 정상.
+- ImGui 백엔드 주석에 근거: "setting GL_UNPACK_ROW_LENGTH ... because SDL changes it"
+  / UpdateTexture에서 `glPixelStorei(GL_UNPACK_ROW_LENGTH, tex->Width)`.
+
+**재현/증명 기법 (헤드리스)**: 화면을 못 띄우는 환경에서
+1. `sequence_navigate` + 로드 로직을 옮긴 순수 시뮬레이터로 **파일 페어링/인덱스 로직이 정상**임을 먼저 증명(범위 축소).
+2. `-fsanitize=address` 빌드 + 메인 루프에 임시 self-test(합성 `;` 주입)로 자동 네비게이션 →
+   ASan이 `glTexImage2D`의 OOB를 **정확한 스택으로** 포착. (Apple GL 드라이버 `glgVectorCopy` BUS)
+3. pair/단일 모두 재현됨을 확인 → "pair 특유"가 아니라 "렌더 도중 업로드" 일반 문제로 판정.
+4. 수정 후 동일 self-test로 **크래시 소멸** 검증. self-test는 커밋 전 제거.
+
+**규칙**:
+- **모든 `glTexImage2D`(픽셀 데이터 업로드) 앞에서 픽셀-언팩 상태를 명시적으로 초기화**하라:
+  `glBindBuffer(GL_PIXEL_UNPACK_BUFFER,0)`, `GL_UNPACK_ROW_LENGTH=0`, `GL_UNPACK_ALIGNMENT=1`,
+  `GL_UNPACK_SKIP_ROWS/PIXELS=0`. 주변(ImGui/SDL) GL 상태를 절대 신뢰하지 말 것.
+- FBO용 `nullptr` 업로드는 픽셀 읽기가 없어 무관.
+- ASan이 서드파티 GPU 드라이버에서 BUS를 내면 우리 코드의 호출 프레임(스택 #6~)이 진짜 단서다.
