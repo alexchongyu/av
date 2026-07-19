@@ -12,6 +12,17 @@ static void set_common_params() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 }
 
+// Reset pixel-unpack state before uploading pixel data. 텍스처 업로드가 렌더
+// 프레임 도중 일어나면 ImGui/SDL가 남긴 GL_UNPACK_ROW_LENGTH/PIXEL_UNPACK_BUFFER
+// 때문에 잘못된 stride/버퍼로 읽혀 텍스처가 깨진다. ALIGNMENT=1은 1/3/4채널 모두 안전.
+static void reset_unpack_state() {
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+}
+
 GLuint gl_upload_texture(const uint8_t* pixels, int w, int h, int channels) {
     GLuint tex = 0;
     glGenTextures(1, &tex);
@@ -23,6 +34,7 @@ GLuint gl_upload_texture(const uint8_t* pixels, int w, int h, int channels) {
     if (channels == 1) { internal_fmt = GL_R8;   fmt = GL_RED;  }
     if (channels == 3) { internal_fmt = GL_RGB8;  fmt = GL_RGB;  }
 
+    reset_unpack_state();
     glTexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(internal_fmt),
                  w, h, 0, fmt, GL_UNSIGNED_BYTE, pixels);
     glGenerateMipmap(GL_TEXTURE_2D);
@@ -38,6 +50,7 @@ GLuint gl_upload_texture_f32(const float* pixels, int w, int h) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    reset_unpack_state();
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0,
                  GL_RGBA, GL_FLOAT, pixels);
     glGenerateMipmap(GL_TEXTURE_2D);
@@ -53,6 +66,7 @@ GLuint gl_upload_texture_r32f(const float* pixels, int w, int h) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    reset_unpack_state();
     glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, w, h, 0,
                  GL_RED, GL_FLOAT, pixels);
     glBindTexture(GL_TEXTURE_2D, 0);

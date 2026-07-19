@@ -19,6 +19,19 @@ ImageCache g_image_cache;
 
 // ─── GPU upload helpers ───────────────────────────────────────────────────────
 
+// Reset pixel-unpack state to known-good defaults before glTexImage2D.
+// 이미지 로드는 렌더 프레임 도중(deferred open 처리)에도 일어나는데, 이때
+// ImGui/SDL가 GL_UNPACK_ROW_LENGTH(폰트 텍스처 폭 등)나 PIXEL_UNPACK_BUFFER를
+// 남겨둔 상태라 이를 초기화하지 않으면 glTexImage2D가 잘못된 stride/버퍼로 읽어
+// 텍스처가 깨진다(초기 로드는 정상, 탐색 로드부터 깨지던 원인).
+static void reset_unpack_state() {
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);   // 클라이언트 메모리 경로 강제(스테일 PBO 방지)
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);    // 0 = 폭을 그대로 사용(타이트 패킹)
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);     // CPU 버퍼는 항상 타이트 패킹 → 1이 모든 채널에 안전
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+}
+
 static GLuint upload_rgba8(const uint8_t* pixels, int w, int h) {
     GLuint tex = 0;
     glGenTextures(1, &tex);
@@ -27,6 +40,7 @@ static GLuint upload_rgba8(const uint8_t* pixels, int w, int h) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    reset_unpack_state();
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     glGenerateMipmap(GL_TEXTURE_2D);
@@ -42,6 +56,7 @@ static GLuint upload_rgba_f32(const float* pixels, int w, int h) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    reset_unpack_state();
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0,
                  GL_RGBA, GL_FLOAT, pixels);
     glGenerateMipmap(GL_TEXTURE_2D);
