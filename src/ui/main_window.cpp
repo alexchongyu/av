@@ -1548,12 +1548,11 @@ void MainWindow::render(AppState& state) {
                     }
                 }
             }
-            // ── PSNR (press 'p'): A(Left)=기준, B(Right)=비교 ────────────────────
+            // ── PSNR: A(Left)=기준, B(Right)=비교 (창이 열리면 자동 계산·표시) ──────
             if (state.images[0].loaded && state.images[1].loaded) {
+                if (!state.info_psnr_computed) compute_info_psnr(state);  // i 누르면 기본 표시
                 ImGui::Separator();
-                if (!state.info_psnr_computed) {
-                    ImGui::TextDisabled("PSNR: press 'p' to compute  (A=ref, B=cmp)");
-                } else if (state.info_psnr_mismatch) {
+                if (state.info_psnr_mismatch) {
                     ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
                                        "PSNR: N/A (size/format mismatch)");
                 } else if (state.info_psnr_db >= 999.0f) {

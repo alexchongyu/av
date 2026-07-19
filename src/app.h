@@ -371,6 +371,11 @@ void handle_keyboard(AppState& state, int sdl_scancode, bool ctrl, bool shift, b
 // No-op if the panel has no sequence populated.
 void sequence_navigate(AppState& state, int panel, int dir);
 
+// Compute PSNR between panel A(기준/왼쪽) and B(비교/오른쪽) into state.info_psnr_*.
+// 두 영상이 로드돼 있어야 하며, 크기/포맷 불일치면 info_psnr_mismatch를 set.
+// Image Info 창이 열리고 두 영상이 있으면 자동 호출된다(별도 키 불필요).
+void compute_info_psnr(AppState& state);
+
 // Load/save persistent settings from/to av.ini.
 void load_app_ini(AppState& state);
 void save_app_ini(const AppState& state);
