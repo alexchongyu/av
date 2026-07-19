@@ -450,6 +450,7 @@ bool load_image_and_populate_sequence(AppState& state, int panel,
         state.views[panel].pan_x = 0.0f;
         state.views[panel].pan_y = 0.0f;
         state.diff.psnr_computed = false;  // diff 캐시 무효화
+        state.panel_missing_msg[panel].clear();  // 로드 성공 → 해당 패널 'missing' 해제
 
         // 시퀀스 스캔 (성공 시에만 경로 기반 목록 구축)
         int cur_idx = -1;
@@ -472,6 +473,25 @@ bool load_image_and_populate_sequence(AppState& state, int panel,
     state.filename_toast.failed   = !ok;
 
     return ok;
+}
+
+// --pair 모드 미러: A의 파일명을 pair_dir_b 에서 찾아 패널 B에 로드.
+// 존재하면 로드(성공 시 load 함수가 panel_missing_msg[1]도 clear),
+// 없으면 B를 비우고 panel_missing_msg[1] 에 basename 을 표시.
+void pair_mirror_b(AppState& state, const std::string& a_path) {
+    namespace fs = std::filesystem;
+    if (state.pair_dir_b.empty() || a_path.empty()) return;
+
+    fs::path name = fs::path(a_path).filename();
+    fs::path sib  = fs::path(state.pair_dir_b) / name;
+
+    std::error_code ec;
+    if (fs::is_regular_file(sib, ec)) {
+        load_image_and_populate_sequence(state, 1, sib.string());
+    } else {
+        if (state.images[1].loaded) free_image(state.images[1]);
+        state.panel_missing_msg[1] = name.string();
+    }
 }
 
 // ─── Rotation helpers ─────────────────────────────────────────────────────────

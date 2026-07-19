@@ -180,6 +180,20 @@ void ImagePanel::cpu_render_image(const ImageEntry& img, const ViewportState& vp
     }
 }
 
+// 빈 패널 표시: --pair 모드에서 매칭 영상이 없으면 안내 문구, 아니면 기존 "(no image)".
+// actual_idx = swap 반영된 데이터 슬롯 인덱스.
+static void draw_empty_panel_msg(const AppState& state, int actual_idx) {
+    const std::string& miss = state.panel_missing_msg[actual_idx];
+    if (state.pair_mode && !miss.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "No matching image:");
+        ImGui::TextDisabled("%s", miss.c_str());
+        if (!state.pair_dir_b.empty())
+            ImGui::TextDisabled("in %s", state.pair_dir_b.c_str());
+    } else {
+        ImGui::TextDisabled("(no image)");
+    }
+}
+
 void ImagePanel::render_single_software(AppState& state, int panel_idx) {
     int actual_idx = state.swap_images ? (1 - panel_idx) : panel_idx;
     const ImageEntry& img = state.images[actual_idx];
@@ -190,7 +204,7 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
     int    ph    = std::max(1, static_cast<int>(avail.y));
 
     if (!img.loaded || img.texture_id == 0 || img.pixels.empty()) {
-        ImGui::TextDisabled("(no image)");
+        draw_empty_panel_msg(state, actual_idx);
         return;
     }
 
@@ -1813,7 +1827,7 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
     int    ph    = std::max(1, static_cast<int>(avail.y));
 
     if (!img.loaded || img.texture_id == 0) {
-        ImGui::TextDisabled("(no image)");
+        draw_empty_panel_msg(state, actual_idx);
         return;
     }
 

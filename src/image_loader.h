@@ -79,3 +79,7 @@ struct AppState;
 bool load_image_and_populate_sequence(AppState& state,
                                       int panel,   // 0=A, 1=B (data slot, not visual)
                                       const std::string& path);
+
+// --pair 모드: A의 파일명을 state.pair_dir_b 에서 찾아 패널 B(1)에 미러 로드.
+// 같은 이름이 없으면 B를 비우고 state.panel_missing_msg[1] 을 basename으로 설정.
+void pair_mirror_b(AppState& state, const std::string& a_path);

@@ -14,6 +14,8 @@
 #include <iostream>
 #include <cstdio>
 #include <cmath>
+#include <filesystem>
+#include <system_error>
 
 // X11 error handler for SSH forwarding (suppress MIT-SHM errors)
 #if defined(__linux__) || defined(__unix__)
@@ -158,11 +160,44 @@ struct SdlCleanup {
     }
 };
 
+// --pair 인자 검증 + 비교 디렉토리 계산. 유효하면 dir_b_out 채우고 true.
+// 문제 시 stderr 출력 후 false (호출부에서 창 열기 전 fail-fast 종료).
+static bool validate_pair_args(const CliOptions& cli, std::string& dir_b_out) {
+    namespace fs = std::filesystem;
+    if (cli.image_a.empty() || cli.image_b.empty()) {
+        std::cerr << "--pair requires two paths: <imageA> <imageB-or-dirB>\n";
+        return false;
+    }
+    std::error_code ec;
+    fs::path dirA = fs::path(cli.image_a).parent_path();
+    if (dirA.empty()) dirA = ".";
+    fs::path pb   = cli.image_b;
+    fs::path dirB = fs::is_directory(pb, ec) ? pb : pb.parent_path();
+    if (dirB.empty()) dirB = ".";
+    // 같은 디렉토리면 비교 의미 없음 → 경고 후 실패
+    std::error_code e1, e2;
+    fs::path cA = fs::weakly_canonical(dirA, e1);
+    fs::path cB = fs::weakly_canonical(dirB, e2);
+    bool same = (!e1 && !e2) ? (cA == cB) : (dirA == dirB);
+    if (same) {
+        std::cerr << "--pair: both directories are the same ("
+                  << dirA.string() << "). Nothing to compare.\n";
+        return false;
+    }
+    dir_b_out = dirB.string();
+    return true;
+}
+
 // ─── main ─────────────────────────────────────────────────────────────────────
 
 int main(int argc, char* argv[]) {
     // ── Parse CLI ─────────────────────────────────────────────────────────────
     CliOptions cli = parse_cli(argc, argv);
+
+    // ── --pair 검증 (fail-fast: 창 열기 전에 인자/디렉토리 확인) ────────────────
+    std::string pair_dir_b;
+    if (cli.pair && !validate_pair_args(cli, pair_dir_b))
+        return 1;
 
     // ── Determine software mode BEFORE SDL_Init ───────────────────────────────
     bool use_software = cli.software;
@@ -365,14 +400,25 @@ int main(int argc, char* argv[]) {
         state.font_medium = io.Fonts->Fonts[0];  // fallback to default
 
     // Load images from CLI (공용 헬퍼 경유 — 시퀀스/토스트/viewport 일괄 처리)
-    if (!cli.image_a.empty()) {
+    if (cli.pair) {
+        // ── --pair 모드: A 로드 후 같은 파일명을 dirB에서 B로 미러 ─────────────
+        // (인자/디렉토리 검증은 위 validate_pair_args 에서 이미 통과)
+        state.pair_mode  = true;
+        state.pair_dir_b = pair_dir_b;
         if (!load_image_and_populate_sequence(state, 0, cli.image_a)) {
             std::cerr << "Failed to load image A: " << cli.image_a << "\n";
         }
-    }
-    if (!cli.image_b.empty()) {
-        if (!load_image_and_populate_sequence(state, 1, cli.image_b)) {
-            std::cerr << "Failed to load image B: " << cli.image_b << "\n";
+        pair_mirror_b(state, cli.image_a);
+    } else {
+        if (!cli.image_a.empty()) {
+            if (!load_image_and_populate_sequence(state, 0, cli.image_a)) {
+                std::cerr << "Failed to load image A: " << cli.image_a << "\n";
+            }
+        }
+        if (!cli.image_b.empty()) {
+            if (!load_image_and_populate_sequence(state, 1, cli.image_b)) {
+                std::cerr << "Failed to load image B: " << cli.image_b << "\n";
+            }
         }
     }
 

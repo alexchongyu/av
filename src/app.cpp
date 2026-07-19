@@ -12,6 +12,7 @@
 // 공용 시퀀스 탐색 함수. 키/마우스/슬라이드쇼 모두 이 함수를 통해 진행.
 // 실제 로드는 main_window.cpp 의 open_state pending 처리 블록에서 수행.
 void sequence_navigate(AppState& state, int panel, int dir) {
+    if (state.pair_mode) panel = 0;   // --pair: 항상 A(왼쪽)가 시퀀스를 구동, B는 이름으로 미러
     if (panel < 0 || panel > 1) return;
     auto& seq = state.sequences[panel];
     if (seq.files.empty() || seq.current_index < 0) return;
@@ -59,6 +60,9 @@ static void print_help(const char* prog) {
         "  --zoom <factor>      fit|1|2.0 etc.                (default: fit)\n"
         "  --sync               Enable viewport sync          (default: on)\n"
         "  --no-sync            Disable viewport sync\n"
+        "  --pair               Pair same-named file from imageB's directory with imageA;\n"
+        "                       next/prev loads the matching filename from both dirs\n"
+        "                       (the two directories must differ)\n"
         "  --amplify <val>      Diff amplification 0.1-100   (default: 1.0)\n"
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
@@ -114,6 +118,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.sync = true;
         } else if (arg == "--no-sync") {
             opts.sync = false;
+        } else if (arg == "--pair") {
+            opts.pair = true;
         } else if (arg == "--amplify") {
             opts.amplify = std::stof(next());
         } else if (arg == "--fullscreen") {

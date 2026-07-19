@@ -239,6 +239,7 @@ struct CliOptions {
     DiffState::Mode diff_mode    = DiffState::Mode::None;
     float           zoom         = 0.0f;    // 0 = fit
     bool            sync         = true;
+    bool            pair         = false;   // --pair: 두 dir에서 같은 파일명 짝지어 비교
     float           amplify      = 1.0f;
     bool            fullscreen   = false;
     int             win_w        = 1280;
@@ -293,6 +294,11 @@ struct AppState {
     RoiState     roi;                   // ROI 선택 상태
     bool         show_roi_stats = false; // ROI 통계 창 표시
     SequenceState sequences[2];         // [0]=A, [1]=B 시퀀스 탐색
+
+    // ─── Feature: --pair (두 디렉토리에서 같은 파일명 짝지어 로드) ───────────
+    bool        pair_mode = false;       // A(왼쪽)=기준 dir가 시퀀스 구동, B(오른쪽)=비교 dir
+    std::string pair_dir_b;              // 비교 디렉토리 B (고정)
+    std::string panel_missing_msg[2];    // 매칭 영상 없음 시 표시할 basename ("" = 정상)
     OverlayState overlay;               // Overlay/Blend 비교 모드
     bool         show_scatter_plot = false; // Scatter Plot 창 표시
     bool         windowed_mode = false;    // W key: windowed (title bar) mode

@@ -1246,8 +1246,11 @@ void MainWindow::render(AppState& state) {
                 if (state.images[other].loaded)
                     free_image(state.images[other]);
             }
-            load_image_and_populate_sequence(state, target,
+            bool ok = load_image_and_populate_sequence(state, target,
                                              state.open_state.opened_path);
+            // --pair: A(0) 로드 성공 시 같은 파일명을 dirB에서 B로 미러
+            if (ok && state.pair_mode && target == 0)
+                pair_mirror_b(state, state.open_state.opened_path);
         }
         state.open_state.opened_path.clear();
         state.open_state.open_pending = false;
