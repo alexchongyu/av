@@ -155,3 +155,16 @@ patch hunk 수술보다 안전(각 커밋이 실제로 컴파일됨을 보장). 
   `GL_UNPACK_SKIP_ROWS/PIXELS=0`. 주변(ImGui/SDL) GL 상태를 절대 신뢰하지 말 것.
 - FBO용 `nullptr` 업로드는 픽셀 읽기가 없어 무관.
 - ASan이 서드파티 GPU 드라이버에서 BUS를 내면 우리 코드의 호출 프레임(스택 #6~)이 진짜 단서다.
+
+## 원격 리눅스 빌드 머신(alexws)은 로그인 셸이 tcsh — ssh 명령은 bash로 감싼다 (2026-07-21)
+
+**상황**: `ssh 192.168.2.2 '... 2>&1 ...'` 가 `Ambiguous output redirect` 로 실패. 원격 로그인
+셸이 csh/tcsh라 bash 리다이렉션 문법이 통하지 않음. (`ssh host 'bash -l' < script` 는 정상.)
+
+**규칙**:
+- 원격 빌드/설치 명령은 **항상** `ssh host 'bash -l' <<'EOF' ... EOF` 또는 `ssh host bash -lc '...'`.
+  `bash -l` 은 로그인 프로필을 읽어 cmake/ninja PATH 까지 확보.
+- 오프라인 박스이므로 `build-linux.sh`(온라인) 말고 `build-offline.sh`(FETCHCONTENT_FULLY_DISCONNECTED=ON).
+- 빌드 전 스테일 `.git` 제거해야 `git describe` 가 옛 버전을 씌우지 않음(→VERSION.txt 사용).
+- 설치는 번들 디렉토리(`av`=래퍼 스크립트) 통째로 배포. 단일 파일 복사 금지.
+- **전체 절차는 리포 루트 `linux-compile-install.md` 참조.**
