@@ -58,7 +58,7 @@ static void print_help(const char* prog) {
         "\n"
         "Options:\n"
         "  --diff-mode <mode>   none|alphablend|abs|rel|highlight|falsecolor|ssim|enhance  (default: none)\n"
-        "  --zoom <factor>      fit|1|2.0 etc.                (default: fit)\n"
+        "  --zoom <factor>      fit|0|1|2 etc. (0/fit=window, 1=1:1 actual; saved)\n"
         "  --sync               Enable viewport sync          (default: on)\n"
         "  --no-sync            Disable viewport sync\n"
         "  --pair               Pair same-named file from imageB's directory with imageA;\n"
@@ -114,7 +114,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
         } else if (arg == "--zoom") {
             std::string z = next();
             if (z == "fit") opts.zoom = 0.0f;
-            else            opts.zoom = std::stof(z);
+            else            opts.zoom = std::stof(z);   // 0 → fit, 1 → 1:1 실제크기, 2 → 2배 …
+            opts.zoom_set = true;                        // CLI 명시 → 저장된 초기 zoom 덮어쓰기
         } else if (arg == "--sync") {
             opts.sync = true;
         } else if (arg == "--no-sync") {
@@ -175,6 +176,9 @@ void apply_cli_options(AppState& state, const CliOptions& opts) {
     state.border_colors   = opts.border_colors;
     state.windowed_mode   = opts.windowed;
     if (opts.no_border) state.show_borders = false;
+    // --zoom 이 CLI에 명시된 경우에만 저장된 초기 zoom 을 덮어쓴다.
+    // (미지정 시 load_app_ini 가 읽어둔 .av.ini 값 유지 → "마지막 옵션 상태" 재현)
+    if (opts.zoom_set) state.zoom_setting = opts.zoom;
 }
 
 // ─── compute_info_psnr ────────────────────────────────────────────────────────
@@ -734,6 +738,7 @@ void load_app_ini(AppState& state) {
         else if (key == "channel_mode")      state.channel_mode      = static_cast<ChannelMode>(std::stoi(val));
         else if (key == "windowed_mode")     state.windowed_mode     = (val != "0");
         else if (key == "overlay_active")    state.overlay.active    = (val != "0");
+        else if (key == "zoom")              state.zoom_setting      = std::stof(val);
     }
 }
 
@@ -759,4 +764,5 @@ void save_app_ini(const AppState& state) {
     f << "channel_mode="      << static_cast<int>(state.channel_mode)  << "\n";
     f << "windowed_mode="     << (state.windowed_mode     ? "1" : "0") << "\n";
     f << "overlay_active="    << (state.overlay.active    ? "1" : "0") << "\n";
+    f << "zoom="              << state.zoom_setting << "\n";   // 초기 zoom 옵션(0=fit, >0=배율)
 }

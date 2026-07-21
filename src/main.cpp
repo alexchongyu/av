@@ -338,7 +338,7 @@ int main(int argc, char* argv[]) {
 
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    io.IniFilename  = "av_imgui.ini";
+    io.IniFilename  = ".av_imgui.ini";
 
     // Style
     ImGui::StyleColorsDark();
@@ -418,6 +418,18 @@ int main(int argc, char* argv[]) {
         if (!cli.image_b.empty()) {
             if (!load_image_and_populate_sequence(state, 1, cli.image_b)) {
                 std::cerr << "Failed to load image B: " << cli.image_b << "\n";
+            }
+        }
+    }
+
+    // ── 초기 zoom 적용 (--zoom / .av.ini) ─────────────────────────────────────
+    // 0=fit(기본, views 기본 fit=true 유지), >0=고정 배율. 로드가 매번 fit=true 로
+    // 리셋하므로 최초 로드 직후 1회만 적용한다. (메뉴 "1:1 Pixel" 과 동일 경로)
+    if (state.zoom_setting > 0.0f) {
+        for (int i = 0; i < 2; ++i) {
+            if (state.images[i].loaded) {
+                viewport_set_zoom(state.views[i], state.zoom_setting);  // fit=false + clamp
+                viewport_center(state.views[i]);
             }
         }
     }

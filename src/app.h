@@ -238,6 +238,7 @@ struct CliOptions {
     std::string     image_b;
     DiffState::Mode diff_mode    = DiffState::Mode::None;
     float           zoom         = 0.0f;    // 0 = fit
+    bool            zoom_set     = false;   // --zoom 이 CLI에 명시됨 → 저장값 덮어쓰기
     bool            sync         = true;
     bool            pair         = false;   // --pair: 두 dir에서 같은 파일명 짝지어 비교
     float           amplify      = 1.0f;
@@ -283,6 +284,7 @@ struct AppState {
     ImFont* font_large  = nullptr;    // Roboto-Medium 26px (Image Info & Pixel Balloon)
     ImFont* font_medium = nullptr;    // Roboto-Medium 18px (Save/Open dialog)
     CliOptions cli;
+    float zoom_setting  = 0.0f;      // 초기 zoom 옵션(영속): 0=fit, >0=배율. --zoom / .av.ini
     bool  show_save_dialog = false;   // Shift+Cmd/Ctrl+S: context-aware Save window
     ImageSaveDialog  image_save;
     ChartSaveDialog  chart_save;
