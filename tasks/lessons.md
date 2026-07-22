@@ -187,3 +187,18 @@ patch hunk 수술보다 안전(각 커밋이 실제로 컴파일됨을 보장). 
   → 스크립트를 파일로 scp → `nohup bash script build > log 2>&1 &` 분리실행 → 원격 log 폴링.
 - CMakeLists 는 이미 Windows 분기 완비(소스 무변경). lcms2 는 Windows에 없어 color mgmt 자동 off.
 - 스크립트: `script/sync-win.sh`, `script/win-build-wsl.sh` [all|deps|configure|build].
+
+## Linux(alexws) 빌드 — ninja "manifest still dirty" = 시계 오차 (2026-07-22)
+
+**증상**: sync 후 `build-offline.sh` 가 `ninja: error: manifest 'build.ninja' still dirty
+after 100 tries, perhaps system time is not set` 로 실패(컴파일 시작도 못 함).
+
+**원인**: alexws(192.168.2.2)의 **시스템 시계가 맥보다 ~6분 느림**. rsync 가 맥의 mtime을
+보존 → 소스 파일이 박스 시각 기준 **미래**. cmake 가 build.ninja 재생성해도 입력(미래)이 여전히
+build.ninja(박스 now)보다 최신 → 무한 재생성 루프.
+
+**해결**: 전체 트리 mtime 을 확실한 과거 고정일로 정규화 후 재빌드:
+`find . -not -path './.git/*' -exec touch -t 202607200000 {} +` → `bash script/build-offline.sh`.
+(소스만 touch 는 부족 — `build/_deps` 전개물도 미래 mtime. 트리 전체를 과거로.)
+근본 해결은 박스 `sudo ntpdate`/`timedatectl` 로 시계 교정(sudo 필요). 재발 방지로 sync-linux.sh
+에 원격 touch 정규화 추가 검토 가능.
