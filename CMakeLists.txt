@@ -1,7 +1,14 @@
 cmake_minimum_required(VERSION 3.14)
+
+# CMP0091 NEW: honor CMAKE_MSVC_RUNTIME_LIBRARY (static CRT). 반드시 project() 전에.
+# min 버전이 3.15 미만이면 이 정책이 OLD 라 아래 런타임 설정이 무시되어 /MD(동적)로 링크됨.
+if(POLICY CMP0091)
+    cmake_policy(SET CMP0091 NEW)
+endif()
+
 project(av C CXX)   # C required for glad2 generated sources
 
-# Static CRT for standalone deployment (no vcruntime DLL needed)
+# Static CRT for standalone deployment (no vcruntime/msvcp140 DLL needed)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -22,6 +29,7 @@ set(FETCHCONTENT_QUIET OFF)
 # ── SDL3 ──────────────────────────────────────────────────────────────────────
 set(SDL_SHARED     OFF CACHE BOOL "" FORCE)
 set(SDL_STATIC     ON  CACHE BOOL "" FORCE)
+set(SDL_FORCE_STATIC_VCRT ON CACHE BOOL "" FORCE)  # SDL3도 /MT (static CRT)로 빌드
 set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_TESTS      OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(SDL3
