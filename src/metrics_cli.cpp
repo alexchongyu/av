@@ -3,6 +3,7 @@
 #include "app.h"           // ImageEntry, CliOptions
 #include "image_loader.h"  // scan_image_directory
 #include "chart_export.h"  // compute_diff_stats, DiffExtraStats
+#include "color.h"         // colorimetry (--probe, --uniformity)
 #include "diff_engine.h"   // compute_ssim, SSIMResult
 #include "flip_engine.h"   // compute_flip, FLIPResult
 #include "image_save.h"    // compute_diff_cpu
@@ -475,4 +476,92 @@ int run_validate_headless(const CliOptions& cli) {
               << " nan=" << nan_n << " inf=" << inf_n
               << " negative=" << neg_n << " superwhite=" << hi_n << "\n";
     return (nan_n > 0 || inf_n > 0) ? 8 : 0;   // NaN/Inf = hard fail
+}
+
+// ─── Headless colorimetry probe (--probe "X,Y") ───────────────────────────────
+
+namespace {
+
+// Sample pixel (px,py) of an entry as CIE XYZ (D65). LDR u8 → sRGB display value
+// (gamma-encoded); HDR f32 → treated as linear light. False if out of range.
+bool probe_xyz(const ImageEntry& e, int px, int py, color::XYZ& out) {
+    if (px < 0 || py < 0 || px >= e.width || py >= e.height) return false;
+    size_t idx = (static_cast<size_t>(py) * e.width + px) * 4;
+    if (!e.pixels_f32.empty()) {
+        out = color::lin_rgb_to_xyz(e.pixels_f32[idx], e.pixels_f32[idx+1], e.pixels_f32[idx+2]);
+    } else if (!e.pixels.empty()) {
+        out = color::srgb_to_xyz(e.pixels[idx]/255.0, e.pixels[idx+1]/255.0, e.pixels[idx+2]/255.0);
+    } else return false;
+    return true;
+}
+
+// One CSV colorimetry row: which,X,Y,Z,x,y,u',v',CCT,Duv,L*.
+void probe_row(const char* which, const color::XYZ& c) {
+    double x, y, up, vp;
+    color::xyz_to_xy(c, x, y);
+    color::xyz_to_upvp(c, up, vp);
+    color::Lab lab = color::xyz_to_lab(c);
+    std::cout << which << ',' << fmtv(c.X) << ',' << fmtv(c.Y) << ',' << fmtv(c.Z) << ','
+              << fmtv(x) << ',' << fmtv(y) << ',' << fmtv(up) << ',' << fmtv(vp) << ','
+              << fmtv(color::cct_mccamy(x, y)) << ',' << fmtv(color::duv_from_upvp(up, vp)) << ','
+              << fmtv(lab.L) << '\n';
+}
+
+} // namespace
+
+int run_probe_headless(const CliOptions& cli) {
+    if (cli.image_a.empty()) {
+        std::cerr << "[probe] --probe requires an image: av --probe X,Y A [B]\n";
+        return 3;
+    }
+    // Parse "X,Y".
+    int px = 0, py = 0;
+    {
+        const std::string& s = cli.probe;
+        auto comma = s.find(',');
+        if (comma == std::string::npos) {
+            std::cerr << "[probe] --probe expects \"X,Y\" (got: " << s << ")\n";
+            return 3;
+        }
+        try {
+            px = std::stoi(s.substr(0, comma));
+            py = std::stoi(s.substr(comma + 1));
+        } catch (...) {
+            std::cerr << "[probe] --probe expects integer \"X,Y\" (got: " << s << ")\n";
+            return 3;
+        }
+    }
+
+    ImageEntry A;
+    if (!decode_image_cpu(cli.image_a, A)) return 4;
+    color::XYZ ca;
+    if (!probe_xyz(A, px, py, ca)) {
+        std::cerr << "[probe] coord " << px << "," << py << " out of range (A is "
+                  << A.width << "x" << A.height << ")\n";
+        return 3;
+    }
+
+    std::cout << "which,X,Y,Z,x,y,uprime,vprime,CCT,Duv,Lstar\n";
+    probe_row("A", ca);
+    if (cli.image_b.empty()) return 0;
+
+    ImageEntry B;
+    if (!decode_image_cpu(cli.image_b, B)) return 4;
+    color::XYZ cb;
+    if (!probe_xyz(B, px, py, cb)) {
+        std::cerr << "[probe] coord " << px << "," << py << " out of range (B is "
+                  << B.width << "x" << B.height << ")\n";
+        return 3;
+    }
+    probe_row("B", cb);
+
+    // Delta row (A→B): CCT col = ΔCCT, Duv col = Δu'v' (chromaticity distance),
+    // L* col = ΔE76; XYZ/xy/u'v' columns left blank.
+    double ax, ay, aup, avp; color::xyz_to_xy(ca, ax, ay); color::xyz_to_upvp(ca, aup, avp);
+    double bx, by, bup, bvp; color::xyz_to_xy(cb, bx, by); color::xyz_to_upvp(cb, bup, bvp);
+    double dcct  = color::cct_mccamy(bx, by) - color::cct_mccamy(ax, ay);
+    double dupvp = std::sqrt((bup-aup)*(bup-aup) + (bvp-avp)*(bvp-avp));
+    double de76  = color::delta_e76(color::xyz_to_lab(ca), color::xyz_to_lab(cb));
+    std::cout << "delta,,,,,,,," << fmtv(dcct) << ',' << fmtv(dupvp) << ',' << fmtv(de76) << '\n';
+    return 0;
 }

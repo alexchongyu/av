@@ -73,6 +73,8 @@ static void print_help(const char* prog) {
         "                       PNG and exit.  --sbs = A|diff|B composite.\n"
         "  --validate           Headless: scan a float/HDR image for NaN/Inf/negative/>1\n"
         "                       pixels (CSV), exit 8 if any NaN/Inf. (GUI: '/' overlay.)\n"
+        "  --probe <X,Y>        Headless: colorimetry (XYZ/xy/u'v'/CCT/Duv/L*) of pixel X,Y\n"
+        "                       in A (and B + delta) as CSV, then exit.\n"
         "  --amplify <val>      Diff amplification 0.1-100   (default: 1.0)\n"
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
@@ -137,6 +139,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.metrics = true;
         } else if (arg == "--validate") {
             opts.validate = true;
+        } else if (arg == "--probe") {
+            opts.probe = next();
         } else if (arg == "--fail-psnr") {
             opts.fail_psnr = std::stof(next());
         } else if (arg == "--warn-psnr") {
@@ -644,7 +648,12 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         state.show_info = !state.show_info;
         break;
     case SDL_SCANCODE_V:
-        state.show_pixel_info = !state.show_pixel_info;
+        if (shift) {
+            state.show_colorimetry = !state.show_colorimetry;
+            if (state.show_colorimetry) state.show_pixel_info = true;  // balloon carries it
+        } else {
+            state.show_pixel_info = !state.show_pixel_info;
+        }
         break;
     case SDL_SCANCODE_P:
         // PSNR은 Image Info 창에서 자동 표시되므로 'p'는 기존 pathfinder 전용으로 복귀.

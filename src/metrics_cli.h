@@ -25,3 +25,9 @@ int run_diff_out_headless(const CliOptions& cli, const std::string& pair_dir_b);
 // per-class counts + first offenders (CSV) to stdout. Exit 8 if any NaN/Inf,
 // else 0 (3 bad args, 4 decode fail). 8-bit images report all-zero.
 int run_validate_headless(const CliOptions& cli);
+
+// ─── Headless colorimetry probe (--probe "X,Y") ───────────────────────────────
+// Sample pixel (X,Y) of A (and B if given), print CIE colorimetry
+// (X,Y,Z,x,y,u',v',CCT,Duv,L*) as CSV; with B, add a delta row (ΔE76/ΔCCT/Δu'v').
+// Exit codes: 0 ok, 3 bad args / coord out of range, 4 decode failure.
+int run_probe_headless(const CliOptions& cli);

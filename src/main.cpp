@@ -212,6 +212,10 @@ int main(int argc, char* argv[]) {
     if (cli.validate)
         return run_validate_headless(cli);
 
+    // ── --probe: headless colorimetry (XYZ/xy/u'v'/CCT/Duv) of a pixel, then exit
+    if (!cli.probe.empty())
+        return run_probe_headless(cli);
+
     // ── Determine software mode BEFORE SDL_Init ───────────────────────────────
     bool use_software = cli.software;
     if (!use_software) {

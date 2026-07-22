@@ -7,6 +7,7 @@
 #include "../image_save.h"
 #include "../image_open.h"
 #include "../chart_export.h"
+#include "../color.h"
 #include "../flip_engine.h"
 #include "../gl_texture.h"
 #include "../path_utils.h"
@@ -663,6 +664,7 @@ void MainWindow::render_menubar(AppState& state) {
         }
         ImGui::MenuItem("Show Image Info", "I", &state.show_info);
         ImGui::MenuItem("Show Pixel Info", "V", &state.show_pixel_info);
+        ImGui::MenuItem("Colorimetry Probe (xy/CCT)", "Shift+V", &state.show_colorimetry);
         ImGui::Separator();
         if (ImGui::MenuItem("Show Histogram", "Ctrl+H", state.show_histogram)) {
             state.show_histogram = !state.show_histogram;
@@ -903,6 +905,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Analysis", "Ctrl+Y",                    "Toggle V-Line Cut" },
         { "Analysis", "Ctrl+S",                    "Toggle statistics window" },
         { "Analysis", "Ctrl+E",                    "Toggle ROI selection mode (left-drag to select)" },
+        { "Analysis", "Shift+V",                   "Colorimetry probe (xy/u'v'/CCT) in pixel balloon" },
         { "Analysis", "Ctrl+T",                    "Toggle Scatter Plot (A vs B pixel values)" },
         // Overlay
         { "Display", "B",                           "Toggle panel borders" },
@@ -1714,6 +1717,8 @@ void MainWindow::render(AppState& state) {
 
             char line_pos[32];
             char line_r[24], line_g[24], line_b[24];
+            bool probe_ok = false;              // Shift+V colorimetry: non-diff sample valid
+            int  probe_ix = 0, probe_iy = 0;    // sampled image-pixel coord
 
             if (two_images && diff_mode) {
                 float third_w = std::floor(total_w / 3.0f);
@@ -1824,6 +1829,7 @@ void MainWindow::render(AppState& state) {
                 int pidx = (iy * bimg.width + ix) * 4;
 
                 std::snprintf(line_pos, sizeof(line_pos), "(%d, %d)", ix, iy);
+                probe_ix = ix; probe_iy = iy; probe_ok = true;   // enable Shift+V colorimetry
 
                 if (bimg.ppm_maxval > 0 && !bimg.pixels_orig.empty()) {
                     int oidx = (iy * bimg.width + ix) * 3;
@@ -1901,6 +1907,63 @@ void MainWindow::render(AppState& state) {
             }
             if (show_b) {
                 dl->AddText(cur_font, font_h, ImVec2(x2, y2), IM_COL32(100, 130, 255, 255), line_b);
+            }
+
+            // ── Colorimetry probe (Shift+V): CIE xy/u'v'/CCT for A, B, Δ ─────────
+            // Non-diff panels only; samples images[0]=A and images[1]=B at the same
+            // pixel. LDR→sRGB display value, HDR→linear light. Math proven by --probe.
+            if (state.show_colorimetry && probe_ok) {
+                auto sample = [](const ImageEntry& e, int ix, int iy, color::XYZ& out) -> bool {
+                    if (!e.loaded || ix < 0 || iy < 0 || ix >= e.width || iy >= e.height) return false;
+                    size_t p = (static_cast<size_t>(iy) * e.width + ix) * 4;
+                    if (e.ppm_maxval > 0 && !e.pixels_orig.empty()) {
+                        size_t o = (static_cast<size_t>(iy) * e.width + ix) * 3;
+                        double m = e.ppm_maxval;
+                        out = color::srgb_to_xyz(e.pixels_orig[o]/m, e.pixels_orig[o+1]/m, e.pixels_orig[o+2]/m);
+                    } else if (e.is_hdr && !e.pixels_f32.empty()) {
+                        out = color::lin_rgb_to_xyz(e.pixels_f32[p], e.pixels_f32[p+1], e.pixels_f32[p+2]);
+                    } else if (!e.pixels.empty()) {
+                        out = color::srgb_to_xyz(e.pixels[p]/255.0, e.pixels[p+1]/255.0, e.pixels[p+2]/255.0);
+                    } else return false;
+                    return true;
+                };
+                color::XYZ ca, cb;
+                bool okA = sample(state.images[0], probe_ix, probe_iy, ca);
+                bool okB = two_images && sample(state.images[1], probe_ix, probe_iy, cb);
+
+                char cl[3][48]; int nlines = 0;
+                double ax=0, ay=0, aup=0, avp=0, bx2=0, by2=0, bup=0, bvp=0;
+                if (okA) {
+                    color::xyz_to_xy(ca, ax, ay); color::xyz_to_upvp(ca, aup, avp);
+                    std::snprintf(cl[nlines++], 48, "A xy %.4f,%.4f  %.0fK", ax, ay, color::cct_mccamy(ax, ay));
+                }
+                if (okB) {
+                    color::xyz_to_xy(cb, bx2, by2); color::xyz_to_upvp(cb, bup, bvp);
+                    std::snprintf(cl[nlines++], 48, "B xy %.4f,%.4f  %.0fK", bx2, by2, color::cct_mccamy(bx2, by2));
+                }
+                if (okA && okB) {
+                    double duv = std::sqrt((bup-aup)*(bup-aup) + (bvp-avp)*(bvp-avp));
+                    double dcct = color::cct_mccamy(bx2, by2) - color::cct_mccamy(ax, ay);
+                    std::snprintf(cl[nlines++], 48, "Δu'v' %.4f  ΔCCT %.0fK", duv, dcct);
+                }
+
+                if (nlines > 0) {
+                    float cw = 0.0f;
+                    for (int i = 0; i < nlines; ++i) cw = std::max(cw, ImGui::CalcTextSize(cl[i]).x);
+                    float cbox_w = cw + pad * 2.0f;
+                    float cbox_h = nlines * font_h + (nlines - 1) * gap_y + pad * 2.0f;
+                    float cbx = bx;
+                    float cby = by + box_h + 6.0f;
+                    if (cby + cbox_h > mvp->WorkPos.y + mvp->WorkSize.y)
+                        cby = by - cbox_h - 6.0f;   // flip above the main box if no room below
+                    dl->AddRectFilled(ImVec2(cbx, cby), ImVec2(cbx + cbox_w, cby + cbox_h),
+                                      IM_COL32(18, 24, 30, 205), 6.0f);
+                    dl->AddRect(ImVec2(cbx, cby), ImVec2(cbx + cbox_w, cby + cbox_h),
+                                IM_COL32(90, 130, 160, 190), 6.0f);
+                    for (int i = 0; i < nlines; ++i)
+                        dl->AddText(cur_font, font_h, ImVec2(cbx + pad, cby + pad + i * (font_h + gap_y)),
+                                    IM_COL32(210, 225, 235, 255), cl[i]);
+                }
             }
         } while (false);
         if (state.font_large) ImGui::PopFont();

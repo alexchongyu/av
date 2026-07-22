@@ -256,6 +256,7 @@ struct CliOptions {
     bool            pair         = false;   // --pair: 두 dir에서 같은 파일명 짝지어 비교
     bool            metrics      = false;   // --metrics: 헤드리스로 PSNR/SSIM/MSE/MAE 출력 후 종료
     bool            validate     = false;   // --validate: 헤드리스 NaN/Inf/범위이탈 스캔 후 종료
+    std::string     probe;                   // --probe "X,Y": 헤드리스 콜러메트리(XYZ/xy/u'v'/CCT/Duv) 출력 후 종료
     // CI gate thresholds (-1 = unset). psnr/ssim: FAIL if below; flip/maxerr: FAIL if above.
     float           fail_psnr    = -1.0f;
     float           warn_psnr    = -1.0f;
@@ -295,6 +296,7 @@ struct AppState {
     bool  show_stats      = false;   // Ctrl+S: Image Statistics window
     bool  show_info       = false;
     bool  show_pixel_info = false;   // V key: cursor pixel balloon
+    bool  show_colorimetry = false;  // Shift+V: append CIE xy/u'v'/CCT to the balloon
     bool  show_hotkey_help = false;  // Ctrl+Shift+H: hotkey reference window
     int   pathfinder_mode = 1;      // 0=hidden, 1=image (P), 2=schematic (Ctrl+P)
     bool  swap_images     = false;   // A↔B quick-swap toggle

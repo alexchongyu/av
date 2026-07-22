@@ -122,6 +122,7 @@ set(AV_SOURCES
     src/diff_engine.cpp
     src/flip_engine.cpp
     src/lut.cpp
+    src/color.cpp
     src/metrics_cli.cpp
     src/stb_impl.cpp
     src/image_save.cpp

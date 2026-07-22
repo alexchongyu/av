@@ -1,6 +1,7 @@
 #include "chart_windows.h"
 #include "../app.h"
 #include "../chart_export.h"
+#include "../color.h"
 #include "../path_utils.h"
 
 #include <imgui.h>
@@ -1189,6 +1190,9 @@ void render_roi_stats_window(AppState& state)
         fmt_comma((int64_t)roi.w * roi.h).c_str());
     ImGui::Separator();
 
+    // ROI-mean CIE colorimetry (D65) per image; Δ printed after the loop.
+    color::XYZ roi_c[2]; bool roi_have[2] = {false, false};
+
     bool any = false;
     for (int i = 0; i < 2; ++i) {
         const ImageEntry& img = state.images[i];
@@ -1200,8 +1204,29 @@ void render_roi_stats_window(AppState& state)
             ImU32 col = (i == 0) ? IM_COL32(255, 220, 50, 255) : IM_COL32(50, 220, 255, 255);
             const char* lbl = (i == 0) ? "Image A (ROI)" : "Image B (ROI)";
             draw_stats_table(lbl, col, st, use_f32);
+            // ROI mean → colorimetry. f32 mean is linear [0,1]; u8 mean is [0,255] sRGB.
+            color::XYZ c = use_f32
+                ? color::lin_rgb_to_xyz(st.ch[0].mean, st.ch[1].mean, st.ch[2].mean)
+                : color::srgb_to_xyz(st.ch[0].mean/255.0, st.ch[1].mean/255.0, st.ch[2].mean/255.0);
+            roi_c[i] = c; roi_have[i] = true;
+            double x,y,up,vp; color::xyz_to_xy(c,x,y); color::xyz_to_upvp(c,up,vp);
+            ImGui::TextColored(ImVec4(0.82f,0.88f,0.92f,1),
+                "   mean colorimetry: xy %.4f,%.4f  u'v' %.4f,%.4f  CCT %.0fK  Duv %+.4f",
+                x, y, up, vp, color::cct_mccamy(x,y), color::duv_from_upvp(up,vp));
             ImGui::Spacing();
         }
+    }
+
+    if (roi_have[0] && roi_have[1]) {
+        double ax,ay,aup,avp; color::xyz_to_xy(roi_c[0],ax,ay); color::xyz_to_upvp(roi_c[0],aup,avp);
+        double bx,by,bup,bvp; color::xyz_to_xy(roi_c[1],bx,by); color::xyz_to_upvp(roi_c[1],bup,bvp);
+        double duv  = std::sqrt((bup-aup)*(bup-aup) + (bvp-avp)*(bvp-avp));
+        double dcct = color::cct_mccamy(bx,by) - color::cct_mccamy(ax,ay);
+        double de   = color::delta_e76(color::xyz_to_lab(roi_c[0]), color::xyz_to_lab(roi_c[1]));
+        ImGui::TextColored(ImVec4(0.4f,1.0f,0.8f,1),
+            "ROI mean Δ (A→B):  Δu'v' %.4f   ΔCCT %+.0fK   ΔE76 %.2f",
+            duv, dcct, de);
+        ImGui::Spacing();
     }
 
     bool both = state.images[0].loaded && state.images[1].loaded;
