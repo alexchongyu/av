@@ -905,6 +905,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Analysis", "Ctrl+T",                    "Toggle Scatter Plot (A vs B pixel values)" },
         // Overlay
         { "Display", "B",                           "Toggle panel borders" },
+        { "Display", "/",                           "Toggle bad-pixel overlay (NaN/Inf/neg/>1, float images)" },
         { "Display", "Ctrl+X",                      "Cycle pixel value format (Dec / 0xHex / Hexh)" },
         { "Overlay", "O",                          "Toggle Overlay/Blend comparison mode" },
         { "Overlay", "Curtain mode",               "Left-drag to move divider; mode in menu" },

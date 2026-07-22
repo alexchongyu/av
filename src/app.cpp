@@ -71,6 +71,8 @@ static void print_help(const char* prog) {
         "  --fail-ssim <v>      --fail-flip <v> [>], --fail-maxerr <v> [>], --warn-psnr <dB>)\n"
         "  --diff-out <path>    Headless: write the --diff-mode diff (or FLIP) of A vs B to a\n"
         "                       PNG and exit.  --sbs = A|diff|B composite.\n"
+        "  --validate           Headless: scan a float/HDR image for NaN/Inf/negative/>1\n"
+        "                       pixels (CSV), exit 8 if any NaN/Inf. (GUI: '/' overlay.)\n"
         "  --amplify <val>      Diff amplification 0.1-100   (default: 1.0)\n"
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
@@ -131,6 +133,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.pair = true;
         } else if (arg == "--metrics") {
             opts.metrics = true;
+        } else if (arg == "--validate") {
+            opts.validate = true;
         } else if (arg == "--fail-psnr") {
             opts.fail_psnr = std::stof(next());
         } else if (arg == "--warn-psnr") {
@@ -768,6 +772,11 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
             state.blink.interval  = std::min(2.0f, state.blink.interval + 0.1f);
             state.blink.countdown = std::min(state.blink.countdown, state.blink.interval);
         }
+        break;
+
+    // ── Bad-pixel overlay 토글 (/) — NaN/Inf/neg/>1 (float 이미지) ────────────
+    case SDL_SCANCODE_SLASH:
+        if (!ctrl && !gui) state.show_bad_pixels = !state.show_bad_pixels;
         break;
 
     default:

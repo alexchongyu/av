@@ -97,6 +97,11 @@ private:
                           int img_w, int img_h,
                           bool is_diff_panel = false);
 
+    // Bad-pixel overlay: tint NaN/Inf/negative/>1 pixels on float/HDR images.
+    void render_bad_pixel_overlay(const AppState& state, int panel_idx,
+                                  ImVec2 widget_pos, int view_w, int view_h,
+                                  int img_w, int img_h);
+
     void render_magnifier(const AppState& state, int panel_idx,
                           ImVec2 widget_pos, int view_w, int view_h,
                           int img_w, int img_h, bool is_diff_panel,

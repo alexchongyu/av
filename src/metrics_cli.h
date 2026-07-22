@@ -19,3 +19,9 @@ int run_metrics_headless(const CliOptions& cli, const std::string& pair_dir_b);
 // exit; with cli.diff_out_sbs, write an A|diff|B composite. No window/GL.
 // Exit codes: 0 ok, 3 bad args, 4 decode fail, 5 size mismatch, 6/7 compute/write fail.
 int run_diff_out_headless(const CliOptions& cli, const std::string& pair_dir_b);
+
+// ─── Headless bad-pixel validator (--validate) ────────────────────────────────
+// Scan a float/HDR image (cli.image_a) for NaN/Inf/negative/>1 pixels; print
+// per-class counts + first offenders (CSV) to stdout. Exit 8 if any NaN/Inf,
+// else 0 (3 bad args, 4 decode fail). 8-bit images report all-zero.
+int run_validate_headless(const CliOptions& cli);

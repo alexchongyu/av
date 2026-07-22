@@ -427,3 +427,52 @@ int run_diff_out_headless(const CliOptions& cli, const std::string& /*pair_dir_b
     std::cerr << "[diff-out] wrote " << cli.diff_out << " (" << ow << "x" << oh << ")\n";
     return 0;
 }
+
+// ─── Headless bad-pixel validator (--validate) ────────────────────────────────
+
+int run_validate_headless(const CliOptions& cli) {
+    if (cli.image_a.empty()) {
+        std::cerr << "[validate] requires an image: av --validate IMG\n";
+        return 3;
+    }
+    ImageEntry e;
+    if (!decode_image_cpu(cli.image_a, e)) return 4;
+
+    std::cout << "class,count\n";
+    if (e.pixels_f32.empty()) {
+        // 8-bit image: NaN/Inf/negative/>1 are impossible by construction.
+        std::cout << "nan,0\ninf,0\nnegative,0\nsuperwhite,0\n";
+        std::cerr << "[validate] " << cli.image_a
+                  << ": 8-bit image (no float data) — nothing to validate\n";
+        return 0;
+    }
+
+    long long nan_n = 0, inf_n = 0, neg_n = 0, hi_n = 0;
+    const int w = e.width, h = e.height;
+    std::vector<std::string> first;   // first offenders "class,x,y,channel"
+    const int MAXC = 20;
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            for (int c = 0; c < 3; ++c) {
+                float v = e.pixels_f32[(static_cast<size_t>(y)*w + x)*4 + c];
+                const char* cls = nullptr;
+                if      (std::isnan(v)) { ++nan_n; cls = "nan"; }
+                else if (std::isinf(v)) { ++inf_n; cls = "inf"; }
+                else if (v < 0.0f)      { ++neg_n; cls = "negative"; }
+                else if (v > 1.0f)      { ++hi_n;  cls = "superwhite"; }
+                if (cls && (int)first.size() < MAXC)
+                    first.push_back(std::string(cls) + "," + std::to_string(x) + "," +
+                                    std::to_string(y) + "," + std::string(1, "RGB"[c]));
+            }
+
+    std::cout << "nan," << nan_n << "\ninf," << inf_n
+              << "\nnegative," << neg_n << "\nsuperwhite," << hi_n << "\n";
+    if (!first.empty()) {
+        std::cout << "# first offenders: class,x,y,channel\n";
+        for (const auto& s : first) std::cout << "# " << s << "\n";
+    }
+    std::cerr << "[validate] " << cli.image_a << " " << w << "x" << h
+              << " nan=" << nan_n << " inf=" << inf_n
+              << " negative=" << neg_n << " superwhite=" << hi_n << "\n";
+    return (nan_n > 0 || inf_n > 0) ? 8 : 0;   // NaN/Inf = hard fail
+}

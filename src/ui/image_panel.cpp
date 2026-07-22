@@ -261,6 +261,7 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
     render_magnifier(state, panel_idx, widget_pos, pw, ph,
                      img.width, img.height, false, img_hovered);
     render_crosshair(state, panel_idx, widget_pos, pw, ph, img.width, img.height);
+    render_bad_pixel_overlay(state, panel_idx, widget_pos, pw, ph, img.width, img.height);
 
     if (panel_idx == 0) {
         render_pathfinder(state, panel_idx, widget_pos, pw, ph);
@@ -1266,6 +1267,54 @@ static void draw_image_border(ImDrawList* dl, ImVec2 widget_pos,
 
 // ─── render_crosshair ─────────────────────────────────────────────────────────
 
+void ImagePanel::render_bad_pixel_overlay(const AppState& state, int panel_idx,
+                                          ImVec2 widget_pos, int view_w, int view_h,
+                                          int img_w, int img_h) {
+    if (!state.show_bad_pixels) return;
+    int actual = state.swap_images ? (1 - panel_idx) : panel_idx;
+    const ImageEntry& img = state.images[actual];
+    if (!img.loaded || img.pixels_f32.empty()) return;   // only float/HDR carries bad pixels
+
+    const ViewportState& vp = state.views[panel_idx];
+    float half_vw = view_w * 0.5f, half_vh = view_h * 0.5f;
+    float half_iw = img_w * 0.5f,  half_ih = img_h * 0.5f;
+
+    // Visible image-pixel bounds (invert the screen→image transform at the corners).
+    auto to_img = [&](float sx, float sy, float& fx, float& fy) {
+        fx = (sx - half_vw) / vp.zoom - vp.pan_x + half_iw;
+        fy = (sy - half_vh) / vp.zoom - vp.pan_y + half_ih;
+    };
+    float fx0, fy0, fx1, fy1;
+    to_img(0, 0, fx0, fy0); to_img((float)view_w, (float)view_h, fx1, fy1);
+    int x0 = std::max(0, (int)std::floor(fx0)), x1 = std::min(img_w, (int)std::ceil(fx1) + 1);
+    int y0 = std::max(0, (int)std::floor(fy0)), y1 = std::min(img_h, (int)std::ceil(fy1) + 1);
+
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    float rs = std::max(vp.zoom, 3.0f);
+    int drawn = 0; const int MAXDRAW = 30000;
+    for (int py = y0; py < y1 && drawn < MAXDRAW; ++py)
+        for (int px = x0; px < x1 && drawn < MAXDRAW; ++px) {
+            const float* p = &img.pixels_f32[(static_cast<size_t>(py)*img_w + px)*4];
+            ImU32 col = 0;
+            for (int c = 0; c < 3; ++c) {
+                float v = p[c];
+                if      (std::isnan(v)) { col = IM_COL32(255,0,255,220); break; }  // magenta
+                else if (std::isinf(v)) { col = IM_COL32(255,0,0,220);   break; }  // red
+                else if (v < 0.0f)      { col = IM_COL32(0,90,255,200); }          // blue
+                else if (v > 1.0f && col == 0) col = IM_COL32(255,160,0,200);      // orange
+            }
+            if (col) {
+                float sx = widget_pos.x + (px + 0.5f - half_iw + vp.pan_x)*vp.zoom + half_vw;
+                float sy = widget_pos.y + (py + 0.5f - half_ih + vp.pan_y)*vp.zoom + half_vh;
+                dl->AddRectFilled(ImVec2(sx - rs*0.5f, sy - rs*0.5f),
+                                  ImVec2(sx + rs*0.5f, sy + rs*0.5f), col);
+                ++drawn;
+            }
+        }
+    dl->AddText(ImVec2(widget_pos.x + 6, widget_pos.y + 6), IM_COL32(255,255,255,235),
+                "bad-px: NaN magenta / Inf red / neg blue / >1 orange");
+}
+
 void ImagePanel::render_crosshair(const AppState& state, int panel_idx,
                                    ImVec2 widget_pos, int view_w, int view_h,
                                    int img_w, int img_h,
@@ -1932,6 +1981,7 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
     render_magnifier(state, panel_idx, widget_pos, pw, ph,
                      img.width, img.height, false, img_hovered);
     render_crosshair(state, panel_idx, widget_pos, pw, ph, img.width, img.height);
+    render_bad_pixel_overlay(state, panel_idx, widget_pos, pw, ph, img.width, img.height);
 
     if (panel_idx == 0) {
         render_pathfinder(state, panel_idx, widget_pos, pw, ph);

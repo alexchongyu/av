@@ -253,6 +253,7 @@ struct CliOptions {
     bool            sync         = true;
     bool            pair         = false;   // --pair: 두 dir에서 같은 파일명 짝지어 비교
     bool            metrics      = false;   // --metrics: 헤드리스로 PSNR/SSIM/MSE/MAE 출력 후 종료
+    bool            validate     = false;   // --validate: 헤드리스 NaN/Inf/범위이탈 스캔 후 종료
     // CI gate thresholds (-1 = unset). psnr/ssim: FAIL if below; flip/maxerr: FAIL if above.
     float           fail_psnr    = -1.0f;
     float           warn_psnr    = -1.0f;
@@ -335,6 +336,9 @@ struct AppState {
 
     // ─── Feature: Crosshair Overlay (M key) ─────────────────────────────────
     bool show_crosshair = false;
+
+    // ─── Feature: Bad-pixel overlay (/ key) — NaN/Inf/neg/>1 on float images ─
+    bool show_bad_pixels = false;
 
     // ─── Feature: Magnifier (Ctrl+M toggle, non-diff mode) ────────────────
     bool magnifier_active = true;

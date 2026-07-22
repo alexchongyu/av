@@ -208,6 +208,10 @@ int main(int argc, char* argv[]) {
     if (!cli.diff_out.empty())
         return run_diff_out_headless(cli, pair_dir_b);
 
+    // ── --validate: headless NaN/Inf/out-of-range scan, no window, then exit ──
+    if (cli.validate)
+        return run_validate_headless(cli);
+
     // ── Determine software mode BEFORE SDL_Init ───────────────────────────────
     bool use_software = cli.software;
     if (!use_software) {
