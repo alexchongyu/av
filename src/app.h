@@ -241,6 +241,7 @@ struct CliOptions {
     bool            zoom_set     = false;   // --zoom 이 CLI에 명시됨 → 저장값 덮어쓰기
     bool            sync         = true;
     bool            pair         = false;   // --pair: 두 dir에서 같은 파일명 짝지어 비교
+    bool            metrics      = false;   // --metrics: 헤드리스로 PSNR/SSIM/MSE/MAE 출력 후 종료
     float           amplify      = 1.0f;
     bool            fullscreen   = false;
     int             win_w        = 1280;

@@ -47,6 +47,11 @@ struct SSIMResult {
     bool               success = false;
 };
 
+// ─── Synchronous SSIM (headless) ──────────────────────────────────────────────
+// Compute SSIM on the calling thread (no GL, no worker). Used by --metrics and
+// anywhere a blocking result is wanted. Returns score in [0,1] (1 = identical).
+SSIMResult compute_ssim(const ImageEntry& a, const ImageEntry& b);
+
 // ─── Async SSIM computer ──────────────────────────────────────────────────────
 // Runs SSIM in a background std::jthread; calls callback on completion.
 // GPU upload of the heatmap texture must be done on the main thread.

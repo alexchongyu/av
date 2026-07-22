@@ -290,6 +290,13 @@ SSIMResult compute_ssim_cpu(const ImageEntry& a,
 
 } // namespace
 
+// ─── Synchronous SSIM (headless) ──────────────────────────────────────────────
+
+SSIMResult compute_ssim(const ImageEntry& a, const ImageEntry& b) {
+    std::atomic<bool> no_cancel{false};
+    return compute_ssim_cpu(a, b, no_cancel);
+}
+
 // ─── SSIMComputer ─────────────────────────────────────────────────────────────
 
 void SSIMComputer::cancel() {

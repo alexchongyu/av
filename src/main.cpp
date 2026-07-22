@@ -2,6 +2,7 @@
 #include "image_loader.h"
 #include "viewport.h"
 #include "render_backend.h"
+#include "metrics_cli.h"
 #include "ui/main_window.h"
 
 #include <glad/gl.h>
@@ -198,6 +199,10 @@ int main(int argc, char* argv[]) {
     std::string pair_dir_b;
     if (cli.pair && !validate_pair_args(cli, pair_dir_b))
         return 1;
+
+    // ── --metrics: headless PSNR/SSIM/MSE/MAE, no window/GL/SDL, then exit ─────
+    if (cli.metrics)
+        return run_metrics_headless(cli, pair_dir_b);
 
     // ── Determine software mode BEFORE SDL_Init ───────────────────────────────
     bool use_software = cli.software;

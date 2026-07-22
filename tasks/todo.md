@@ -1,30 +1,36 @@
-# todo — Windows 빌드 (av.exe) via Demura(WSL, 192.168.2.241) (2026-07-22)  ✅ 완료
+# av 신규 기능 3종 — todo (2026-07-22)
 
-대상: Mac 소스 → **C: (/mnt/c/Users/Alex/claude_code/av)** → Windows CMake(VS2022/ClangCL) → av.exe
-도구: wcmake = cmake.exe -G "Visual Studio 17 2022" -T ClangCL / wmake = devenv.com /build Release
+계획: `plans/warm-giggling-flute.md` (승인됨). 각 phase 원자적 커밋, 푸시 금지.
 
-## 진행
-- [x] 241 무패스워드 SSH 확인 (Demura, alex)
-- [x] script/sync-win.sh 작성 (rsync → C: 경로, VERSION 스냅샷)
-- [x] script/win-build-wsl.sh 작성 (interop 자동탐지 + deps + configure + build)
-- [x] 소스 sync 실행
-- [x] configure (wcmake): CONFIGURE OK — FetchContent(SDL3/glad/imgui/stb), lcms2 없음→color mgmt off
-- [x] build (cmake --build Release) → **bin/av.exe (PE32+ GUI x86-64, 3.5MB)**
-- [x] av.exe PE 유효성 확인
+## Phase 1 — `--metrics` 헤드리스 모드 ✅
+- [x] `CliOptions.metrics` 추가 (app.h) + `parse_cli` `--metrics` 분기 + help 라인 (app.cpp)
+- [x] `diff_engine.h/.cpp` 공개 동기 래퍼 `compute_ssim()`
+- [x] 신규 `metrics_cli.h/.cpp`: `decode_image_cpu()` + `run_metrics_headless()`
+- [x] `main.cpp` 헤드리스 분기 (pair 검증 뒤, SDL 이전)
+- [x] `CMakeLists.txt` AV_SOURCES += metrics_cli.cpp
+- [x] 빌드 + 검증: identical→inf/1/0, 상이→단조 유한값, --pair 5행+요약(stderr), 인자오류 exit3, 리다이렉트 순수 CSV
+- [x] 커밋
 
-## 막혔던 문제와 해결
-1. **WSL /home UNC**: Windows MSBuild/cmd 가 `\\wsl.localhost\...` current dir 거부 (MSB8066).
-   → **C: 경로(/mnt/c/Users/Alex/claude_code/av)로 이동** 후 정상.
-2. **비대화형 SSH에 WSL_INTEROP 없음**: Windows .exe 실행 실패(`accept4 failed 110`).
-   → `/run/WSL/*_interop` 중 살아있는 소켓 자동 탐지해 export (대화형 WSL 세션이 열려 있어야 함).
-3. **glad 코드생성기 jinja2 없음**: Windows Python(C:/Program Files/Python312)에 `pip install --user jinja2`.
-4. run_in_background + heredoc-stdin 은 원격에 stdin 미전달 → 스크립트 파일 + nohup 분리실행 + 로그 폴링.
+## Phase 2 — 블링크 비교기
+- [ ] `BlinkState` 추가 (app.h)
+- [ ] `,` 토글 + `<`/`>` 간격 + Esc 종료 (app.cpp)
+- [ ] 메인루프 카운트다운 (main.cpp)
+- [ ] 최우선 레이아웃 분기 (main_window.cpp)
+- [ ] 상태바 인디케이터 (statusbar.cpp) + 핫키표
+- [ ] 빌드 + 시각 검증
+- [ ] 커밋
+
+## Phase 3 — FLIP diff 모드 (정식 ꟻLIP-LDR)
+- [ ] 레퍼런스(NVlabs/rotoglup) WebFetch로 상수/필터 확정
+- [ ] 신규 `flip_engine.h/.cpp`: `compute_flip_cpu()` + `FLIPComputer` + magma LUT
+- [ ] `app.h` enum/상태블록/kDiffModes 행
+- [ ] main_window.cpp statics/트리거/업로드(RGBA8)
+- [ ] image_panel.cpp 디스패치/SW/픽셀리드아웃
+- [ ] statusbar.cpp 점수 + app.cpp 핫키(Ctrl+0)/help
+- [ ] image_save.cpp FLIP 저장, CMakeLists AV_SOURCES
+- [ ] (보너스) `--metrics`에 flip 열
+- [ ] 빌드 + 검증(identical→0, 단조성, 레퍼런스 비교, GUI)
+- [ ] 커밋
 
 ## Review
-- av 는 이미 CMakeLists 에 Windows 분기(MSVC 런타임, WIN32_EXECUTABLE, STBI_WINDOWS_UTF8,
-  lcms2 optional, %LOCALAPPDATA% 설치)가 있어 소스 수정 없이 빌드됨.
-- 산출물: `C:\Users\Alex\claude_code\av\bin\av.exe` (POST_BUILD 로 %LOCALAPPDATA%\av\ 에도 복사).
-- 새 스크립트 2개(sync-win.sh, win-build-wsl.sh) 추가. 재빌드 절차:
-  `bash script/sync-win.sh` → 241 에서 `bash script/win-build-wsl.sh`.
-- 무회귀: 기존 코드/빌드 무변경, Windows 전용 신규 스크립트만 추가.
-- 커밋 예정, 푸시는 승인 대기.
+(구현 후 작성)

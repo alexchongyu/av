@@ -64,6 +64,8 @@ static void print_help(const char* prog) {
         "  --pair               Pair same-named file from imageB's directory with imageA;\n"
         "                       next/prev loads the matching filename from both dirs\n"
         "                       (the two directories must differ)\n"
+        "  --metrics            Headless: print PSNR/SSIM/MSE/MAE (CSV) for A vs B and exit.\n"
+        "                       With --pair, iterates the whole sequence (one row per frame).\n"
         "  --amplify <val>      Diff amplification 0.1-100   (default: 1.0)\n"
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
@@ -122,6 +124,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.sync = false;
         } else if (arg == "--pair") {
             opts.pair = true;
+        } else if (arg == "--metrics") {
+            opts.metrics = true;
         } else if (arg == "--amplify") {
             opts.amplify = std::stof(next());
         } else if (arg == "--fullscreen") {
