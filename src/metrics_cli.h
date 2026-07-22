@@ -38,3 +38,10 @@ int run_probe_headless(const CliOptions& cli);
 // With B (or --pair), emits A/B/Δ rows. --fail-uniformity/--fail-semu → exit 10.
 // Exit codes: 0 ok, 3 bad args, 4 decode failure, 10 CI gate fail.
 int run_uniformity_headless(const CliOptions& cli, const std::string& pair_dir_b);
+
+// ─── Headless batch metrics (--batch <file|->) ────────────────────────────────
+// Run --metrics over a manifest of arbitrary A,B pairs (no same-name constraint):
+// one line per pair, TAB-separated "A<TAB>B[<TAB>label]"; '#' comments and blank
+// lines skipped; "-" reads the manifest from stdin. Honours --format and the
+// --fail-* gates. Exit: 0 ok, 3 bad/empty/unreadable manifest, 10 CI gate fail.
+int run_batch_headless(const CliOptions& cli);

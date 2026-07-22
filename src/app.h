@@ -260,6 +260,7 @@ struct CliOptions {
     bool            uniformity   = false;    // --uniformity: 헤드리스 평판 균일도(ICDM%/CV/Δu'v'/SEMU) 출력 후 종료
     float           fail_uniformity = -1.0f; // CI 게이트: uni25% < 값이면 exit 10
     float           fail_semu       = -1.0f; // CI 게이트: SEMU > 값이면 exit 10
+    std::string     batch_path;              // --batch <file|->: 매니페스트의 임의 A,B 쌍 헤드리스 처리
     // CI gate thresholds (-1 = unset). psnr/ssim: FAIL if below; flip/maxerr: FAIL if above.
     float           fail_psnr    = -1.0f;
     float           warn_psnr    = -1.0f;

@@ -78,6 +78,9 @@ static void print_help(const char* prog) {
         "  --uniformity         Headless: flat-field uniformity (ICDM 9/13/25-pt %, CV,\n"
         "                       colour Δu'v', SEMU mura proxy) as CSV. A[,B]→A/B/Δ rows.\n"
         "                       --fail-uniformity <pct> / --fail-semu <v>: exit 10 gate.\n"
+        "  --batch <file|->     Headless --metrics over a manifest of arbitrary A,B pairs\n"
+        "                       (TAB-separated 'A<TAB>B[<TAB>label]', # comments; - = stdin).\n"
+        "                       Honours --format and --fail-* gates. No same-name constraint.\n"
         "  --amplify <val>      Diff amplification 0.1-100   (default: 1.0)\n"
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
@@ -150,6 +153,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.fail_uniformity = std::stof(next());
         } else if (arg == "--fail-semu") {
             opts.fail_semu = std::stof(next());
+        } else if (arg == "--batch") {
+            opts.batch_path = next();
         } else if (arg == "--fail-psnr") {
             opts.fail_psnr = std::stof(next());
         } else if (arg == "--warn-psnr") {

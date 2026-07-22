@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -263,6 +264,55 @@ void emit_junit(const std::vector<Row>& rows) {
     std::cout << "</testsuite>\n";
 }
 
+// Aggregate OK rows, emit per cli.out_format (CSV/json/junit), return the gate
+// exit code (10 if the gate is active and any frame FAILed, else 0). Shared by
+// --metrics and --batch; `label` prefixes the stderr summary.
+int finish_rows(const CliOptions& cli, const std::vector<Row>& rows, bool gate, const char* label) {
+    std::vector<double> vp, vs, vf;
+    int nok = 0, nmiss = 0, nfail = 0, nwarn = 0;
+    for (const Row& r : rows) {
+        if (r.status.empty() && r.m.ok) {
+            ++nok;
+            if (std::isfinite(r.m.psnr)) vp.push_back(r.m.psnr);
+            vs.push_back(r.m.ssim); vf.push_back(r.m.flip);
+            if      (r.verdict == "FAIL") ++nfail;
+            else if (r.verdict == "WARN") ++nwarn;
+        } else if (r.status == "missing") ++nmiss;
+    }
+    Agg ap = aggregate(vp), as = aggregate(vs), af = aggregate(vf);
+
+    if (cli.out_format == "json") {
+        emit_json(rows, ap, as, af, nok, nmiss, nfail, nwarn, gate);
+    } else if (cli.out_format == "junit") {
+        emit_junit(rows);
+    } else {  // csv (default): stdout = pure CSV, summary → stderr
+        print_header();
+        for (const Row& r : rows) {
+            if (!r.status.empty()) std::cout << placeholder_row(r.name, r.status.c_str()) << '\n';
+            else                   print_row(r.name, r.m);
+        }
+        std::cerr << "[" << label << "] frames=" << nok << " missing=" << nmiss;
+        if (ap.n > 0) std::cerr << " mean_psnr=" << fmtv(ap.mean) << "dB median="
+                                << fmtv(ap.median) << " p95=" << fmtv(ap.p95)
+                                << " min=" << fmtv(ap.min);
+        if (as.n > 0) std::cerr << " mean_ssim=" << fmtv(as.mean);
+        if (af.n > 0) std::cerr << " mean_flip=" << fmtv(af.mean);
+        if (gate) {
+            std::cerr << " | GATE " << (nfail>0?"FAIL":(nwarn>0?"WARN":"PASS"))
+                      << " fail=" << nfail << " warn=" << nwarn;
+        }
+        std::cerr << "\n";
+        if (gate && (nfail > 0 || nwarn > 0)) {
+            std::cerr << "[" << label << "]";
+            for (const Row& r : rows)
+                if (r.verdict == "FAIL" || r.verdict == "WARN")
+                    std::cerr << " " << r.verdict << ":" << r.name;
+            std::cerr << "\n";
+        }
+    }
+    return (gate && nfail > 0) ? 10 : 0;
+}
+
 } // namespace
 
 int run_metrics_headless(const CliOptions& cli, const std::string& pair_dir_b) {
@@ -311,59 +361,16 @@ int run_metrics_headless(const CliOptions& cli, const std::string& pair_dir_b) {
         rows.push_back(r);
     }
 
-    // ── Aggregates over OK rows ───────────────────────────────────────────────
-    std::vector<double> vp, vs, vf;
-    int nok = 0, nmiss = 0, nfail = 0, nwarn = 0;
-    for (const Row& r : rows) {
-        if (r.status.empty() && r.m.ok) {
-            ++nok;
-            if (std::isfinite(r.m.psnr)) vp.push_back(r.m.psnr);
-            vs.push_back(r.m.ssim); vf.push_back(r.m.flip);
-            if      (r.verdict == "FAIL") ++nfail;
-            else if (r.verdict == "WARN") ++nwarn;
-        } else if (r.status == "missing") ++nmiss;
-    }
-    Agg ap = aggregate(vp), as = aggregate(vs), af = aggregate(vf);
+    // ── Aggregate + emit + gate (shared with --batch) ─────────────────────────
+    int rc = finish_rows(cli, rows, gate, "metrics");
 
-    // ── Emit in the requested format ──────────────────────────────────────────
-    if (cli.out_format == "json") {
-        emit_json(rows, ap, as, af, nok, nmiss, nfail, nwarn, gate);
-    } else if (cli.out_format == "junit") {
-        emit_junit(rows);
-    } else {  // csv (default): stdout = pure CSV, summary → stderr
-        print_header();
-        for (const Row& r : rows) {
-            if (!r.status.empty()) std::cout << placeholder_row(r.name, r.status.c_str()) << '\n';
-            else                   print_row(r.name, r.m);
-        }
-        std::cerr << "[metrics] frames=" << nok << " missing=" << nmiss;
-        if (ap.n > 0) std::cerr << " mean_psnr=" << fmtv(ap.mean) << "dB median="
-                                << fmtv(ap.median) << " p95=" << fmtv(ap.p95)
-                                << " min=" << fmtv(ap.min);
-        if (as.n > 0) std::cerr << " mean_ssim=" << fmtv(as.mean);
-        if (af.n > 0) std::cerr << " mean_flip=" << fmtv(af.mean);
-        if (gate) {
-            std::cerr << " | GATE " << (nfail>0?"FAIL":(nwarn>0?"WARN":"PASS"))
-                      << " fail=" << nfail << " warn=" << nwarn;
-        }
-        std::cerr << "\n";
-        if (gate && (nfail > 0 || nwarn > 0)) {
-            std::cerr << "[metrics]";
-            for (const Row& r : rows)
-                if (r.verdict == "FAIL" || r.verdict == "WARN")
-                    std::cerr << " " << r.verdict << ":" << r.name;
-            std::cerr << "\n";
-        }
-    }
-
-    // ── Exit code ─────────────────────────────────────────────────────────────
+    // Single-pair size/format mismatch overrides the gate exit with code 5.
     if (!cli.pair && rows.size() == 1 && rows[0].status == "mismatch") {
         if (cli.out_format == "csv")
             std::cerr << "[metrics] size/format mismatch\n";
         return 5;
     }
-    if (gate && nfail > 0) return 10;
-    return 0;
+    return rc;
 }
 
 // ─── Headless diff-image export (--diff-out) ──────────────────────────────────
@@ -816,4 +823,68 @@ int run_uniformity_headless(const CliOptions& cli, const std::string& pair_dir_b
 
     if (gate && nfail > 0) return 10;
     return 0;
+}
+
+// ─── Headless batch metrics (--batch <file|->) ────────────────────────────────
+
+namespace {
+std::string trim(const std::string& s) {
+    size_t a = s.find_first_not_of(" \t");
+    if (a == std::string::npos) return "";
+    size_t b = s.find_last_not_of(" \t");
+    return s.substr(a, b - a + 1);
+}
+} // namespace
+
+int run_batch_headless(const CliOptions& cli) {
+    const bool gate = gates_active(cli);
+
+    // Read manifest lines (file or stdin).
+    std::vector<std::string> lines;
+    if (cli.batch_path == "-") {
+        std::string line;
+        while (std::getline(std::cin, line)) lines.push_back(line);
+    } else {
+        std::ifstream f(cli.batch_path);
+        if (!f) { std::cerr << "[batch] cannot open manifest: " << cli.batch_path << "\n"; return 3; }
+        std::string line;
+        while (std::getline(f, line)) lines.push_back(line);
+    }
+
+    std::vector<Row> rows;
+    for (std::string raw : lines) {
+        if (!raw.empty() && raw.back() == '\r') raw.pop_back();   // CRLF manifests
+        size_t s = raw.find_first_not_of(" \t");
+        if (s == std::string::npos) continue;                     // blank
+        if (raw[s] == '#') continue;                              // comment
+
+        size_t t1 = raw.find('\t');
+        if (t1 == std::string::npos) {
+            std::cerr << "[batch] skipping line (need A<TAB>B): " << raw << "\n";
+            continue;
+        }
+        std::string apath = trim(raw.substr(0, t1));
+        std::string rest  = raw.substr(t1 + 1);
+        size_t t2 = rest.find('\t');
+        std::string bpath = trim(t2 == std::string::npos ? rest : rest.substr(0, t2));
+        std::string label = (t2 == std::string::npos) ? "" : trim(rest.substr(t2 + 1));
+
+        Row r;
+        r.name = label.empty() ? fs::path(apath).filename().string() : label;
+        if (apath.empty() || bpath.empty() ||
+            !fs::is_regular_file(apath) || !fs::is_regular_file(bpath)) {
+            r.status = "missing"; rows.push_back(r); continue;
+        }
+        ImageEntry A, B;
+        if (!decode_image_cpu(apath, A) || !decode_image_cpu(bpath, B)) {
+            r.status = "decode_error"; rows.push_back(r); continue;
+        }
+        r.m = compute_pair_metrics(A, B);
+        if (r.m.mismatch)  r.status  = "mismatch";
+        else if (gate)     r.verdict = gate_verdict(cli, r.m);
+        rows.push_back(r);
+    }
+
+    if (rows.empty()) { std::cerr << "[batch] manifest had no A,B pairs\n"; return 3; }
+    return finish_rows(cli, rows, gate, "batch");
 }
