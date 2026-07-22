@@ -257,6 +257,9 @@ struct CliOptions {
     bool            metrics      = false;   // --metrics: 헤드리스로 PSNR/SSIM/MSE/MAE 출력 후 종료
     bool            validate     = false;   // --validate: 헤드리스 NaN/Inf/범위이탈 스캔 후 종료
     std::string     probe;                   // --probe "X,Y": 헤드리스 콜러메트리(XYZ/xy/u'v'/CCT/Duv) 출력 후 종료
+    bool            uniformity   = false;    // --uniformity: 헤드리스 평판 균일도(ICDM%/CV/Δu'v'/SEMU) 출력 후 종료
+    float           fail_uniformity = -1.0f; // CI 게이트: uni25% < 값이면 exit 10
+    float           fail_semu       = -1.0f; // CI 게이트: SEMU > 값이면 exit 10
     // CI gate thresholds (-1 = unset). psnr/ssim: FAIL if below; flip/maxerr: FAIL if above.
     float           fail_psnr    = -1.0f;
     float           warn_psnr    = -1.0f;

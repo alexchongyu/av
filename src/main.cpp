@@ -216,6 +216,10 @@ int main(int argc, char* argv[]) {
     if (!cli.probe.empty())
         return run_probe_headless(cli);
 
+    // ── --uniformity: headless flat-field uniformity/mura CSV, then exit ───────
+    if (cli.uniformity)
+        return run_uniformity_headless(cli, pair_dir_b);
+
     // ── Determine software mode BEFORE SDL_Init ───────────────────────────────
     bool use_software = cli.software;
     if (!use_software) {

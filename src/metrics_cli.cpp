@@ -565,3 +565,251 @@ int run_probe_headless(const CliOptions& cli) {
     std::cout << "delta,,,,,,,," << fmtv(dcct) << ',' << fmtv(dupvp) << ',' << fmtv(de76) << '\n';
     return 0;
 }
+
+// ─── Headless uniformity pack (--uniformity) ──────────────────────────────────
+
+namespace {
+
+struct UniMetrics {
+    bool   ok = false;
+    int    w = 0, h = 0;
+    double Lmean = 0, uni9 = 0, uni13 = 0, uni25 = 0, cv = 0, duv_max = 0, semu = 0;
+};
+
+// CIE Y at pixel i. LDR u8 → sRGB display value; HDR f32 → linear light.
+double pixel_Y(const ImageEntry& e, size_t i) {
+    if (!e.pixels_f32.empty())
+        return color::luminance_linear(e.pixels_f32[i*4], e.pixels_f32[i*4+1], e.pixels_f32[i*4+2]);
+    return color::luminance_srgb(e.pixels[i*4]/255.0, e.pixels[i*4+1]/255.0, e.pixels[i*4+2]/255.0);
+}
+color::XYZ pixel_XYZ(const ImageEntry& e, size_t i) {
+    if (!e.pixels_f32.empty())
+        return color::lin_rgb_to_xyz(e.pixels_f32[i*4], e.pixels_f32[i*4+1], e.pixels_f32[i*4+2]);
+    return color::srgb_to_xyz(e.pixels[i*4]/255.0, e.pixels[i*4+1]/255.0, e.pixels[i*4+2]/255.0);
+}
+
+// Compute the uniformity pack for one decoded image.
+UniMetrics compute_uniformity(const ImageEntry& e) {
+    UniMetrics m;
+    int w = e.width, h = e.height;
+    size_t npix = static_cast<size_t>(w) * h;
+    if (npix == 0 || (e.pixels.empty() && e.pixels_f32.empty())) return m;
+    m.w = w; m.h = h;
+
+    // Luminance field + CV (over all pixels) + field-mean XYZ (for colour uniformity).
+    std::vector<double> L(npix);
+    double sumL = 0.0, sumL2 = 0.0;
+    color::XYZ meanXYZ{0,0,0};
+    for (size_t i = 0; i < npix; ++i) {
+        double y = pixel_Y(e, i);
+        L[i] = y; sumL += y; sumL2 += y*y;
+        color::XYZ c = pixel_XYZ(e, i);
+        meanXYZ.X += c.X; meanXYZ.Y += c.Y; meanXYZ.Z += c.Z;
+    }
+    double meanL = sumL / npix;
+    m.Lmean = meanL;
+    double var = sumL2 / npix - meanL * meanL;
+    if (var < 0) var = 0;
+    m.cv = (meanL > 1e-9) ? 100.0 * std::sqrt(var) / meanL : 0.0;
+    meanXYZ.X /= npix; meanXYZ.Y /= npix; meanXYZ.Z /= npix;
+    double field_up, field_vp; color::xyz_to_upvp(meanXYZ, field_up, field_vp);
+
+    // Integral image of L → O(1) box averages.
+    std::vector<double> ii(static_cast<size_t>(w+1) * (h+1), 0.0);
+    for (int y = 0; y < h; ++y) {
+        double rs = 0.0;
+        for (int x = 0; x < w; ++x) {
+            rs += L[static_cast<size_t>(y)*w + x];
+            ii[static_cast<size_t>(y+1)*(w+1) + (x+1)] = ii[static_cast<size_t>(y)*(w+1) + (x+1)] + rs;
+        }
+    }
+    auto box_mean = [&](int cx, int cy, int rad) -> double {
+        int x0 = std::max(0, cx-rad), x1 = std::min(w-1, cx+rad);
+        int y0 = std::max(0, cy-rad), y1 = std::min(h-1, cy+rad);
+        double s = ii[static_cast<size_t>(y1+1)*(w+1)+(x1+1)] - ii[static_cast<size_t>(y0)*(w+1)+(x1+1)]
+                 - ii[static_cast<size_t>(y1+1)*(w+1)+x0]     + ii[static_cast<size_t>(y0)*(w+1)+x0];
+        double area = static_cast<double>(x1-x0+1) * (y1-y0+1);
+        return area > 0 ? s / area : 0.0;
+    };
+
+    int srad = std::max(1, std::min(w, h) / 40);   // small window for point sampling
+
+    // N-point luminance uniformity % = 100 · Lmin/Lmax over grid points.
+    auto point_uni = [&](const std::vector<std::pair<double,double>>& pts) -> double {
+        double mn = 1e300, mx = -1e300;
+        for (auto& p : pts) {
+            int px = static_cast<int>(std::lround(p.first  * (w-1)));
+            int py = static_cast<int>(std::lround(p.second * (h-1)));
+            double v = box_mean(px, py, srad);
+            mn = std::min(mn, v); mx = std::max(mx, v);
+        }
+        return (mx > 1e-12) ? 100.0 * mn / mx : 100.0;
+    };
+    const double g3[3] = {1.0/6, 3.0/6, 5.0/6};
+    const double g5[5] = {1.0/10, 3.0/10, 5.0/10, 7.0/10, 9.0/10};
+    std::vector<std::pair<double,double>> p9, p13, p25;
+    for (double gy : g3) for (double gx : g3) { p9.push_back({gx,gy}); p13.push_back({gx,gy}); }
+    const double inner[2] = {1.0/3, 2.0/3};               // 13-pt = 3×3 + 4 inner
+    for (double gy : inner) for (double gx : inner) p13.push_back({gx,gy});
+    for (double gy : g5) for (double gx : g5) p25.push_back({gx,gy});
+    m.uni9  = point_uni(p9);
+    m.uni13 = point_uni(p13);
+    m.uni25 = point_uni(p25);
+
+    // Colour uniformity: max Δu'v' of 25 grid points vs field-mean u'v'.
+    double dmax = 0.0;
+    for (auto& p : p25) {
+        int px = static_cast<int>(std::lround(p.first  * (w-1)));
+        int py = static_cast<int>(std::lround(p.second * (h-1)));
+        int x0 = std::max(0, px-srad), x1 = std::min(w-1, px+srad);
+        int y0 = std::max(0, py-srad), y1 = std::min(h-1, py+srad);
+        color::XYZ c{0,0,0}; int cnt = 0;
+        for (int yy = y0; yy <= y1; ++yy) for (int xx = x0; xx <= x1; ++xx) {
+            color::XYZ pc = pixel_XYZ(e, static_cast<size_t>(yy)*w + xx);
+            c.X += pc.X; c.Y += pc.Y; c.Z += pc.Z; ++cnt;
+        }
+        if (cnt) { c.X /= cnt; c.Y /= cnt; c.Z /= cnt; }
+        double up, vp; color::xyz_to_upvp(c, up, vp);
+        dmax = std::max(dmax, std::sqrt((up-field_up)*(up-field_up) + (vp-field_vp)*(vp-field_vp)));
+    }
+    m.duv_max = dmax;
+
+    // SEMU mura proxy. Background = 2nd-order polynomial surface fit (least
+    // squares over {1,x,y,x²,xy,y²}) — removes smooth shading/tilt/vignetting
+    // exactly and without box-blur edge artefacts, so a pure gradient leaves ~0
+    // residual (shading, not mura) while a localised blob survives. Then take the
+    // worst Weber contrast of the residual and apply the SEMU visibility
+    // normalisation with area S in % of frame (PROXY: physical pitch/viewing
+    // distance not modelled). Flat field → 0; blob → grows with contrast·area.
+    {
+        double ATA[6][6] = {{0}}, ATb[6] = {0};
+        auto basis = [](double nx, double ny, double* b) {
+            b[0] = 1.0; b[1] = nx; b[2] = ny; b[3] = nx*nx; b[4] = nx*ny; b[5] = ny*ny;
+        };
+        double invw = (w > 1) ? 2.0 / (w - 1) : 0.0;
+        double invh = (h > 1) ? 2.0 / (h - 1) : 0.0;
+        for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+            double b[6]; basis(x*invw - 1.0, y*invh - 1.0, b);
+            double v = L[static_cast<size_t>(y)*w + x];
+            for (int r = 0; r < 6; ++r) { ATb[r] += b[r]*v; for (int c = 0; c < 6; ++c) ATA[r][c] += b[r]*b[c]; }
+        }
+        // Solve ATA·coef = ATb (Gaussian elimination, partial pivot).
+        double coef[6] = {0};
+        {
+            double M[6][7];
+            for (int r = 0; r < 6; ++r) { for (int c = 0; c < 6; ++c) M[r][c] = ATA[r][c]; M[r][6] = ATb[r]; }
+            bool singular = false;
+            for (int col = 0; col < 6; ++col) {
+                int piv = col; for (int r = col+1; r < 6; ++r) if (std::fabs(M[r][col]) > std::fabs(M[piv][col])) piv = r;
+                if (std::fabs(M[piv][col]) < 1e-12) { singular = true; break; }
+                for (int c = 0; c < 7; ++c) std::swap(M[col][c], M[piv][c]);
+                for (int r = 0; r < 6; ++r) if (r != col) {
+                    double f = M[r][col] / M[col][col];
+                    for (int c = col; c < 7; ++c) M[r][c] -= f * M[col][c];
+                }
+            }
+            if (!singular) for (int r = 0; r < 6; ++r) coef[r] = M[r][6] / M[r][r];
+        }
+        double cmax = 0.0;
+        std::vector<double> cmap(npix, 0.0);
+        for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x) {
+            size_t i = static_cast<size_t>(y)*w + x;
+            double b[6]; basis(x*invw - 1.0, y*invh - 1.0, b);
+            double bg = 0.0; for (int k = 0; k < 6; ++k) bg += coef[k]*b[k];
+            double c = (bg > 1e-9) ? (L[i] - bg) / bg : 0.0;
+            cmap[i] = c;
+            cmax = std::max(cmax, std::fabs(c));
+        }
+        if (cmax > 1e-9) {
+            double thr = 0.5 * cmax; size_t blob = 0;
+            for (size_t i = 0; i < npix; ++i) if (std::fabs(cmap[i]) >= thr) ++blob;
+            double S_pct = 100.0 * static_cast<double>(blob) / npix;
+            if (S_pct > 1e-9)
+                m.semu = 100.0 * cmax / (1.97 / std::pow(S_pct, 0.33) + 0.72);
+        }
+    }
+
+    m.ok = true;
+    return m;
+}
+
+// Emit one uniformity CSV row (11 cols); status non-empty → placeholder.
+void uni_row(const std::string& file, const char* role, const UniMetrics& m,
+             const char* status = nullptr) {
+    if (status) { std::cout << file << ',' << role << ',' << status << ",,,,,,,,\n"; return; }
+    std::cout << file << ',' << role << ',' << m.w << ',' << m.h << ','
+              << fmtv(m.Lmean) << ',' << fmtv(m.uni9) << ',' << fmtv(m.uni13) << ','
+              << fmtv(m.uni25) << ',' << fmtv(m.cv) << ',' << fmtv(m.duv_max) << ','
+              << fmtv(m.semu) << '\n';
+}
+
+} // namespace
+
+int run_uniformity_headless(const CliOptions& cli, const std::string& pair_dir_b) {
+    const bool gate = (cli.fail_uniformity >= 0.0f || cli.fail_semu >= 0.0f);
+    auto verdict = [&](const UniMetrics& m) -> bool {   // true = FAIL
+        if (cli.fail_uniformity >= 0.0f && m.uni25 < cli.fail_uniformity) return true;
+        if (cli.fail_semu       >= 0.0f && m.semu  > cli.fail_semu)       return true;
+        return false;
+    };
+
+    // Build the (A, B?, name) work list.
+    struct Job { std::string apath, bpath, aname, bname; bool have_b; };
+    std::vector<Job> jobs;
+    if (cli.pair) {
+        if (cli.image_a.empty()) {
+            std::cerr << "[uniformity] --pair --uniformity requires imageA (a file in directory A)\n";
+            return 3;
+        }
+        int cur = 0;
+        std::vector<std::string> files = scan_image_directory(cli.image_a, cur);
+        if (files.empty()) { std::cerr << "[uniformity] no images found in A's directory\n"; return 3; }
+        for (const auto& apath : files) {
+            std::string name = fs::path(apath).filename().string();
+            std::string bpath = (fs::path(pair_dir_b) / name).string();
+            jobs.push_back({apath, bpath, name, name, fs::is_regular_file(bpath)});
+        }
+    } else {
+        if (cli.image_a.empty()) {
+            std::cerr << "[uniformity] requires an image: av --uniformity A [B]\n";
+            return 3;
+        }
+        bool have_b = !cli.image_b.empty();
+        jobs.push_back({cli.image_a, cli.image_b,
+                        fs::path(cli.image_a).filename().string(),
+                        have_b ? fs::path(cli.image_b).filename().string() : "", have_b});
+    }
+
+    std::cout << "file,role,width,height,Lmean,uni9_pct,uni13_pct,uni25_pct,nonuni_cv_pct,duv_max,semu\n";
+    int nrows = 0, nfail = 0;
+    for (const Job& j : jobs) {
+        ImageEntry A;
+        if (!decode_image_cpu(j.apath, A)) return 4;    // hard fail (mirror --metrics)
+        UniMetrics ma = compute_uniformity(A);
+        if (!ma.ok) { uni_row(j.aname, "A", ma, "error"); }
+        else { uni_row(j.aname, "A", ma); ++nrows; if (gate && verdict(ma)) ++nfail; }
+
+        if (!j.have_b) continue;
+        ImageEntry B;
+        if (!decode_image_cpu(j.bpath, B)) return 4;
+        UniMetrics mb = compute_uniformity(B);
+        if (!mb.ok) { uni_row(j.bname, "B", mb, "error"); continue; }
+        uni_row(j.bname, "B", mb); ++nrows; if (gate && verdict(mb)) ++nfail;
+
+        if (ma.ok) {   // Δ(B−A): +uni% / −cv / −semu = compensation improved uniformity
+            UniMetrics d; d.ok = true; d.w = mb.w; d.h = mb.h;
+            d.Lmean = mb.Lmean - ma.Lmean; d.uni9 = mb.uni9 - ma.uni9;
+            d.uni13 = mb.uni13 - ma.uni13; d.uni25 = mb.uni25 - ma.uni25;
+            d.cv = mb.cv - ma.cv; d.duv_max = mb.duv_max - ma.duv_max; d.semu = mb.semu - ma.semu;
+            uni_row("delta", "B-A", d);
+        }
+    }
+
+    std::cerr << "[uniformity] rows=" << nrows
+              << " (SEMU is a proxy: area in % of frame, physical pitch/viewing not modelled)";
+    if (gate) std::cerr << " | GATE " << (nfail > 0 ? "FAIL" : "PASS") << " fail=" << nfail;
+    std::cerr << "\n";
+
+    if (gate && nfail > 0) return 10;
+    return 0;
+}

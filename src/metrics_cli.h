@@ -31,3 +31,10 @@ int run_validate_headless(const CliOptions& cli);
 // (X,Y,Z,x,y,u',v',CCT,Duv,L*) as CSV; with B, add a delta row (ΔE76/ΔCCT/Δu'v').
 // Exit codes: 0 ok, 3 bad args / coord out of range, 4 decode failure.
 int run_probe_headless(const CliOptions& cli);
+
+// ─── Headless uniformity pack (--uniformity) ──────────────────────────────────
+// Flat-field display uniformity of A (and B): ICDM 9/13/25-point luminance
+// uniformity %, CV nonuniformity %, colour Δu'v', and a SEMU mura-index proxy.
+// With B (or --pair), emits A/B/Δ rows. --fail-uniformity/--fail-semu → exit 10.
+// Exit codes: 0 ok, 3 bad args, 4 decode failure, 10 CI gate fail.
+int run_uniformity_headless(const CliOptions& cli, const std::string& pair_dir_b);

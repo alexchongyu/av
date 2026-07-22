@@ -75,6 +75,9 @@ static void print_help(const char* prog) {
         "                       pixels (CSV), exit 8 if any NaN/Inf. (GUI: '/' overlay.)\n"
         "  --probe <X,Y>        Headless: colorimetry (XYZ/xy/u'v'/CCT/Duv/L*) of pixel X,Y\n"
         "                       in A (and B + delta) as CSV, then exit.\n"
+        "  --uniformity         Headless: flat-field uniformity (ICDM 9/13/25-pt %, CV,\n"
+        "                       colour Δu'v', SEMU mura proxy) as CSV. A[,B]→A/B/Δ rows.\n"
+        "                       --fail-uniformity <pct> / --fail-semu <v>: exit 10 gate.\n"
         "  --amplify <val>      Diff amplification 0.1-100   (default: 1.0)\n"
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
@@ -141,6 +144,12 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.validate = true;
         } else if (arg == "--probe") {
             opts.probe = next();
+        } else if (arg == "--uniformity") {
+            opts.uniformity = true;
+        } else if (arg == "--fail-uniformity") {
+            opts.fail_uniformity = std::stof(next());
+        } else if (arg == "--fail-semu") {
+            opts.fail_semu = std::stof(next());
         } else if (arg == "--fail-psnr") {
             opts.fail_psnr = std::stof(next());
         } else if (arg == "--warn-psnr") {
