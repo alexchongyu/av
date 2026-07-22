@@ -45,7 +45,8 @@ struct DiffState {
         SSIM,
         FLIP,         // Ctrl+0: perceptual ꟻLIP-LDR error map (magma heatmap)
         Enhance,      // Ctrl+5: [min,max] → [128,255] remap + auto magnifier
-        AlphaBlend    // Ctrl+2: diff 패널에 A·B 알파블렌딩
+        AlphaBlend,   // Ctrl+2: diff 패널에 A·B 알파블렌딩
+        Signed        // Ctrl+1: signed bias map (blue=A<B, white=equal, red=A>B)
     };
     Mode  mode           = Mode::None;
     float amplify        = 1.0f;       // diff amplification factor
@@ -99,6 +100,7 @@ inline constexpr DiffModeInfo kDiffModes[] = {
     { DiffState::Mode::FalseColor,    "FalseColor",  "FalseColor", "Ctrl+6", "falsecolor" },
     { DiffState::Mode::SSIM,          "SSIM",        "SSIM",       "Ctrl+7", "ssim"       },
     { DiffState::Mode::FLIP,          "FLIP",        "FLIP",       "Ctrl+0", "flip"       },
+    { DiffState::Mode::Signed,        "Signed",      "Signed",     "Ctrl+1", "signed"     },
     { DiffState::Mode::Highlight,     "Highlight",   "Highlight",  "Ctrl+9", "highlight"  },
 };
 

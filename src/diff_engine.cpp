@@ -55,6 +55,7 @@ void DiffRenderer::render(uintptr_t texA, uintptr_t texB,
         case DiffState::Mode::Highlight:     diff_mode_int = 3; break;
         case DiffState::Mode::Enhance:       diff_mode_int = 4; break;
         case DiffState::Mode::AlphaBlend:    diff_mode_int = 5; break;
+        case DiffState::Mode::Signed:        diff_mode_int = 6; break;
         default: break;
     }
 

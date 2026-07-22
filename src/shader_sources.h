@@ -161,6 +161,12 @@ void main() {
         else if (u_channel == 3) intensity = diff.b;
         else intensity = (diff.r + diff.g + diff.b) / 3.0;
         result = falsecolor(intensity * u_amplify);
+    } else if (u_diff_mode == 6) {    // Signed: bwr diverging on luma(A-B)
+        // blue = A<B (under), white = equal, red = A>B (over)
+        float sl = dot(a.rgb - b.rgb, vec3(0.2126, 0.7152, 0.0722)) * u_amplify;
+        float t = clamp(sl, -1.0, 1.0);
+        if (t >= 0.0) result = mix(vec3(1.0), vec3(1.0, 0.0, 0.0), t);
+        else          result = mix(vec3(1.0), vec3(0.0, 0.0, 1.0), -t);
     } else {                   // Absolute or Relative
         vec3 d = diff.rgb * u_amplify;
         if (u_channel == 1) result = vec3(clamp(d.r, 0.0, 1.0));

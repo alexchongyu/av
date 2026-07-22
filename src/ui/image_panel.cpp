@@ -424,6 +424,14 @@ void ImagePanel::cpu_render_diff(const ImageEntry& imgA, const ImageEntry& imgB,
                         dst[3] = 255;
                     }
                 }
+            } else if (mode == DiffState::Mode::Signed) {
+                // bwr diverging on luma(A-B): blue=A<B, white=equal, red=A>B
+                float sl = (0.2126f*(a[0]-b_val[0]) + 0.7152f*(a[1]-b_val[1]) + 0.0722f*(a[2]-b_val[2])) * amplify;
+                float t = std::clamp(sl, -1.0f, 1.0f);
+                if (t >= 0.0f) { r = 1.0f;      g = 1.0f - t; b_out = 1.0f - t; }
+                else           { r = 1.0f + t;  g = 1.0f + t; b_out = 1.0f;     }
+                dst[0]=(uint8_t)(std::clamp(r,0.0f,1.0f)*255); dst[1]=(uint8_t)(std::clamp(g,0.0f,1.0f)*255);
+                dst[2]=(uint8_t)(std::clamp(b_out,0.0f,1.0f)*255); dst[3]=255;
             } else {
                 float d[3] = { diff[0]*amplify, diff[1]*amplify, diff[2]*amplify };
                 if      (channel == ChannelMode::Red)   { r = g = b_out = std::clamp(d[0], 0.0f, 1.0f); }

@@ -929,6 +929,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Diff", "Ctrl+6",                        "Toggle Diff: False Color" },
         { "Diff", "Ctrl+7",                        "Toggle Diff: SSIM" },
         { "Diff", "Ctrl+0",                        "Toggle Diff: FLIP (perceptual error map, magma)" },
+        { "Diff", "Ctrl+1",                        "Toggle Diff: Signed (blue=A<B, white=equal, red=A>B)" },
         { "Diff", "Ctrl+9",                        "Toggle Diff: Highlight (red)" },
         { "Diff", "[ / ]",                         "Primary diff param -/+ (amplify; AlphaBlend: alpha -/+1%)" },
         { "Diff", "Shift+[ / Shift+]",             "AlphaBlend mode: alpha -/+10% (else: threshold -/+1)" },
@@ -947,7 +948,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Help", "Ctrl+Shift+H",                  "Toggle this hotkey reference" },
         // CLI Options
         { "CLI", "av [image_a] [image_b]",          "Open one or two images" },
-        { "CLI", "--diff-mode <mode>",              "none|abs|rel|highlight|falsecolor|ssim|flip|enhance  (default: none)" },
+        { "CLI", "--diff-mode <mode>",              "none|abs|rel|highlight|falsecolor|ssim|flip|signed|enhance  (default: none)" },
         { "CLI", "--zoom <factor>",                 "fit|1|2.0 etc.  (default: fit)" },
         { "CLI", "--sync / --no-sync",              "Enable/disable viewport sync  (default: on)" },
         { "CLI", "--amplify <val>",                 "Diff amplification 0.1-100  (default: 1.0)" },

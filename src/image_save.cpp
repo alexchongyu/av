@@ -189,6 +189,11 @@ std::vector<uint8_t> compute_diff_cpu(const ImageEntry& imgA,
             } else if (mode == DiffState::Mode::FalseColor) {
                 float intensity = (dr + dg + db) / 3.0f;
                 falsecolor_cpu(intensity * amp, or_, og, ob);
+            } else if (mode == DiffState::Mode::Signed) {
+                // bwr diverging on luma(A-B): blue=A<B, white=equal, red=A>B
+                float sl = std::clamp((0.2126f*(ar-br)+0.7152f*(ag-bg)+0.0722f*(ab-bb))*amp, -1.0f, 1.0f);
+                if (sl >= 0.0f) { or_ = 1.0f;      og = 1.0f - sl; ob = 1.0f - sl; }
+                else            { or_ = 1.0f + sl; og = 1.0f + sl; ob = 1.0f;      }
             } else {
                 // PixelAbsolute (default)
                 or_ = clamp01(dr * amp);
