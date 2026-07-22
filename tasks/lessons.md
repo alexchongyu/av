@@ -197,8 +197,15 @@ after 100 tries, perhaps system time is not set` 로 실패(컴파일 시작도 
 보존 → 소스 파일이 박스 시각 기준 **미래**. cmake 가 build.ninja 재생성해도 입력(미래)이 여전히
 build.ninja(박스 now)보다 최신 → 무한 재생성 루프.
 
-**해결**: 전체 트리 mtime 을 확실한 과거 고정일로 정규화 후 재빌드:
-`find . -not -path './.git/*' -exec touch -t 202607200000 {} +` → `bash script/build-offline.sh`.
-(소스만 touch 는 부족 — `build/_deps` 전개물도 미래 mtime. 트리 전체를 과거로.)
-근본 해결은 박스 `sudo ntpdate`/`timedatectl` 로 시계 교정(sudo 필요). 재발 방지로 sync-linux.sh
-에 원격 touch 정규화 추가 검토 가능.
+**⚠ 함정(내가 실제로 밟음)**: 트리 전체를 **고정 과거일(예: 07-20)** 로 touch 하면 ninja
+dirty-loop 은 사라지지만, **소스 mtime 이 기존 오브젝트(.o, 지난 빌드=박스시각)보다 과거**가 되어
+**ninja 가 재컴파일을 건너뛴다**. 결과: 버전 스탬프(version.h는 재생성)만 새것이고 **av 코드는 옛것**
+→ "빌드했는데 동작이 예전 그대로"(예: --zoom 유지 안 됨)로 오진되기 쉬움. (Mac/Win 은 정상 → 리눅스만 옛 동작.)
+
+**올바른 해결(둘 중 하나)**:
+1. `find . -not -path './.git/*' -exec touch {} +`  (인자 없는 plain touch = **박스 현재시각**).
+   → 미래 아님(loop 없음) + 지난 오브젝트보다 최신(재컴파일됨). 고정 과거일(-t)로 하지 말 것.
+2. 오브젝트를 지워 강제 재컴파일: `rm -rf build/CMakeFiles/av.dir && ninja -C build`.
+근본 해결은 박스 시계 교정(`sudo timedatectl set-ntp true`, sudo 필요).
+**검증**: 빌드 후 `grep "zoom_setting > 0.0f" src/image_loader.cpp` 가 아니라, 바이너리가
+실제로 재컴파일됐는지(ninja 출력에 소스 컴파일 라인 있는지) 확인할 것. 버전 문자열만으론 불충분.
