@@ -101,6 +101,10 @@ static inline void apply_channel_grid(uint8_t* dst, float img_fx, float img_fy,
     if (channel == ChannelMode::Red)   { dst[1] = dst[0]; dst[2] = dst[0]; }
     if (channel == ChannelMode::Green) { dst[0] = dst[1]; dst[2] = dst[1]; }
     if (channel == ChannelMode::Blue)  { dst[0] = dst[2]; dst[1] = dst[2]; }
+    if (channel == ChannelMode::Luma)  {
+        uint8_t y = static_cast<uint8_t>(0.2126f*dst[0] + 0.7152f*dst[1] + 0.0722f*dst[2] + 0.5f);
+        dst[0] = dst[1] = dst[2] = y;
+    }
 
     // Pixel grid at high zoom (>= 16x) — matches shader smoothstep logic
     if (zoom >= 16.0f) {

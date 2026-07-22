@@ -680,6 +680,10 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
                 state.show_hline_cut  = false;
                 state.show_stats      = false;
             }
+        } else if (shift) {
+            // Shift+Y: toggle Rec.709 luma (Y') grayscale view ↔ RGB
+            state.channel_mode = (state.channel_mode == ChannelMode::Luma)
+                               ? ChannelMode::RGB : ChannelMode::Luma;
         }
         break;
 

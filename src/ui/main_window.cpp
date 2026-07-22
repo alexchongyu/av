@@ -898,6 +898,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Channel", "Shift+R",                    "Show Red channel only" },
         { "Channel", "Shift+G",                    "Show Green channel only" },
         { "Channel", "Shift+B",                    "Show Blue channel only" },
+        { "Channel", "Shift+Y",                    "Toggle Rec.709 luma (Y') grayscale view" },
         { "Channel", "Shift+C",                    "Show RGB (default)" },
         // Analysis
         { "Analysis", "Ctrl+H",                    "Toggle histogram window" },
@@ -1850,9 +1851,10 @@ void MainWindow::render(AppState& state) {
             }
 
             // Measure text for balloon sizing
-            bool show_r = (state.channel_mode == ChannelMode::RGB || state.channel_mode == ChannelMode::Red);
-            bool show_g = (state.channel_mode == ChannelMode::RGB || state.channel_mode == ChannelMode::Green);
-            bool show_b = (state.channel_mode == ChannelMode::RGB || state.channel_mode == ChannelMode::Blue);
+            bool luma_view = (state.channel_mode == ChannelMode::Luma);
+            bool show_r = (state.channel_mode == ChannelMode::RGB || state.channel_mode == ChannelMode::Red   || luma_view);
+            bool show_g = (state.channel_mode == ChannelMode::RGB || state.channel_mode == ChannelMode::Green || luma_view);
+            bool show_b = (state.channel_mode == ChannelMode::RGB || state.channel_mode == ChannelMode::Blue  || luma_view);
 
             ImVec2 sz_pos = ImGui::CalcTextSize(line_pos);
             ImVec2 sz_r   = show_r ? ImGui::CalcTextSize(line_r) : ImVec2(0,0);

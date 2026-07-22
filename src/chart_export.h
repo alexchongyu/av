@@ -34,11 +34,16 @@ struct DiffExtraStats {
     double psnr[3]      = {};
     double mae[3]       = {};
     double max_error[3] = {};
-    // Luma (Rec.709 Y) diff stats
+    // Luma (Rec.709 Y') diff stats
     double mse_y        = 0.0;
     double psnr_y       = 0.0;
     double mae_y        = 0.0;
     double max_error_y  = 0.0;
+    // Chroma (Rec.709 Cb/Cr) diff stats — Cb=(B-Y)/1.8556, Cr=(R-Y)/1.5748
+    double mse_cb       = 0.0;
+    double psnr_cb      = 0.0;
+    double mse_cr       = 0.0;
+    double psnr_cr      = 0.0;
     // Mean signed error per channel (A - B); sign preserved = bias direction
     double mean_signed[3] = {};
 };

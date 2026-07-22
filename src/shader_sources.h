@@ -55,6 +55,7 @@ void main() {
         if (u_channel == 1) out_color = vec4(vec3(out_color.r), out_color.a);
         else if (u_channel == 2) out_color = vec4(vec3(out_color.g), out_color.a);
         else if (u_channel == 3) out_color = vec4(vec3(out_color.b), out_color.a);
+        else if (u_channel == 4) out_color = vec4(vec3(dot(out_color.rgb, vec3(0.2126, 0.7152, 0.0722))), out_color.a);
 
         // Pixel grid at high zoom (>= 16x)
         if (u_zoom >= 16.0) {

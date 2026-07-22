@@ -75,6 +75,7 @@ struct Metrics {
     int    w = 0, h = 0;
     double psnr = 0, ssim = 0, flip = 0, mse = 0, mae = 0, maxerr = 0;
     double psnr_r = 0, psnr_g = 0, psnr_b = 0, psnr_y = 0;  // per-channel + Rec.709 luma PSNR
+    double psnr_cb = 0, psnr_cr = 0;                        // Rec.709 chroma PSNR (Cb/Cr)
     double msigned = 0;                                     // luma-weighted mean signed error (A-B), bias direction
 };
 
@@ -116,6 +117,7 @@ Metrics compute_pair_metrics(const ImageEntry& A, const ImageEntry& B) {
 
     m.psnr_r = ex.psnr[0]; m.psnr_g = ex.psnr[1]; m.psnr_b = ex.psnr[2];
     m.psnr_y = ex.psnr_y;
+    m.psnr_cb = ex.psnr_cb; m.psnr_cr = ex.psnr_cr;
     m.msigned = 0.2126*ex.mean_signed[0] + 0.7152*ex.mean_signed[1] + 0.0722*ex.mean_signed[2];
 
     SSIMResult s = compute_ssim(A, B);
@@ -128,12 +130,12 @@ Metrics compute_pair_metrics(const ImageEntry& A, const ImageEntry& B) {
     return m;
 }
 
-// CSV columns (14): file,width,height,psnr_db,psnr_r,psnr_g,psnr_b,psnr_y,ssim,flip,mse,mae,max_error,msigned
+// CSV columns (16): file,width,height,psnr_db,psnr_r,psnr_g,psnr_b,psnr_y,ssim,flip,mse,mae,max_error,msigned,psnr_cb,psnr_cr
 constexpr const char* CSV_HEADER =
-    "file,width,height,psnr_db,psnr_r,psnr_g,psnr_b,psnr_y,ssim,flip,mse,mae,max_error,msigned";
-// Placeholder row for missing/mismatch/decode_error: <name>,,,<tag>, then 10 empty fields.
+    "file,width,height,psnr_db,psnr_r,psnr_g,psnr_b,psnr_y,ssim,flip,mse,mae,max_error,msigned,psnr_cb,psnr_cr";
+// Placeholder row for missing/mismatch/decode_error: <name>,,,<tag>, then 12 empty fields.
 static std::string placeholder_row(const std::string& name, const char* tag) {
-    return name + ",,," + tag + ",,,,,,,,,,";
+    return name + ",,," + tag + ",,,,,,,,,,,,";
 }
 
 void print_header() {
@@ -149,7 +151,8 @@ void print_row(const std::string& name, const Metrics& m) {
               << fmtv(m.psnr)   << ',' << fmtv(m.psnr_r) << ',' << fmtv(m.psnr_g) << ','
               << fmtv(m.psnr_b) << ',' << fmtv(m.psnr_y) << ',' << fmtv(m.ssim)   << ','
               << fmtv(m.flip)   << ',' << fmtv(m.mse)    << ',' << fmtv(m.mae)    << ','
-              << fmtv(m.maxerr) << ',' << fmtv(m.msigned) << '\n';
+              << fmtv(m.maxerr) << ',' << fmtv(m.msigned) << ','
+              << fmtv(m.psnr_cb) << ',' << fmtv(m.psnr_cr) << '\n';
 }
 
 // ── CI gate + aggregates + JSON/JUnit ─────────────────────────────────────────
@@ -219,7 +222,8 @@ void emit_json(const std::vector<Row>& rows, const Agg& ap, const Agg& as, const
                       << ",\"psnr_y\":" << jnum(r.m.psnr_y) << ",\"ssim\":" << jnum(r.m.ssim)
                       << ",\"flip\":" << jnum(r.m.flip) << ",\"mse\":" << jnum(r.m.mse)
                       << ",\"mae\":" << jnum(r.m.mae) << ",\"max_error\":" << jnum(r.m.maxerr)
-                      << ",\"msigned\":" << jnum(r.m.msigned);
+                      << ",\"msigned\":" << jnum(r.m.msigned)
+                      << ",\"psnr_cb\":" << jnum(r.m.psnr_cb) << ",\"psnr_cr\":" << jnum(r.m.psnr_cr);
             if (!r.verdict.empty()) std::cout << ",\"verdict\":\"" << r.verdict << "\"";
         } else {
             std::cout << ",\"status\":\"" << r.status << "\"";

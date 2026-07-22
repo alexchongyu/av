@@ -34,7 +34,7 @@ struct ViewportState {
     bool  fit   = true;   // fit-to-window mode
 };
 
-enum class ChannelMode { RGB = 0, Red = 1, Green = 2, Blue = 3 };
+enum class ChannelMode { RGB = 0, Red = 1, Green = 2, Blue = 3, Luma = 4 };
 enum class PixelFormat { Decimal = 0, Hex0x = 1, HexH = 2 };
 
 struct DiffState {

@@ -194,8 +194,8 @@ ImageStats compute_diff_stats(const ImageEntry& imgA, const ImageEntry& imgB,
                 ? 20.0 * std::log10(1.0) - 10.0 * std::log10(extra.mse[c])
                 : std::numeric_limits<double>::infinity();
         }
-        // Luma(Y, Rec.709) diff + per-channel mean signed error (A-B), peak=1.0
-        double msy = 0.0, may = 0.0, mxy = 0.0, ssum[3] = {0,0,0};
+        // Luma(Y') + Chroma(Cb,Cr) Rec.709 diff + per-channel mean signed error (A-B), peak=1.0
+        double msy = 0.0, may = 0.0, mxy = 0.0, mscb = 0.0, mscr = 0.0, ssum[3] = {0,0,0};
         for (int i = 0; i < npix; ++i) {
             const float* a = &imgA.pixels_f32[i*4];
             const float* b = &imgB.pixels_f32[i*4];
@@ -203,12 +203,18 @@ ImageStats compute_diff_stats(const ImageEntry& imgA, const ImageEntry& imgB,
             double yb = 0.2126*b[0] + 0.7152*b[1] + 0.0722*b[2];
             double dy = ya - yb, ady = std::fabs(dy);
             msy += dy*dy; may += ady; if (ady > mxy) mxy = ady;
+            double dcb = (a[2]-ya)/1.8556 - (b[2]-yb)/1.8556;   // Cb = (B-Y)/1.8556
+            double dcr = (a[0]-ya)/1.5748 - (b[0]-yb)/1.5748;   // Cr = (R-Y)/1.5748
+            mscb += dcb*dcb; mscr += dcr*dcr;
             for (int c = 0; c < 3; ++c) ssum[c] += (double)a[c] - (double)b[c];
         }
         extra.mse_y = msy/npix; extra.mae_y = may/npix; extra.max_error_y = mxy;
         extra.psnr_y = (extra.mse_y > 1e-15)
             ? -10.0 * std::log10(extra.mse_y)
             : std::numeric_limits<double>::infinity();
+        extra.mse_cb = mscb/npix; extra.mse_cr = mscr/npix;
+        extra.psnr_cb = (extra.mse_cb > 1e-15) ? -10.0*std::log10(extra.mse_cb) : std::numeric_limits<double>::infinity();
+        extra.psnr_cr = (extra.mse_cr > 1e-15) ? -10.0*std::log10(extra.mse_cr) : std::numeric_limits<double>::infinity();
         for (int c = 0; c < 3; ++c) extra.mean_signed[c] = ssum[c]/npix;
     } else if (use_u8) {
         std::vector<uint8_t> diff_buf(npix * 4, 0);
@@ -232,8 +238,8 @@ ImageStats compute_diff_stats(const ImageEntry& imgA, const ImageEntry& imgB,
                 ? 20.0 * std::log10(255.0) - 10.0 * std::log10(extra.mse[c])
                 : std::numeric_limits<double>::infinity();
         }
-        // Luma(Y, Rec.709) diff + per-channel mean signed error (A-B), peak=255
-        double msy = 0.0, may = 0.0, mxy = 0.0, ssum[3] = {0,0,0};
+        // Luma(Y') + Chroma(Cb,Cr) Rec.709 diff + per-channel mean signed error (A-B), peak=255
+        double msy = 0.0, may = 0.0, mxy = 0.0, mscb = 0.0, mscr = 0.0, ssum[3] = {0,0,0};
         for (int i = 0; i < npix; ++i) {
             const uint8_t* a = &imgA.pixels[i*4];
             const uint8_t* b = &imgB.pixels[i*4];
@@ -241,12 +247,18 @@ ImageStats compute_diff_stats(const ImageEntry& imgA, const ImageEntry& imgB,
             double yb = 0.2126*b[0] + 0.7152*b[1] + 0.0722*b[2];
             double dy = ya - yb, ady = std::fabs(dy);
             msy += dy*dy; may += ady; if (ady > mxy) mxy = ady;
+            double dcb = (a[2]-ya)/1.8556 - (b[2]-yb)/1.8556;   // Cb = (B-Y)/1.8556
+            double dcr = (a[0]-ya)/1.5748 - (b[0]-yb)/1.5748;   // Cr = (R-Y)/1.5748
+            mscb += dcb*dcb; mscr += dcr*dcr;
             for (int c = 0; c < 3; ++c) ssum[c] += (int)a[c] - (int)b[c];
         }
         extra.mse_y = msy/npix; extra.mae_y = may/npix; extra.max_error_y = mxy;
         extra.psnr_y = (extra.mse_y > 1e-6)
             ? 20.0 * std::log10(255.0) - 10.0 * std::log10(extra.mse_y)
             : std::numeric_limits<double>::infinity();
+        extra.mse_cb = mscb/npix; extra.mse_cr = mscr/npix;
+        extra.psnr_cb = (extra.mse_cb > 1e-6) ? 20.0*std::log10(255.0) - 10.0*std::log10(extra.mse_cb) : std::numeric_limits<double>::infinity();
+        extra.psnr_cr = (extra.mse_cr > 1e-6) ? 20.0*std::log10(255.0) - 10.0*std::log10(extra.mse_cr) : std::numeric_limits<double>::infinity();
         for (int c = 0; c < 3; ++c) extra.mean_signed[c] = ssum[c]/npix;
     } else return st;
 
