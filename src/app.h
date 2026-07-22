@@ -251,6 +251,13 @@ struct CliOptions {
     bool            sync         = true;
     bool            pair         = false;   // --pair: 두 dir에서 같은 파일명 짝지어 비교
     bool            metrics      = false;   // --metrics: 헤드리스로 PSNR/SSIM/MSE/MAE 출력 후 종료
+    // CI gate thresholds (-1 = unset). psnr/ssim: FAIL if below; flip/maxerr: FAIL if above.
+    float           fail_psnr    = -1.0f;
+    float           warn_psnr    = -1.0f;
+    float           fail_ssim    = -1.0f;
+    float           fail_flip    = -1.0f;
+    float           fail_maxerr  = -1.0f;
+    std::string     out_format   = "csv";   // --format: csv | json | junit
     float           amplify      = 1.0f;
     bool            fullscreen   = false;
     int             win_w        = 1280;

@@ -148,11 +148,120 @@ void print_row(const std::string& name, const Metrics& m) {
               << fmtv(m.maxerr) << ',' << fmtv(m.msigned) << '\n';
 }
 
+// ── CI gate + aggregates + JSON/JUnit ─────────────────────────────────────────
+
+struct Row {
+    std::string name;
+    Metrics     m;
+    std::string status;   // "" = ok, else "missing"/"decode_error"/"mismatch"
+    std::string verdict;  // "PASS"/"WARN"/"FAIL"/"" (no gate)
+};
+
+bool gates_active(const CliOptions& c) {
+    return c.fail_psnr >= 0 || c.warn_psnr >= 0 || c.fail_ssim >= 0 ||
+           c.fail_flip >= 0 || c.fail_maxerr >= 0;
+}
+// psnr/ssim: FAIL if below threshold. flip/maxerr: FAIL if above. warn_psnr → WARN.
+std::string gate_verdict(const CliOptions& c, const Metrics& m) {
+    bool fail = false, warn = false;
+    if (c.fail_psnr   >= 0 && std::isfinite(m.psnr) && m.psnr   < c.fail_psnr)   fail = true;
+    if (c.fail_ssim   >= 0 && m.ssim   < c.fail_ssim)   fail = true;
+    if (c.fail_flip   >= 0 && m.flip   > c.fail_flip)   fail = true;
+    if (c.fail_maxerr >= 0 && m.maxerr > c.fail_maxerr) fail = true;
+    if (c.warn_psnr   >= 0 && std::isfinite(m.psnr) && m.psnr   < c.warn_psnr)   warn = true;
+    return fail ? "FAIL" : (warn ? "WARN" : "PASS");
+}
+
+struct Agg { double mean=0, median=0, p95=0, min=0, max=0; int n=0; };
+Agg aggregate(std::vector<double> v) {
+    Agg a; a.n = (int)v.size();
+    if (v.empty()) return a;
+    double s = 0; for (double x : v) s += x;
+    a.mean = s / v.size();
+    std::sort(v.begin(), v.end());
+    a.min = v.front(); a.max = v.back();
+    auto q = [&](double p) {
+        double idx = p * (v.size() - 1); size_t lo = (size_t)idx; double f = idx - lo;
+        return (lo + 1 < v.size()) ? v[lo]*(1-f) + v[lo+1]*f : v[lo];
+    };
+    a.median = q(0.5); a.p95 = q(0.95);
+    return a;
+}
+
+std::string jnum(double v) {  // JSON number; inf → null
+    if (std::isinf(v)) return "null";
+    char b[32]; std::snprintf(b, sizeof(b), "%.6g", v); return b;
+}
+std::string jesc(const std::string& s) {  // JSON string escape
+    std::string o; for (char c : s) { if (c=='"'||c=='\\') o += '\\'; o += c; } return o;
+}
+std::string xesc(const std::string& s) {  // XML escape
+    std::string o; for (char c : s) {
+        switch (c) { case '&': o+="&amp;"; break; case '<': o+="&lt;"; break;
+                     case '>': o+="&gt;"; break; case '"': o+="&quot;"; break; default: o+=c; }
+    } return o;
+}
+
+void emit_json(const std::vector<Row>& rows, const Agg& ap, const Agg& as, const Agg& af,
+               int nok, int nmiss, int nfail, int nwarn, bool gate) {
+    std::cout << "{\n  \"frames\": [\n";
+    for (size_t i = 0; i < rows.size(); ++i) {
+        const Row& r = rows[i];
+        std::cout << "    {\"file\":\"" << jesc(r.name) << "\"";
+        if (r.status.empty()) {
+            std::cout << ",\"width\":" << r.m.w << ",\"height\":" << r.m.h
+                      << ",\"psnr_db\":" << jnum(r.m.psnr) << ",\"psnr_r\":" << jnum(r.m.psnr_r)
+                      << ",\"psnr_g\":" << jnum(r.m.psnr_g) << ",\"psnr_b\":" << jnum(r.m.psnr_b)
+                      << ",\"psnr_y\":" << jnum(r.m.psnr_y) << ",\"ssim\":" << jnum(r.m.ssim)
+                      << ",\"flip\":" << jnum(r.m.flip) << ",\"mse\":" << jnum(r.m.mse)
+                      << ",\"mae\":" << jnum(r.m.mae) << ",\"max_error\":" << jnum(r.m.maxerr)
+                      << ",\"msigned\":" << jnum(r.m.msigned);
+            if (!r.verdict.empty()) std::cout << ",\"verdict\":\"" << r.verdict << "\"";
+        } else {
+            std::cout << ",\"status\":\"" << r.status << "\"";
+        }
+        std::cout << "}" << (i + 1 < rows.size() ? "," : "") << "\n";
+    }
+    std::cout << "  ],\n  \"summary\": {\"frames\":" << nok << ",\"missing\":" << nmiss;
+    auto aj = [&](const char* nm, const Agg& a) {
+        if (a.n > 0) std::cout << ",\"" << nm << "\":{\"mean\":" << jnum(a.mean)
+            << ",\"median\":" << jnum(a.median) << ",\"p95\":" << jnum(a.p95)
+            << ",\"min\":" << jnum(a.min) << ",\"max\":" << jnum(a.max) << "}";
+    };
+    aj("psnr", ap); aj("ssim", as); aj("flip", af);
+    if (gate) std::cout << ",\"gate\":{\"verdict\":\"" << (nfail>0?"FAIL":(nwarn>0?"WARN":"PASS"))
+                        << "\",\"fail\":" << nfail << ",\"warn\":" << nwarn << "}";
+    std::cout << "}\n}\n";
+}
+
+void emit_junit(const std::vector<Row>& rows) {
+    int tests = 0, failures = 0, skipped = 0;
+    for (const Row& r : rows) {
+        if (r.status.empty() && r.m.ok) { ++tests; if (r.verdict == "FAIL") ++failures; }
+        else ++skipped;
+    }
+    std::cout << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    std::cout << "<testsuite name=\"av-metrics\" tests=\"" << tests << "\" failures=\""
+              << failures << "\" skipped=\"" << skipped << "\">\n";
+    for (const Row& r : rows) {
+        std::cout << "  <testcase name=\"" << xesc(r.name) << "\">";
+        if (!r.status.empty()) std::cout << "<skipped message=\"" << r.status << "\"/>";
+        else if (r.verdict == "FAIL")
+            std::cout << "<failure message=\"metric gate\">psnr=" << jnum(r.m.psnr)
+                      << " ssim=" << jnum(r.m.ssim) << " flip=" << jnum(r.m.flip)
+                      << " maxerr=" << jnum(r.m.maxerr) << "</failure>";
+        std::cout << "</testcase>\n";
+    }
+    std::cout << "</testsuite>\n";
+}
+
 } // namespace
 
 int run_metrics_headless(const CliOptions& cli, const std::string& pair_dir_b) {
-    print_header();
+    const bool gate = gates_active(cli);
+    std::vector<Row> rows;
 
+    // ── Collect rows (single or whole --pair sequence) ────────────────────────
     if (cli.pair) {
         if (cli.image_a.empty()) {
             std::cerr << "[metrics] --pair --metrics requires imageA (a file in directory A)\n";
@@ -164,60 +273,87 @@ int run_metrics_headless(const CliOptions& cli, const std::string& pair_dir_b) {
             std::cerr << "[metrics] no images found in A's directory\n";
             return 3;
         }
-
-        int    frames = 0, missing = 0;
-        double sum_psnr = 0, sum_ssim = 0, sum_flip = 0;
-        int    cnt_psnr = 0, cnt_ssim = 0;
-
         for (const auto& apath : files) {
-            std::string base  = fs::path(apath).filename().string();
-            std::string bpath = (fs::path(pair_dir_b) / base).string();
-
-            if (!fs::is_regular_file(bpath)) {
-                std::cout << placeholder_row(base, "missing") << '\n';
-                ++missing;
-                continue;
-            }
+            Row r;
+            r.name = fs::path(apath).filename().string();
+            std::string bpath = (fs::path(pair_dir_b) / r.name).string();
+            if (!fs::is_regular_file(bpath)) { r.status = "missing"; rows.push_back(r); continue; }
             ImageEntry A, B;
             if (!decode_image_cpu(apath, A) || !decode_image_cpu(bpath, B)) {
-                std::cout << placeholder_row(base, "decode_error") << '\n';
-                continue;
+                r.status = "decode_error"; rows.push_back(r); continue;
             }
-            Metrics m = compute_pair_metrics(A, B);
-            print_row(base, m);
-            if (m.ok && !m.mismatch) {
-                ++frames;
-                if (std::isfinite(m.psnr)) { sum_psnr += m.psnr; ++cnt_psnr; }
-                sum_ssim += m.ssim; ++cnt_ssim;
-                sum_flip += m.flip;
-            }
+            r.m = compute_pair_metrics(A, B);
+            if (r.m.mismatch)      r.status  = "mismatch";
+            else if (gate)         r.verdict = gate_verdict(cli, r.m);
+            rows.push_back(r);
         }
+    } else {
+        if (cli.image_a.empty() || cli.image_b.empty()) {
+            std::cerr << "[metrics] --metrics requires two images: av --metrics A B\n";
+            return 3;
+        }
+        ImageEntry A, B;
+        if (!decode_image_cpu(cli.image_a, A)) return 4;
+        if (!decode_image_cpu(cli.image_b, B)) return 4;
+        Row r;
+        r.name = fs::path(cli.image_a).filename().string();
+        r.m = compute_pair_metrics(A, B);
+        if (r.m.mismatch)      r.status  = "mismatch";
+        else if (gate)         r.verdict = gate_verdict(cli, r.m);
+        rows.push_back(r);
+    }
 
-        // Summary → stderr so stdout stays pure CSV (redirectable to a .csv file).
-        std::cerr << "[metrics] frames=" << frames << " missing=" << missing;
-        if (cnt_psnr > 0) std::cerr << " mean_psnr=" << fmtv(sum_psnr / cnt_psnr) << "dB";
-        if (cnt_ssim > 0) std::cerr << " mean_ssim=" << fmtv(sum_ssim / cnt_ssim);
-        if (frames  > 0)  std::cerr << " mean_flip=" << fmtv(sum_flip / frames);
+    // ── Aggregates over OK rows ───────────────────────────────────────────────
+    std::vector<double> vp, vs, vf;
+    int nok = 0, nmiss = 0, nfail = 0, nwarn = 0;
+    for (const Row& r : rows) {
+        if (r.status.empty() && r.m.ok) {
+            ++nok;
+            if (std::isfinite(r.m.psnr)) vp.push_back(r.m.psnr);
+            vs.push_back(r.m.ssim); vf.push_back(r.m.flip);
+            if      (r.verdict == "FAIL") ++nfail;
+            else if (r.verdict == "WARN") ++nwarn;
+        } else if (r.status == "missing") ++nmiss;
+    }
+    Agg ap = aggregate(vp), as = aggregate(vs), af = aggregate(vf);
+
+    // ── Emit in the requested format ──────────────────────────────────────────
+    if (cli.out_format == "json") {
+        emit_json(rows, ap, as, af, nok, nmiss, nfail, nwarn, gate);
+    } else if (cli.out_format == "junit") {
+        emit_junit(rows);
+    } else {  // csv (default): stdout = pure CSV, summary → stderr
+        print_header();
+        for (const Row& r : rows) {
+            if (!r.status.empty()) std::cout << placeholder_row(r.name, r.status.c_str()) << '\n';
+            else                   print_row(r.name, r.m);
+        }
+        std::cerr << "[metrics] frames=" << nok << " missing=" << nmiss;
+        if (ap.n > 0) std::cerr << " mean_psnr=" << fmtv(ap.mean) << "dB median="
+                                << fmtv(ap.median) << " p95=" << fmtv(ap.p95)
+                                << " min=" << fmtv(ap.min);
+        if (as.n > 0) std::cerr << " mean_ssim=" << fmtv(as.mean);
+        if (af.n > 0) std::cerr << " mean_flip=" << fmtv(af.mean);
+        if (gate) {
+            std::cerr << " | GATE " << (nfail>0?"FAIL":(nwarn>0?"WARN":"PASS"))
+                      << " fail=" << nfail << " warn=" << nwarn;
+        }
         std::cerr << "\n";
-        return 0;
+        if (gate && (nfail > 0 || nwarn > 0)) {
+            std::cerr << "[metrics]";
+            for (const Row& r : rows)
+                if (r.verdict == "FAIL" || r.verdict == "WARN")
+                    std::cerr << " " << r.verdict << ":" << r.name;
+            std::cerr << "\n";
+        }
     }
 
-    // ── Single pair ──
-    if (cli.image_a.empty() || cli.image_b.empty()) {
-        std::cerr << "[metrics] --metrics requires two images: av --metrics A B\n";
-        return 3;
-    }
-    ImageEntry A, B;
-    if (!decode_image_cpu(cli.image_a, A)) return 4;
-    if (!decode_image_cpu(cli.image_b, B)) return 4;
-
-    Metrics m = compute_pair_metrics(A, B);
-    print_row(fs::path(cli.image_a).filename().string(), m);
-    if (m.mismatch) {
-        std::cerr << "[metrics] size/format mismatch: "
-                  << A.width << "x" << A.height << " vs "
-                  << B.width << "x" << B.height << "\n";
+    // ── Exit code ─────────────────────────────────────────────────────────────
+    if (!cli.pair && rows.size() == 1 && rows[0].status == "mismatch") {
+        if (cli.out_format == "csv")
+            std::cerr << "[metrics] size/format mismatch\n";
         return 5;
     }
+    if (gate && nfail > 0) return 10;
     return 0;
 }
