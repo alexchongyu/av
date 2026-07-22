@@ -1,6 +1,7 @@
 #include "image_loader.h"
 #include "render_backend.h"
 #include "app.h"
+#include "viewport.h"   // viewport_set_zoom/center — 로드 시 zoom_setting 유지
 
 #include <glad/gl.h>
 #include <SDL3/SDL.h>
@@ -460,10 +461,17 @@ bool load_image_and_populate_sequence(AppState& state, int panel,
         state.images[panel] = std::move(tmp);
         state.images[panel].content_version = ++state.content_version_counter;  // 캐시 무효화 스탬프
 
-        // Viewport 리셋 (새 이미지에 맞춰 fit)
-        state.views[panel].fit   = true;
-        state.views[panel].pan_x = 0.0f;
-        state.views[panel].pan_y = 0.0f;
+        // Viewport 리셋: zoom_setting(>0 = --zoom/.av.ini 고정 배율)이면 그 배율을 유지,
+        // 아니면 새 이미지에 맞춰 fit. → 네비게이션(;/a)으로 다음/이전을 로드해도
+        // --zoom 설정이 깨지지 않는다. zoom_setting=0(기본)은 기존 fit 동작 그대로.
+        if (state.zoom_setting > 0.0f) {
+            viewport_set_zoom(state.views[panel], state.zoom_setting);  // fit=false + clamp
+            viewport_center(state.views[panel]);
+        } else {
+            state.views[panel].fit   = true;
+            state.views[panel].pan_x = 0.0f;
+            state.views[panel].pan_y = 0.0f;
+        }
         state.diff.psnr_computed = false;  // diff 캐시 무효화
         state.info_psnr_computed = false;  // info창 PSNR 무효화 (영상이 바뀜)
         state.panel_missing_msg[panel].clear();  // 로드 성공 → 해당 패널 'missing' 해제
