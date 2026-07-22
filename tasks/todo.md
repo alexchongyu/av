@@ -11,14 +11,14 @@
 - [x] 빌드 + 검증: identical→inf/1/0, 상이→단조 유한값, --pair 5행+요약(stderr), 인자오류 exit3, 리다이렉트 순수 CSV
 - [x] 커밋
 
-## Phase 2 — 블링크 비교기
-- [ ] `BlinkState` 추가 (app.h)
-- [ ] `,` 토글 + `<`/`>` 간격 + Esc 종료 (app.cpp)
-- [ ] 메인루프 카운트다운 (main.cpp)
-- [ ] 최우선 레이아웃 분기 (main_window.cpp)
-- [ ] 상태바 인디케이터 (statusbar.cpp) + 핫키표
-- [ ] 빌드 + 시각 검증
-- [ ] 커밋
+## Phase 2 — 블링크 비교기 ✅
+- [x] `BlinkState` 추가 (app.h)
+- [x] `,` 토글 + `<`/`>` 간격 + Esc 종료 (app.cpp)
+- [x] 메인루프 카운트다운 (main.cpp)
+- [x] 최우선 레이아웃 분기 (main_window.cpp)
+- [x] 상태바 인디케이터 (statusbar.cpp) + 핫키표
+- [x] 빌드 성공 + 스모크 기동(크래시 없음). 실제 점멸 시각확인=사용자
+- [x] 커밋
 
 ## Phase 3 — FLIP diff 모드 (정식 ꟻLIP-LDR)
 - [ ] 레퍼런스(NVlabs/rotoglup) WebFetch로 상수/필터 확정

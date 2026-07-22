@@ -348,6 +348,19 @@ struct AppState {
     };
     SlideshowState slideshow;
 
+    // ─── Feature: Blink comparator (, toggle) ───────────────────────────────
+    // Auto-alternates A/B in a single full-window panel so small differences pop.
+    // On enable: both panel viewports are set to the active one and sync forced
+    // (saved_sync restores the prior sync state on disable) → pixel-perfect lockstep.
+    struct BlinkState {
+        bool  active     = false;
+        float interval   = 0.5f;   // seconds per A/B flip
+        float countdown  = 0.0f;
+        bool  show_b     = false;  // current phase: false=A, true=B
+        bool  saved_sync = true;   // sync_viewports value before blink forced it on
+    };
+    BlinkState blink;
+
     // ─── Window drag optimization ────────────────────────────────────────
     bool     window_moving = false;
     uint64_t last_window_move_tick = 0;  // SDL_GetTicksNS()

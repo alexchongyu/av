@@ -251,6 +251,8 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 
     // ── Close popups ──────────────────────────────────────────────────────────
     case SDL_SCANCODE_ESCAPE:
+        if (state.blink.active)      { state.blink.active = false;
+                                       state.sync_viewports = state.blink.saved_sync; break; }
         if (state.diff_listing.show) { state.diff_listing.show = false; break; }
         if (state.show_hotkey_help)  { state.show_hotkey_help  = false; break; }
         if (state.show_histogram)    { state.show_histogram    = false; break; }
@@ -697,6 +699,39 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     case SDL_SCANCODE_N:
         if (!ctrl && !gui) {
             sequence_navigate(state, state.active_panel, shift ? -1 : +1);
+        }
+        break;
+
+    // ── 블링크 비교기 (, 토글 / < = Shift+, 간격 감소) ────────────────────────
+    case SDL_SCANCODE_COMMA:
+        if (shift) {
+            if (state.blink.active) {
+                state.blink.interval  = std::max(0.1f, state.blink.interval - 0.1f);
+                state.blink.countdown = std::min(state.blink.countdown, state.blink.interval);
+            }
+        } else if (!ctrl && !gui) {
+            if (state.images[0].loaded && state.images[1].loaded) {
+                state.blink.active = !state.blink.active;
+                if (state.blink.active) {
+                    // Lockstep alignment: A/B share one viewport; force sync while blinking.
+                    state.views[0] = state.views[state.active_panel];
+                    state.views[1] = state.views[state.active_panel];
+                    state.blink.saved_sync = state.sync_viewports;
+                    state.sync_viewports   = true;
+                    state.blink.countdown  = state.blink.interval;
+                    state.blink.show_b     = false;
+                } else {
+                    state.sync_viewports = state.blink.saved_sync;
+                }
+            }
+        }
+        break;
+
+    // ── 블링크 간격 증가 (> = Shift+.) ────────────────────────────────────────
+    case SDL_SCANCODE_PERIOD:
+        if (shift && state.blink.active) {
+            state.blink.interval  = std::min(2.0f, state.blink.interval + 0.1f);
+            state.blink.countdown = std::min(state.blink.countdown, state.blink.interval);
         }
         break;
 

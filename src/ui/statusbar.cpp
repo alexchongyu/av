@@ -160,6 +160,15 @@ void StatusBar::render(const AppState& state) {
         ImGui::SameLine();
     }
 
+    // Blink comparator indicator
+    if (state.blink.active) {
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+            "\xe2\x97\x89 BLINK %s  %.2fs", state.blink.show_b ? "B" : "A", state.blink.interval);
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+    }
+
     // Crosshair indicator
     if (state.show_crosshair) {
         ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.3f, 1.0f), "Crosshair");

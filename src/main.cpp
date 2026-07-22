@@ -493,6 +493,15 @@ int main(int argc, char* argv[]) {
             }
         }
 
+        // ── Blink comparator phase flip (A↔B) ────────────────────────────────
+        if (state.blink.active) {
+            state.blink.countdown -= io.DeltaTime;
+            if (state.blink.countdown <= 0.0f) {
+                state.blink.show_b = !state.blink.show_b;
+                state.blink.countdown = state.blink.interval;
+            }
+        }
+
         // ── Skip rendering while window is being dragged ─────────────────
         if (state.window_moving) continue;
 

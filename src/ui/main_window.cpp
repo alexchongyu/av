@@ -911,6 +911,9 @@ static void render_hotkey_help_window(AppState& state) {
         { "Sequence", "Shift+A",                   "Toggle slideshow auto-play" },
         { "Sequence", "Shift+Up",                  "Slideshow interval +1s" },
         { "Sequence", "Shift+Down",                "Slideshow interval -1s" },
+        // Blink comparator
+        { "Blink", ",",                            "Toggle blink comparator (auto-flip A/B, both loaded)" },
+        { "Blink", "< / >  (Shift+, / Shift+.)",   "Blink interval -/+0.1s (0.1-2.0s)" },
         // Diff
         { "Diff", "Ctrl+D",                        "Toggle diff pixel listing window" },
         { "Diff", "Ctrl+2",                        "Toggle Diff: Alpha Blend (A/B mix on diff canvas)" },
@@ -1430,7 +1433,17 @@ void MainWindow::render(AppState& state) {
     PanelBorderRect panel_rects[3];
     int panel_rect_count = 0;
 
-    if (overlay_mode) {
+    if (state.blink.active && two_images) {
+        // ── 1-panel: Blink comparator (A↔B auto-flip) ────────────────────────
+        // force_single renders just one image; border color tracks the A/B phase.
+        int bidx = state.blink.show_b ? 1 : 0;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::BeginChild("##PanelBlink", ImVec2(0.0f, panel_h), false, child_flags);
+        { ImVec2 p = ImGui::GetWindowPos(); panel_rects[panel_rect_count++] = {p, ImVec2(p.x + content.x, p.y + panel_h), (ImU32)state.border_colors[bidx]}; }
+        s_panel_left.render(state, bidx, diff_renderer_, true);
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+    } else if (overlay_mode) {
         // ── 1-panel: Overlay/Blend ───────────────────────────────────────────
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         ImGui::BeginChild("##PanelOverlay", ImVec2(0.0f, panel_h), false, child_flags);
