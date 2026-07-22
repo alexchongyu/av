@@ -1,5 +1,7 @@
 #pragma once
 
+#include "lut.h"
+
 #include <string>
 #include <vector>
 #include <array>
@@ -269,6 +271,8 @@ struct CliOptions {
     int             win_h        = 720;
     std::string     icc_profile;
     bool            no_color_mgmt = false;
+    std::string     lut_path;               // --lut <file.cube>
+    std::string     cdl_path;               // --cdl <file.cdl/.ccc>
     bool            software     = false;  // --software: force SDL software renderer
     bool            windowed     = false;  // --windowed: start with title bar + resizable
     bool            no_border    = false;  // -nb: start with panel borders hidden
@@ -339,6 +343,11 @@ struct AppState {
 
     // ─── Feature: Bad-pixel overlay (/ key) — NaN/Inf/neg/>1 on float images ─
     bool show_bad_pixels = false;
+
+    // ─── Feature: 3D LUT / ASC-CDL (--lut/--cdl, ' key) — display transform ──
+    Lut3D     lut_grid;              // parsed .cube/.cdl grid (empty = none)
+    bool      lut_enabled   = false; // apply to both panels' display
+    uintptr_t lut_texture_id = 0;    // GL 3D texture (0 = not uploaded)
 
     // ─── Feature: Magnifier (Ctrl+M toggle, non-diff mode) ────────────────
     bool magnifier_active = true;

@@ -15,6 +15,9 @@ GLuint gl_upload_texture_f32(const float* pixels, int w, int h);
 // Upload single-channel float data (for SSIM heatmap); returns GLuint.
 GLuint gl_upload_texture_r32f(const float* pixels, int w, int h);
 
+// Upload an N×N×N RGB float grid as a GL_TEXTURE_3D (for 3D LUT); returns GLuint.
+GLuint gl_upload_lut3d(const float* rgb, int N);
+
 // Delete a GL texture and zero out the id.
 void gl_delete_texture(GLuint& id);
 

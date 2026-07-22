@@ -8,6 +8,7 @@
 #include "../image_open.h"
 #include "../chart_export.h"
 #include "../flip_engine.h"
+#include "../gl_texture.h"
 #include "../path_utils.h"
 #include "../render_backend.h"
 
@@ -1285,6 +1286,11 @@ void MainWindow::render(AppState& state) {
         perform_save(path, target, state);
         state.context_save.save_pending = false;
         state.context_save.save_path.clear();
+    }
+
+    // ── Lazy-upload the 3D LUT to a GL texture on first frame (GPU mode) ──────
+    if (state.lut_grid.loaded && state.lut_texture_id == 0 && !is_software_mode()) {
+        state.lut_texture_id = gl_upload_lut3d(state.lut_grid.data.data(), state.lut_grid.N);
     }
 
     // ── Upload SSIM result on main thread if ready ────────────────────────────

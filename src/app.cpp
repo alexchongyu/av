@@ -77,6 +77,8 @@ static void print_help(const char* prog) {
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
         "  --profile <file>     ICC colour profile path\n"
+        "  --lut <file.cube>    Apply a 3D/1D .cube LUT to both panels' display (' toggles)\n"
+        "  --cdl <file.cdl>     Apply an ASC-CDL (.cdl/.ccc) slope/offset/power+sat look\n"
         "  --no-color-mgmt      Disable colour management\n"
         "  -p, --pan-step <N>   Shift+hjkl jump size in pixels   (default: 32)\n"
         "  -bc <A> <B> <D>      Border colours for A/B/Diff panels as 6-digit hex\n"
@@ -169,6 +171,10 @@ CliOptions parse_cli(int argc, char* argv[]) {
             }
         } else if (arg == "--profile") {
             opts.icc_profile = next();
+        } else if (arg == "--lut") {
+            opts.lut_path = next();
+        } else if (arg == "--cdl") {
+            opts.cdl_path = next();
         } else if (arg == "--no-color-mgmt") {
             opts.no_color_mgmt = true;
         } else if (arg == "-p" || arg == "--pan-step") {
@@ -212,6 +218,15 @@ void apply_cli_options(AppState& state, const CliOptions& opts) {
     // --zoom 이 CLI에 명시된 경우에만 저장된 초기 zoom 을 덮어쓴다.
     // (미지정 시 load_app_ini 가 읽어둔 .av.ini 값 유지 → "마지막 옵션 상태" 재현)
     if (opts.zoom_set) state.zoom_setting = opts.zoom;
+
+    // Load 3D LUT / ASC-CDL (CPU parse now; GL upload at MainWindow init).
+    if (!opts.lut_path.empty()) {
+        if (lut_load_cube(opts.lut_path, state.lut_grid)) state.lut_enabled = true;
+        else std::cerr << "[lut] failed to load .cube: " << opts.lut_path << "\n";
+    } else if (!opts.cdl_path.empty()) {
+        if (lut_load_cdl(opts.cdl_path, state.lut_grid)) state.lut_enabled = true;
+        else std::cerr << "[lut] failed to load .cdl: " << opts.cdl_path << "\n";
+    }
 }
 
 // ─── compute_info_psnr ────────────────────────────────────────────────────────
@@ -777,6 +792,12 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     // ── Bad-pixel overlay 토글 (/) — NaN/Inf/neg/>1 (float 이미지) ────────────
     case SDL_SCANCODE_SLASH:
         if (!ctrl && !gui) state.show_bad_pixels = !state.show_bad_pixels;
+        break;
+
+    // ── 3D LUT / CDL 표시 토글 (') ──────────────────────────────────────────
+    case SDL_SCANCODE_APOSTROPHE:
+        if (!ctrl && !gui && state.lut_grid.loaded)
+            state.lut_enabled = !state.lut_enabled;
         break;
 
     default:

@@ -33,6 +33,8 @@ uniform vec2  u_view_size;    // viewport dimensions (pixels)
 uniform float u_zoom;         // display zoom factor
 uniform vec2  u_pan;          // pan offset in image-pixels from center
 uniform int   u_channel;     // 0=RGB, 1=R, 2=G, 3=B
+uniform sampler3D u_lut;      // 3D LUT (N^3 RGB)
+uniform int   u_lut_enabled; // 1 = apply u_lut before channel isolate
 
 in  vec2 v_uv;
 out vec4 out_color;
@@ -48,6 +50,8 @@ void main() {
         out_color = vec4(0.15, 0.15, 0.15, 1.0);   // out-of-bounds background
     } else {
         out_color = texture(u_tex, uv);
+        if (u_lut_enabled == 1)
+            out_color.rgb = texture(u_lut, clamp(out_color.rgb, 0.0, 1.0)).rgb;
         if (u_channel == 1) out_color = vec4(vec3(out_color.r), out_color.a);
         else if (u_channel == 2) out_color = vec4(vec3(out_color.g), out_color.a);
         else if (u_channel == 3) out_color = vec4(vec3(out_color.b), out_color.a);

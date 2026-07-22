@@ -121,6 +121,7 @@ set(AV_SOURCES
     src/gl_texture.cpp
     src/diff_engine.cpp
     src/flip_engine.cpp
+    src/lut.cpp
     src/metrics_cli.cpp
     src/stb_impl.cpp
     src/image_save.cpp

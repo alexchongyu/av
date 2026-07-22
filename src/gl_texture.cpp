@@ -73,6 +73,21 @@ GLuint gl_upload_texture_r32f(const float* pixels, int w, int h) {
     return tex;
 }
 
+GLuint gl_upload_lut3d(const float* rgb, int N) {
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_3D, tex);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    reset_unpack_state();
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGB32F, N, N, N, 0, GL_RGB, GL_FLOAT, rgb);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    return tex;
+}
+
 void gl_delete_texture(GLuint& id) {
     if (id) {
         glDeleteTextures(1, &id);

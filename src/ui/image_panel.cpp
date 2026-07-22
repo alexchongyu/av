@@ -219,6 +219,20 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
 
     cpu_render_image(img, vp, soft_buf_.data(), pw, ph, state.channel_mode);
 
+    // 3D LUT / CDL display transform (software): per output pixel; matches GPU gate.
+    if (state.lut_enabled && state.lut_grid.loaded &&
+        state.diff.mode != DiffState::Mode::SSIM &&
+        state.diff.mode != DiffState::Mode::FLIP) {
+        for (int i = 0; i < pw * ph; ++i) {
+            uint8_t* p = &soft_buf_[i*4];
+            float r = p[0]/255.0f, g = p[1]/255.0f, b = p[2]/255.0f;
+            lut_apply(state.lut_grid, r, g, b);
+            p[0] = (uint8_t)(std::clamp(r,0.0f,1.0f)*255.0f + 0.5f);
+            p[1] = (uint8_t)(std::clamp(g,0.0f,1.0f)*255.0f + 0.5f);
+            p[2] = (uint8_t)(std::clamp(b,0.0f,1.0f)*255.0f + 0.5f);
+        }
+    }
+
     // Upload to SDL texture
     SDL_UpdateTexture(tex, nullptr, soft_buf_.data(), pw * 4);
 
@@ -1935,6 +1949,18 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
     image_shader_.set_float("u_zoom",       vp.zoom);
     image_shader_.set_vec2 ("u_pan",        vp.pan_x, vp.pan_y);
     image_shader_.set_int  ("u_channel",   static_cast<int>(state.channel_mode));
+
+    // 3D LUT / CDL display transform (not on SSIM/FLIP heatmap fake-entries).
+    int lut_on = (state.lut_enabled && state.lut_texture_id &&
+                  state.diff.mode != DiffState::Mode::SSIM &&
+                  state.diff.mode != DiffState::Mode::FLIP) ? 1 : 0;
+    if (lut_on) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_3D, static_cast<GLuint>(state.lut_texture_id));
+        glActiveTexture(GL_TEXTURE0);
+        image_shader_.set_int("u_lut", 1);
+    }
+    image_shader_.set_int("u_lut_enabled", lut_on);
 
     quad_.draw();
     glBindTexture(GL_TEXTURE_2D, 0);
