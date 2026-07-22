@@ -7,6 +7,7 @@
 #include "../image_save.h"
 #include "../image_open.h"
 #include "../chart_export.h"
+#include "../flip_engine.h"
 #include "../path_utils.h"
 #include "../render_backend.h"
 
@@ -582,6 +583,11 @@ static SSIMComputer        s_ssim_computer;
 static std::atomic<bool>   s_ssim_ready{false};   // published by worker thread (release) → read by main (acquire)
 static SSIMResult          s_ssim_result;
 
+// ─── FLIP computer (mirrors SSIM) ─────────────────────────────────────────────
+static FLIPComputer        s_flip_computer;
+static std::atomic<bool>   s_flip_ready{false};
+static FLIPResult          s_flip_result;
+
 // ─── init ─────────────────────────────────────────────────────────────────────
 
 bool MainWindow::init() {
@@ -922,6 +928,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Diff", "Ctrl+5",                        "Toggle Diff: Enhance (remap + magnifier)" },
         { "Diff", "Ctrl+6",                        "Toggle Diff: False Color" },
         { "Diff", "Ctrl+7",                        "Toggle Diff: SSIM" },
+        { "Diff", "Ctrl+0",                        "Toggle Diff: FLIP (perceptual error map, magma)" },
         { "Diff", "Ctrl+9",                        "Toggle Diff: Highlight (red)" },
         { "Diff", "[ / ]",                         "Primary diff param -/+ (amplify; AlphaBlend: alpha -/+1%)" },
         { "Diff", "Shift+[ / Shift+]",             "AlphaBlend mode: alpha -/+10% (else: threshold -/+1)" },
@@ -940,7 +947,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Help", "Ctrl+Shift+H",                  "Toggle this hotkey reference" },
         // CLI Options
         { "CLI", "av [image_a] [image_b]",          "Open one or two images" },
-        { "CLI", "--diff-mode <mode>",              "none|abs|rel|highlight|falsecolor|ssim|enhance  (default: none)" },
+        { "CLI", "--diff-mode <mode>",              "none|abs|rel|highlight|falsecolor|ssim|flip|enhance  (default: none)" },
         { "CLI", "--zoom <factor>",                 "fit|1|2.0 etc.  (default: fit)" },
         { "CLI", "--sync / --no-sync",              "Enable/disable viewport sync  (default: on)" },
         { "CLI", "--amplify <val>",                 "Diff amplification 0.1-100  (default: 1.0)" },
@@ -1330,6 +1337,40 @@ void MainWindow::render(AppState& state) {
         state.diff.ssim_computing = false;
     }
 
+    // ── Upload FLIP result on main thread if ready (RGBA8 magma heatmap) ───────
+    if (s_flip_ready.load(std::memory_order_acquire)) {
+        s_flip_ready.store(false, std::memory_order_relaxed);
+        if (state.diff.flip_texture_id) {
+            if (is_software_mode())
+                SDL_DestroyTexture(reinterpret_cast<SDL_Texture*>(state.diff.flip_texture_id));
+            else {
+                GLuint id = static_cast<GLuint>(state.diff.flip_texture_id);
+                glDeleteTextures(1, &id);
+            }
+            state.diff.flip_texture_id = 0;
+        }
+        if (s_flip_result.success && !s_flip_result.rgba.empty()) {
+            int w = s_flip_result.w, h = s_flip_result.h;
+            if (is_software_mode()) {
+                SDL_Surface* surf = SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32,
+                                                          s_flip_result.rgba.data(), w * 4);
+                if (surf) {
+                    SDL_Texture* tex = SDL_CreateTextureFromSurface(g_render_ctx.sdl_renderer, surf);
+                    SDL_DestroySurface(surf);
+                    state.diff.flip_texture_id = reinterpret_cast<uintptr_t>(tex);
+                }
+            } else {
+                state.diff.flip_texture_id =
+                    gl_upload_texture(s_flip_result.rgba.data(), w, h, 4);
+            }
+            state.diff.flip_pixels = std::move(s_flip_result.rgba);
+            state.diff.flip_w = w;
+            state.diff.flip_h = h;
+        }
+        state.diff.flip_score     = s_flip_result.score;
+        state.diff.flip_computing = false;
+    }
+
     // ── Trigger SSIM computation when mode switches OR images change ───────────
     static DiffState::Mode prev_diff_mode = DiffState::Mode::None;
     static uint64_t ssim_ver_a = ~0ull, ssim_ver_b = ~0ull;
@@ -1351,6 +1392,28 @@ void MainWindow::render(AppState& state) {
                     // ordering so the main thread's acquire-load sees a fully-built result.
                     s_ssim_result = std::move(result);
                     s_ssim_ready.store(true, std::memory_order_release);
+                });
+        }
+    }
+
+    // ── Trigger FLIP computation when mode switches OR images change ───────────
+    static uint64_t flip_ver_a = ~0ull, flip_ver_b = ~0ull;
+    {
+        bool in_flip = state.diff.mode == DiffState::Mode::FLIP &&
+                       state.images[0].loaded && state.images[1].loaded;
+        bool entered = in_flip && prev_diff_mode != DiffState::Mode::FLIP;
+        bool content_changed = in_flip &&
+            (flip_ver_a != state.images[0].content_version ||
+             flip_ver_b != state.images[1].content_version);
+        if (in_flip && (entered || content_changed)) {
+            state.diff.flip_computing = true;
+            state.diff.flip_score     = -1.0f;
+            flip_ver_a = state.images[0].content_version;
+            flip_ver_b = state.images[1].content_version;
+            s_flip_computer.compute(state.images[0], state.images[1],
+                [](FLIPResult result) {
+                    s_flip_result = std::move(result);
+                    s_flip_ready.store(true, std::memory_order_release);
                 });
         }
     }

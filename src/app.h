@@ -43,6 +43,7 @@ struct DiffState {
         Highlight,
         FalseColor,
         SSIM,
+        FLIP,         // Ctrl+0: perceptual ꟻLIP-LDR error map (magma heatmap)
         Enhance,      // Ctrl+5: [min,max] → [128,255] remap + auto magnifier
         AlphaBlend    // Ctrl+2: diff 패널에 A·B 알파블렌딩
     };
@@ -54,6 +55,13 @@ struct DiffState {
     bool  ssim_computing = false;
     std::vector<uint8_t> ssim_pixels;  // RGBA8 falsecolor heatmap for software mode
     int   ssim_w = 0, ssim_h = 0;     // heatmap dimensions
+
+    // FLIP (ꟻLIP-LDR) — mirrors the SSIM heatmap state; RGBA8 magma heatmap
+    float flip_score        = -1.0f;  // mean FLIP error [0,1]; -1 = not computed
+    uintptr_t flip_texture_id = 0;    // FLIP heatmap texture (GLuint or SDL_Texture*)
+    bool  flip_computing    = false;
+    std::vector<uint8_t> flip_pixels; // RGBA8 magma heatmap (GPU + software share it)
+    int   flip_w = 0, flip_h = 0;
 
     // PSNR cache (auto-computed when diff mode active + both images loaded)
     float psnr_db       = -1.0f;      // overall PSNR (avg of channels), -1 = not computed
@@ -90,6 +98,7 @@ inline constexpr DiffModeInfo kDiffModes[] = {
     { DiffState::Mode::Enhance,       "Enhance",     "Enhance",    "Ctrl+5", "enhance"    },
     { DiffState::Mode::FalseColor,    "FalseColor",  "FalseColor", "Ctrl+6", "falsecolor" },
     { DiffState::Mode::SSIM,          "SSIM",        "SSIM",       "Ctrl+7", "ssim"       },
+    { DiffState::Mode::FLIP,          "FLIP",        "FLIP",       "Ctrl+0", "flip"       },
     { DiffState::Mode::Highlight,     "Highlight",   "Highlight",  "Ctrl+9", "highlight"  },
 };
 

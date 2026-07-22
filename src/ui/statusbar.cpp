@@ -77,6 +77,22 @@ void StatusBar::render(const AppState& state) {
         ImGui::SameLine();
     }
 
+    // FLIP score (lower = better; 0 = identical)
+    if (state.diff.mode == DiffState::Mode::FLIP) {
+        if (state.diff.flip_computing) {
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 1.0f, 1.0f), "FLIP: computing…");
+        } else if (state.diff.flip_score >= 0.0f) {
+            float f = state.diff.flip_score;
+            ImVec4 col = (f < 0.05f) ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                       : (f < 0.15f) ? ImVec4(1.0f, 0.9f, 0.2f, 1.0f)
+                                     : ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+            ImGui::TextColored(col, "FLIP: %.4f", f);
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+    }
+
     // PSNR (auto-computed with diff mode)
     if (state.diff.mode != DiffState::Mode::None && state.diff.psnr_computed && state.diff.psnr_db > 0) {
         float p = state.diff.psnr_db;

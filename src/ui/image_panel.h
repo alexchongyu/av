@@ -66,7 +66,7 @@ private:
     void render_single_software(AppState& state, int panel_idx);
     void render_diff_software(AppState& state);
     void render_overlay_software(AppState& state);
-    void render_ssim_software(AppState& state);
+    void render_heatmap_software(AppState& state);  // SSIM or FLIP heatmap
 
     void cpu_render_image(const ImageEntry& img, const ViewportState& vp,
                           uint8_t* buf, int view_w, int view_h,

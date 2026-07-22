@@ -919,14 +919,21 @@ void ImagePanel::render_overlay_software(AppState& state) {
     render_pathfinder(state, 0, widget_pos, pw, ph);
 }
 
-// ─── render_ssim_software ─────────────────────────────────────────────────────
+// ─── render_heatmap_software (SSIM / FLIP) ────────────────────────────────────
 
-void ImagePanel::render_ssim_software(AppState& state) {
+void ImagePanel::render_heatmap_software(AppState& state) {
     const ImageEntry& imgA = state.images[0];
     ViewportState& vp = state.views[0];
 
-    if (!imgA.loaded || state.diff.ssim_texture_id == 0) {
-        ImGui::TextDisabled("(SSIM heatmap not ready)");
+    // SSIM and FLIP share this path; pick the active mode's heatmap fields.
+    const bool is_flip = (state.diff.mode == DiffState::Mode::FLIP);
+    uintptr_t             heat_tex = is_flip ? state.diff.flip_texture_id : state.diff.ssim_texture_id;
+    std::vector<uint8_t>& heat_px  = is_flip ? state.diff.flip_pixels     : state.diff.ssim_pixels;
+    int                   heat_w   = is_flip ? state.diff.flip_w          : state.diff.ssim_w;
+    int                   heat_h   = is_flip ? state.diff.flip_h          : state.diff.ssim_h;
+
+    if (!imgA.loaded || heat_tex == 0) {
+        ImGui::TextDisabled("(heatmap not ready)");
         return;
     }
 
@@ -940,15 +947,15 @@ void ImagePanel::render_ssim_software(AppState& state) {
     SDL_Texture* tex = ensure_soft_texture(pw, ph);
     if (!tex) return;
 
-    // Use stored falsecolor RGBA pixels with cpu_render_image for viewport transform
-    if (!state.diff.ssim_pixels.empty() && state.diff.ssim_w > 0) {
+    // Use stored colored RGBA pixels with cpu_render_image for viewport transform
+    if (!heat_px.empty() && heat_w > 0) {
         ImageEntry fake{};
         fake.loaded  = true;
-        fake.width   = state.diff.ssim_w;
-        fake.height  = state.diff.ssim_h;
-        fake.pixels.swap(state.diff.ssim_pixels);  // zero-copy swap
+        fake.width   = heat_w;
+        fake.height  = heat_h;
+        fake.pixels.swap(heat_px);  // zero-copy swap
         cpu_render_image(fake, vp, soft_buf_.data(), pw, ph);
-        fake.pixels.swap(state.diff.ssim_pixels);  // swap back
+        fake.pixels.swap(heat_px);  // swap back
     } else {
         // Fallback: clear to dark
         std::memset(soft_buf_.data(), 26, soft_buf_.size());
@@ -1512,14 +1519,18 @@ void ImagePanel::render_magnifier(const AppState& state, int panel_idx,
                     px < imgB.width && py < imgB.height &&
                     ((!imgA.pixels.empty() && !imgB.pixels.empty()) ||
                      (!imgA.pixels_f32.empty() && !imgB.pixels_f32.empty()))) {
-                    // SSIM: precomputed heatmap에서 직접 읽기
-                    if (state.diff.mode == DiffState::Mode::SSIM) {
-                        if (!state.diff.ssim_pixels.empty() &&
-                            px < state.diff.ssim_w && py < state.diff.ssim_h) {
-                            int soff = (py * state.diff.ssim_w + px) * 4;
-                            r = state.diff.ssim_pixels[soff + 0];
-                            g = state.diff.ssim_pixels[soff + 1];
-                            b = state.diff.ssim_pixels[soff + 2];
+                    // SSIM/FLIP: precomputed heatmap에서 직접 읽기
+                    if (state.diff.mode == DiffState::Mode::SSIM ||
+                        state.diff.mode == DiffState::Mode::FLIP) {
+                        bool is_flip = (state.diff.mode == DiffState::Mode::FLIP);
+                        const std::vector<uint8_t>& hpx = is_flip ? state.diff.flip_pixels : state.diff.ssim_pixels;
+                        int hw = is_flip ? state.diff.flip_w : state.diff.ssim_w;
+                        int hh = is_flip ? state.diff.flip_h : state.diff.ssim_h;
+                        if (!hpx.empty() && px < hw && py < hh) {
+                            int soff = (py * hw + px) * 4;
+                            r = hpx[soff + 0];
+                            g = hpx[soff + 1];
+                            b = hpx[soff + 2];
                         }
                     } else {
                         // |A-B| 계산 (float [0,1]) — pixels_f32 우선, pixels 폴백
@@ -2365,17 +2376,21 @@ void ImagePanel::render(AppState& state, int panel_idx, DiffRenderer& diff_rende
                 render_overlay_software(state);
                 return;
             }
-            // Diff modes (abs/rel/falsecolor)
+            // Diff modes (abs/rel/falsecolor) — SSIM/FLIP are precomputed heatmaps
             bool is_diff_mode = (state.diff.mode != DiffState::Mode::None &&
-                                 state.diff.mode != DiffState::Mode::SSIM);
+                                 state.diff.mode != DiffState::Mode::SSIM &&
+                                 state.diff.mode != DiffState::Mode::FLIP);
             if (is_diff_mode && panel_idx == 0) {
                 render_diff_software(state);
                 return;
             }
-            // SSIM heatmap
-            if (state.diff.mode == DiffState::Mode::SSIM &&
-                panel_idx == 0 && state.diff.ssim_texture_id != 0) {
-                render_ssim_software(state);
+            // SSIM / FLIP heatmap
+            bool heat_mode = (state.diff.mode == DiffState::Mode::SSIM ||
+                              state.diff.mode == DiffState::Mode::FLIP);
+            uintptr_t heat_tex = (state.diff.mode == DiffState::Mode::FLIP)
+                               ? state.diff.flip_texture_id : state.diff.ssim_texture_id;
+            if (heat_mode && panel_idx == 0 && heat_tex != 0) {
+                render_heatmap_software(state);
                 return;
             }
         }
@@ -2392,21 +2407,25 @@ void ImagePanel::render(AppState& state, int panel_idx, DiffRenderer& diff_rende
         }
 
         // Diff modes take over panel 0 and show both images
+        // (SSIM/FLIP are precomputed heatmaps, handled separately below)
         bool is_diff_mode = (state.diff.mode != DiffState::Mode::None &&
-                             state.diff.mode != DiffState::Mode::SSIM);
+                             state.diff.mode != DiffState::Mode::SSIM &&
+                             state.diff.mode != DiffState::Mode::FLIP);
 
         if (is_diff_mode && panel_idx == 0) {
             render_diff(state, diff_renderer);
             return;
         }
 
-        // SSIM heatmap: display precomputed texture in panel 0
-        if (state.diff.mode == DiffState::Mode::SSIM &&
-            panel_idx == 0 &&
-            state.diff.ssim_texture_id != 0) {
+        // SSIM / FLIP heatmap: display precomputed texture in panel 0
+        bool heat_mode = (state.diff.mode == DiffState::Mode::SSIM ||
+                          state.diff.mode == DiffState::Mode::FLIP);
+        uintptr_t heat_tex = (state.diff.mode == DiffState::Mode::FLIP)
+                           ? state.diff.flip_texture_id : state.diff.ssim_texture_id;
+        if (heat_mode && panel_idx == 0 && heat_tex != 0) {
             ImageEntry fake{};
             fake.loaded     = true;
-            fake.texture_id = state.diff.ssim_texture_id;
+            fake.texture_id = heat_tex;
             fake.width      = state.images[0].width;
             fake.height     = state.images[0].height;
             auto saved = state.images[0];

@@ -4,6 +4,7 @@
 #include "image_loader.h"  // scan_image_directory
 #include "chart_export.h"  // compute_diff_stats, DiffExtraStats
 #include "diff_engine.h"   // compute_ssim, SSIMResult
+#include "flip_engine.h"   // compute_flip, FLIPResult
 
 #include <stb_image.h>
 
@@ -68,7 +69,7 @@ struct Metrics {
     bool   ok       = false;
     bool   mismatch = false;
     int    w = 0, h = 0;
-    double psnr = 0, ssim = 0, mse = 0, mae = 0, maxerr = 0;
+    double psnr = 0, ssim = 0, flip = 0, mse = 0, mae = 0, maxerr = 0;
 };
 
 // Compute overall metrics for one A/B pair (both already CPU-decoded).
@@ -109,21 +110,25 @@ Metrics compute_pair_metrics(const ImageEntry& A, const ImageEntry& B) {
 
     SSIMResult s = compute_ssim(A, B);
     m.ssim = s.success ? s.score : 0.0;
+
+    FLIPResult f = compute_flip(A, B);
+    m.flip = f.success ? f.score : 0.0;
+
     m.ok   = true;
     return m;
 }
 
 void print_header() {
-    std::cout << "file,width,height,psnr_db,ssim,mse,mae,max_error\n";
+    std::cout << "file,width,height,psnr_db,ssim,flip,mse,mae,max_error\n";
 }
 
 void print_row(const std::string& name, const Metrics& m) {
     if (m.mismatch) {
-        std::cout << name << ",,,mismatch,,,,\n";
+        std::cout << name << ",,,mismatch,,,,,\n";
         return;
     }
     std::cout << name << ',' << m.w << ',' << m.h << ','
-              << fmtv(m.psnr) << ',' << fmtv(m.ssim) << ','
+              << fmtv(m.psnr) << ',' << fmtv(m.ssim) << ',' << fmtv(m.flip) << ','
               << fmtv(m.mse)  << ',' << fmtv(m.mae)  << ',' << fmtv(m.maxerr) << '\n';
 }
 
@@ -145,7 +150,7 @@ int run_metrics_headless(const CliOptions& cli, const std::string& pair_dir_b) {
         }
 
         int    frames = 0, missing = 0;
-        double sum_psnr = 0, sum_ssim = 0;
+        double sum_psnr = 0, sum_ssim = 0, sum_flip = 0;
         int    cnt_psnr = 0, cnt_ssim = 0;
 
         for (const auto& apath : files) {
@@ -153,13 +158,13 @@ int run_metrics_headless(const CliOptions& cli, const std::string& pair_dir_b) {
             std::string bpath = (fs::path(pair_dir_b) / base).string();
 
             if (!fs::is_regular_file(bpath)) {
-                std::cout << base << ",,,missing,,,,\n";
+                std::cout << base << ",,,missing,,,,,\n";
                 ++missing;
                 continue;
             }
             ImageEntry A, B;
             if (!decode_image_cpu(apath, A) || !decode_image_cpu(bpath, B)) {
-                std::cout << base << ",,,decode_error,,,,\n";
+                std::cout << base << ",,,decode_error,,,,,\n";
                 continue;
             }
             Metrics m = compute_pair_metrics(A, B);
@@ -168,6 +173,7 @@ int run_metrics_headless(const CliOptions& cli, const std::string& pair_dir_b) {
                 ++frames;
                 if (std::isfinite(m.psnr)) { sum_psnr += m.psnr; ++cnt_psnr; }
                 sum_ssim += m.ssim; ++cnt_ssim;
+                sum_flip += m.flip;
             }
         }
 
@@ -175,6 +181,7 @@ int run_metrics_headless(const CliOptions& cli, const std::string& pair_dir_b) {
         std::cerr << "[metrics] frames=" << frames << " missing=" << missing;
         if (cnt_psnr > 0) std::cerr << " mean_psnr=" << fmtv(sum_psnr / cnt_psnr) << "dB";
         if (cnt_ssim > 0) std::cerr << " mean_ssim=" << fmtv(sum_ssim / cnt_ssim);
+        if (frames  > 0)  std::cerr << " mean_flip=" << fmtv(sum_flip / frames);
         std::cerr << "\n";
         return 0;
     }

@@ -162,8 +162,8 @@ std::vector<uint8_t> compute_diff_cpu(const ImageEntry& imgA,
     std::vector<uint8_t> out(static_cast<size_t>(w) * h * 4, 0);
 
     DiffState::Mode mode = diff.mode;
-    if (mode == DiffState::Mode::SSIM)
-        mode = DiffState::Mode::PixelAbsolute;   // SSIM fallback
+    if (mode == DiffState::Mode::SSIM || mode == DiffState::Mode::FLIP)
+        mode = DiffState::Mode::PixelAbsolute;   // SSIM/FLIP heatmap → abs fallback for save
 
     float amp = diff.amplify;
 

@@ -57,7 +57,7 @@ static void print_help(const char* prog) {
         "Usage: " << prog << " [options] [imageA] [imageB]\n"
         "\n"
         "Options:\n"
-        "  --diff-mode <mode>   none|alphablend|abs|rel|highlight|falsecolor|ssim|enhance  (default: none)\n"
+        "  --diff-mode <mode>   none|alphablend|abs|rel|highlight|falsecolor|ssim|flip|enhance  (default: none)\n"
         "  --zoom <factor>      fit|0|1|2 etc. (0/fit=window, 1=1:1 actual; saved)\n"
         "  --sync               Enable viewport sync          (default: on)\n"
         "  --no-sync            Disable viewport sync\n"
@@ -343,6 +343,11 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
             else if (key_num == 7) {
                 state.diff.mode = (state.diff.mode == DiffState::Mode::SSIM)
                     ? DiffState::Mode::None : DiffState::Mode::SSIM;
+                state.diff_listing.computed = false;
+            }
+            else if (key_num == 0) {
+                state.diff.mode = (state.diff.mode == DiffState::Mode::FLIP)
+                    ? DiffState::Mode::None : DiffState::Mode::FLIP;
                 state.diff_listing.computed = false;
             }
             else if (key_num == 8) {
