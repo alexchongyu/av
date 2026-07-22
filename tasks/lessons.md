@@ -168,3 +168,22 @@ patch hunk 수술보다 안전(각 커밋이 실제로 컴파일됨을 보장). 
 - 빌드 전 스테일 `.git` 제거해야 `git describe` 가 옛 버전을 씌우지 않음(→VERSION.txt 사용).
 - 설치는 번들 디렉토리(`av`=래퍼 스크립트) 통째로 배포. 단일 파일 복사 금지.
 - **전체 절차는 리포 루트 `linux-compile-install.md` 참조.**
+
+## Windows 빌드(av.exe) via Demura WSL — 3대 함정 (2026-07-22)
+
+빌드 머신 = 192.168.2.241(Demura, Windows PC의 WSL, 무패스워드 SSH). 툴은 사용자 alias
+`wcmake`(cmake.exe -G "Visual Studio 17 2022" -T ClangCL), `wmake`(devenv.com /build Release).
+
+1. **반드시 C: 경로에서 빌드** (`/mnt/c/Users/Alex/claude_code/av`). WSL `/home` 은
+   `\\wsl.localhost\...` UNC 라 MSBuild custom build(cmd.exe)가 `MSB8066 / "CMD does not
+   support UNC paths"` 로 실패(특히 FetchContent 하위빌드). → sync-win.sh 는 C: 로 복사.
+2. **WSL_INTEROP**: 비대화형 SSH 세션엔 unset → Windows .exe 실행 시 `accept4 failed 110`.
+   `/run/WSL/*_interop` 중 살아있는 소켓 자동 탐지해 export. 대화형 WSL 세션이 열려 있어야 소켓이 삶.
+3. **glad = jinja2 필요**: glad2 코드 생성기가 Python+jinja2 사용. Windows Python
+   (CMakeCache `_Python_EXECUTABLE`, 여기선 C:/Program Files/Python312)에 `pip install --user jinja2`.
+   안 하면 `ModuleNotFoundError: No module named 'jinja2'` → glad_gl 빌드 실패.
+
+- 원격 장시간 빌드 구동법: `run_in_background`+heredoc-stdin 은 stdin 미전달로 실패.
+  → 스크립트를 파일로 scp → `nohup bash script build > log 2>&1 &` 분리실행 → 원격 log 폴링.
+- CMakeLists 는 이미 Windows 분기 완비(소스 무변경). lcms2 는 Windows에 없어 color mgmt 자동 off.
+- 스크립트: `script/sync-win.sh`, `script/win-build-wsl.sh` [all|deps|configure|build].
