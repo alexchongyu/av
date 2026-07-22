@@ -81,7 +81,9 @@ cd /user/alex/claude_code/av
 bash script/bundle-av.sh                                   # bin/av-bundle/ 생성: av(래퍼)+av.bin+lib/+ld-linux
 mkdir -p /user/alex/local/bin
 rsync -a --delete bin/av-bundle/ /user/alex/local/bin/av-bundle/   # 디렉토리 통째로 배포(단일 파일 X)
+ln -sfn /user/alex/local/bin/av-bundle/av /user/alex/local/bin/av  # ★ av 를 PATH에 노출(심링크). 없으면 `av` 명령이 번들을 못 찾음
 /user/alex/local/bin/av-bundle/av --version                # 설치본 검증
+which av                                                    # /user/alex/local/bin/av 여야 정상 (tcsh는 새 셸/rehash 필요)
 EOF
 ```
 - `av` 래퍼는 `readlink -f $0` 로 자기 위치를 찾아 `그 폴더/lib/ld-linux-x86-64.so.2 --library-path 그 폴더/lib av.bin` 를
