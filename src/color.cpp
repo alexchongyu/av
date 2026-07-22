@@ -69,8 +69,9 @@ double duv_from_upvp(double up, double vp) {
     double dv = v - 0.24;
     double Lfp = std::sqrt(du * du + dv * dv);
     if (Lfp < 1e-12) return 0.0;
+    constexpr double kTwoPi = 6.283185307179586476925286766559;  // M_PI is not portable (MSVC)
     double a = std::atan2(dv, du);
-    if (a < 0.0) a += 2.0 * M_PI;
+    if (a < 0.0) a += kTwoPi;
     // 6th-order fit of the Planckian-locus radius from the reference point.
     const double k[7] = { -0.471106, 1.925865, -2.4243787, 1.5317403,
                           -0.5179722, 0.0893944, -0.00616793 };
