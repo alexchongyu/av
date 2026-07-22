@@ -5,8 +5,11 @@
 #include "chart_export.h"  // compute_diff_stats, DiffExtraStats
 #include "diff_engine.h"   // compute_ssim, SSIMResult
 #include "flip_engine.h"   // compute_flip, FLIPResult
+#include "image_save.h"    // compute_diff_cpu
 
 #include <stb_image.h>
+#include <stb_image_write.h>
+#include <cstring>
 
 #include <algorithm>
 #include <cmath>
@@ -355,5 +358,72 @@ int run_metrics_headless(const CliOptions& cli, const std::string& pair_dir_b) {
         return 5;
     }
     if (gate && nfail > 0) return 10;
+    return 0;
+}
+
+// ─── Headless diff-image export (--diff-out) ──────────────────────────────────
+
+// Build an 8-bit RGBA view of an entry (u8 direct, or HDR float clamped [0,1]).
+static std::vector<uint8_t> entry_to_rgba8(const ImageEntry& e, int w, int h) {
+    std::vector<uint8_t> out(static_cast<size_t>(w) * h * 4, 255);
+    size_t n = static_cast<size_t>(w) * h * 4;
+    if (!e.pixels.empty()) {
+        std::memcpy(out.data(), e.pixels.data(), std::min(n, e.pixels.size()));
+    } else if (!e.pixels_f32.empty()) {
+        for (size_t i = 0; i < n && i < e.pixels_f32.size(); ++i)
+            out[i] = static_cast<uint8_t>(std::clamp(e.pixels_f32[i], 0.0f, 1.0f) * 255.0f + 0.5f);
+    }
+    return out;
+}
+
+int run_diff_out_headless(const CliOptions& cli, const std::string& /*pair_dir_b*/) {
+    if (cli.image_a.empty() || cli.image_b.empty()) {
+        std::cerr << "[diff-out] requires two images: av --diff-out out.png A B\n";
+        return 3;
+    }
+    ImageEntry A, B;
+    if (!decode_image_cpu(cli.image_a, A)) return 4;
+    if (!decode_image_cpu(cli.image_b, B)) return 4;
+    if (A.width != B.width || A.height != B.height) {
+        std::cerr << "[diff-out] size mismatch: " << A.width << "x" << A.height
+                  << " vs " << B.width << "x" << B.height << "\n";
+        return 5;
+    }
+    int w = A.width, h = A.height;
+
+    // Diff RGBA8 buffer (FLIP → magma heatmap; else CPU diff shader mirror)
+    std::vector<uint8_t> diff;
+    if (cli.diff_mode == DiffState::Mode::FLIP) {
+        FLIPResult f = compute_flip(A, B);
+        if (!f.success) { std::cerr << "[diff-out] FLIP compute failed\n"; return 6; }
+        diff = std::move(f.rgba); w = f.w; h = f.h;
+    } else {
+        DiffState d;
+        d.mode    = cli.diff_mode;   // None → PixelAbsolute inside compute_diff_cpu
+        d.amplify = cli.amplify;
+        diff = compute_diff_cpu(A, B, d);
+    }
+
+    const std::vector<uint8_t>* out = &diff;
+    int ow = w, oh = h;
+    std::vector<uint8_t> composite;
+    if (cli.diff_out_sbs) {
+        std::vector<uint8_t> a8 = entry_to_rgba8(A, w, h);
+        std::vector<uint8_t> b8 = entry_to_rgba8(B, w, h);
+        ow = w * 3; oh = h;
+        composite.assign(static_cast<size_t>(ow) * oh * 4, 0);
+        for (int y = 0; y < h; ++y) {
+            std::memcpy(&composite[(static_cast<size_t>(y)*ow + 0    )*4], &a8  [static_cast<size_t>(y)*w*4], static_cast<size_t>(w)*4);
+            std::memcpy(&composite[(static_cast<size_t>(y)*ow + w    )*4], &diff[static_cast<size_t>(y)*w*4], static_cast<size_t>(w)*4);
+            std::memcpy(&composite[(static_cast<size_t>(y)*ow + 2*w  )*4], &b8  [static_cast<size_t>(y)*w*4], static_cast<size_t>(w)*4);
+        }
+        out = &composite;
+    }
+
+    if (!stbi_write_png(cli.diff_out.c_str(), ow, oh, 4, out->data(), ow * 4)) {
+        std::cerr << "[diff-out] failed to write " << cli.diff_out << "\n";
+        return 7;
+    }
+    std::cerr << "[diff-out] wrote " << cli.diff_out << " (" << ow << "x" << oh << ")\n";
     return 0;
 }

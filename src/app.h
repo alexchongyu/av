@@ -260,6 +260,8 @@ struct CliOptions {
     float           fail_flip    = -1.0f;
     float           fail_maxerr  = -1.0f;
     std::string     out_format   = "csv";   // --format: csv | json | junit
+    std::string     diff_out;               // --diff-out <path>: headless diff PNG export
+    bool            diff_out_sbs = false;    // --sbs: side-by-side A|diff|B composite
     float           amplify      = 1.0f;
     bool            fullscreen   = false;
     int             win_w        = 1280;

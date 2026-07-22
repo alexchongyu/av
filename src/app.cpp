@@ -69,6 +69,8 @@ static void print_help(const char* prog) {
         "  --format <fmt>       --metrics output: csv (default) | json | junit\n"
         "  --fail-psnr <dB>     CI gate: exit 10 if any pair's PSNR < dB (also --fail-ssim,\n"
         "  --fail-ssim <v>      --fail-flip <v> [>], --fail-maxerr <v> [>], --warn-psnr <dB>)\n"
+        "  --diff-out <path>    Headless: write the --diff-mode diff (or FLIP) of A vs B to a\n"
+        "                       PNG and exit.  --sbs = A|diff|B composite.\n"
         "  --amplify <val>      Diff amplification 0.1-100   (default: 1.0)\n"
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
@@ -145,6 +147,10 @@ CliOptions parse_cli(int argc, char* argv[]) {
                 std::cerr << "Unknown --format: " << opts.out_format << " (csv|json|junit)\n";
                 std::exit(1);
             }
+        } else if (arg == "--diff-out") {
+            opts.diff_out = next();
+        } else if (arg == "--sbs") {
+            opts.diff_out_sbs = true;
         } else if (arg == "--amplify") {
             opts.amplify = std::stof(next());
         } else if (arg == "--fullscreen") {

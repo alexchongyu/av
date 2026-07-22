@@ -204,6 +204,10 @@ int main(int argc, char* argv[]) {
     if (cli.metrics)
         return run_metrics_headless(cli, pair_dir_b);
 
+    // ── --diff-out: headless diff-image PNG export, no window/GL/SDL, then exit ─
+    if (!cli.diff_out.empty())
+        return run_diff_out_headless(cli, pair_dir_b);
+
     // ── Determine software mode BEFORE SDL_Init ───────────────────────────────
     bool use_software = cli.software;
     if (!use_software) {
