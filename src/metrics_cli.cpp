@@ -70,6 +70,8 @@ struct Metrics {
     bool   mismatch = false;
     int    w = 0, h = 0;
     double psnr = 0, ssim = 0, flip = 0, mse = 0, mae = 0, maxerr = 0;
+    double psnr_r = 0, psnr_g = 0, psnr_b = 0, psnr_y = 0;  // per-channel + Rec.709 luma PSNR
+    double msigned = 0;                                     // luma-weighted mean signed error (A-B), bias direction
 };
 
 // Compute overall metrics for one A/B pair (both already CPU-decoded).
@@ -108,6 +110,10 @@ Metrics compute_pair_metrics(const ImageEntry& A, const ImageEntry& B) {
     }
     m.psnr = (pcnt > 0) ? (psum / pcnt) : std::numeric_limits<double>::infinity();
 
+    m.psnr_r = ex.psnr[0]; m.psnr_g = ex.psnr[1]; m.psnr_b = ex.psnr[2];
+    m.psnr_y = ex.psnr_y;
+    m.msigned = 0.2126*ex.mean_signed[0] + 0.7152*ex.mean_signed[1] + 0.0722*ex.mean_signed[2];
+
     SSIMResult s = compute_ssim(A, B);
     m.ssim = s.success ? s.score : 0.0;
 
@@ -118,18 +124,28 @@ Metrics compute_pair_metrics(const ImageEntry& A, const ImageEntry& B) {
     return m;
 }
 
+// CSV columns (14): file,width,height,psnr_db,psnr_r,psnr_g,psnr_b,psnr_y,ssim,flip,mse,mae,max_error,msigned
+constexpr const char* CSV_HEADER =
+    "file,width,height,psnr_db,psnr_r,psnr_g,psnr_b,psnr_y,ssim,flip,mse,mae,max_error,msigned";
+// Placeholder row for missing/mismatch/decode_error: <name>,,,<tag>, then 10 empty fields.
+static std::string placeholder_row(const std::string& name, const char* tag) {
+    return name + ",,," + tag + ",,,,,,,,,,";
+}
+
 void print_header() {
-    std::cout << "file,width,height,psnr_db,ssim,flip,mse,mae,max_error\n";
+    std::cout << CSV_HEADER << '\n';
 }
 
 void print_row(const std::string& name, const Metrics& m) {
     if (m.mismatch) {
-        std::cout << name << ",,,mismatch,,,,,\n";
+        std::cout << placeholder_row(name, "mismatch") << '\n';
         return;
     }
     std::cout << name << ',' << m.w << ',' << m.h << ','
-              << fmtv(m.psnr) << ',' << fmtv(m.ssim) << ',' << fmtv(m.flip) << ','
-              << fmtv(m.mse)  << ',' << fmtv(m.mae)  << ',' << fmtv(m.maxerr) << '\n';
+              << fmtv(m.psnr)   << ',' << fmtv(m.psnr_r) << ',' << fmtv(m.psnr_g) << ','
+              << fmtv(m.psnr_b) << ',' << fmtv(m.psnr_y) << ',' << fmtv(m.ssim)   << ','
+              << fmtv(m.flip)   << ',' << fmtv(m.mse)    << ',' << fmtv(m.mae)    << ','
+              << fmtv(m.maxerr) << ',' << fmtv(m.msigned) << '\n';
 }
 
 } // namespace
@@ -158,13 +174,13 @@ int run_metrics_headless(const CliOptions& cli, const std::string& pair_dir_b) {
             std::string bpath = (fs::path(pair_dir_b) / base).string();
 
             if (!fs::is_regular_file(bpath)) {
-                std::cout << base << ",,,missing,,,,,\n";
+                std::cout << placeholder_row(base, "missing") << '\n';
                 ++missing;
                 continue;
             }
             ImageEntry A, B;
             if (!decode_image_cpu(apath, A) || !decode_image_cpu(bpath, B)) {
-                std::cout << base << ",,,decode_error,,,,,\n";
+                std::cout << placeholder_row(base, "decode_error") << '\n';
                 continue;
             }
             Metrics m = compute_pair_metrics(A, B);

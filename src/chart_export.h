@@ -34,6 +34,13 @@ struct DiffExtraStats {
     double psnr[3]      = {};
     double mae[3]       = {};
     double max_error[3] = {};
+    // Luma (Rec.709 Y) diff stats
+    double mse_y        = 0.0;
+    double psnr_y       = 0.0;
+    double mae_y        = 0.0;
+    double max_error_y  = 0.0;
+    // Mean signed error per channel (A - B); sign preserved = bias direction
+    double mean_signed[3] = {};
 };
 
 // ─── Chart data structures ───────────────────────────────────────────────────

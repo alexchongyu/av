@@ -194,6 +194,22 @@ ImageStats compute_diff_stats(const ImageEntry& imgA, const ImageEntry& imgB,
                 ? 20.0 * std::log10(1.0) - 10.0 * std::log10(extra.mse[c])
                 : std::numeric_limits<double>::infinity();
         }
+        // Luma(Y, Rec.709) diff + per-channel mean signed error (A-B), peak=1.0
+        double msy = 0.0, may = 0.0, mxy = 0.0, ssum[3] = {0,0,0};
+        for (int i = 0; i < npix; ++i) {
+            const float* a = &imgA.pixels_f32[i*4];
+            const float* b = &imgB.pixels_f32[i*4];
+            double ya = 0.2126*a[0] + 0.7152*a[1] + 0.0722*a[2];
+            double yb = 0.2126*b[0] + 0.7152*b[1] + 0.0722*b[2];
+            double dy = ya - yb, ady = std::fabs(dy);
+            msy += dy*dy; may += ady; if (ady > mxy) mxy = ady;
+            for (int c = 0; c < 3; ++c) ssum[c] += (double)a[c] - (double)b[c];
+        }
+        extra.mse_y = msy/npix; extra.mae_y = may/npix; extra.max_error_y = mxy;
+        extra.psnr_y = (extra.mse_y > 1e-15)
+            ? -10.0 * std::log10(extra.mse_y)
+            : std::numeric_limits<double>::infinity();
+        for (int c = 0; c < 3; ++c) extra.mean_signed[c] = ssum[c]/npix;
     } else if (use_u8) {
         std::vector<uint8_t> diff_buf(npix * 4, 0);
         for (int i = 0; i < npix; ++i)
@@ -216,6 +232,22 @@ ImageStats compute_diff_stats(const ImageEntry& imgA, const ImageEntry& imgB,
                 ? 20.0 * std::log10(255.0) - 10.0 * std::log10(extra.mse[c])
                 : std::numeric_limits<double>::infinity();
         }
+        // Luma(Y, Rec.709) diff + per-channel mean signed error (A-B), peak=255
+        double msy = 0.0, may = 0.0, mxy = 0.0, ssum[3] = {0,0,0};
+        for (int i = 0; i < npix; ++i) {
+            const uint8_t* a = &imgA.pixels[i*4];
+            const uint8_t* b = &imgB.pixels[i*4];
+            double ya = 0.2126*a[0] + 0.7152*a[1] + 0.0722*a[2];
+            double yb = 0.2126*b[0] + 0.7152*b[1] + 0.0722*b[2];
+            double dy = ya - yb, ady = std::fabs(dy);
+            msy += dy*dy; may += ady; if (ady > mxy) mxy = ady;
+            for (int c = 0; c < 3; ++c) ssum[c] += (int)a[c] - (int)b[c];
+        }
+        extra.mse_y = msy/npix; extra.mae_y = may/npix; extra.max_error_y = mxy;
+        extra.psnr_y = (extra.mse_y > 1e-6)
+            ? 20.0 * std::log10(255.0) - 10.0 * std::log10(extra.mse_y)
+            : std::numeric_limits<double>::infinity();
+        for (int c = 0; c < 3; ++c) extra.mean_signed[c] = ssum[c]/npix;
     } else return st;
 
     st.valid = true;
