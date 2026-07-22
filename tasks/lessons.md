@@ -209,3 +209,13 @@ dirty-loop 은 사라지지만, **소스 mtime 이 기존 오브젝트(.o, 지�
 근본 해결은 박스 시계 교정(`sudo timedatectl set-ntp true`, sudo 필요).
 **검증**: 빌드 후 `grep "zoom_setting > 0.0f" src/image_loader.cpp` 가 아니라, 바이너리가
 실제로 재컴파일됐는지(ninja 출력에 소스 컴파일 라인 있는지) 확인할 것. 버전 문자열만으론 불충분.
+
+---
+
+## Windows: C:\Windows UAC 상승 복사 — 대화형 interop 소켓으로 발사할 것
+
+**증상**: SSH→WSL interop 으로 `Start-Process -Verb RunAs` 상승 복사를 돌리면 **UAC 팝업이 데스크톱에 안 뜬다**("팝업 안뜬다"). `-Wait` 는 리턴하는데 파일은 그대로(복사 무효). elevated 프로세스 콘솔 출력은 interop 이 삼켜서 stdout 으론 결과를 못 봄.
+
+**원인**: `/run/WSL/*_interop` 에 여러 소켓이 있고, `1_interop`(및 기타 시스템/비대화형 세션)은 `cmd /c ver` 라이브니스 테스트는 통과하지만 **데스크톱에 UAC UI 를 못 띄운다**. 첫 번째 살아있는 소켓을 잡는 옛 `win-install.sh` 는 이 시스템 소켓을 골라 조용히 no-op.
+
+**해결**: 하나만 고르지 말고 **살아있는 모든 interop 소켓에 상승 복사를 발사**(dead 는 `cmd /c ver` 로 스킵) → 사용자 대화형 세션 소켓에서만 팝업이 뜬다(승인 → 복사 성공). 이번에 통한 건 `37_interop`(높은 번호 = 최근 대화형 세션), `1_interop` 아님. **검증은 stdout 이 아니라 대상 파일 size/mtime 으로** (elevated 출력은 유실). 상세 재사용 스니펫은 메모리 `av-windows-uac-interop-socket` 참조.
