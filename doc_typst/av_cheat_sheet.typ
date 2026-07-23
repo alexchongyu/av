@@ -17,15 +17,18 @@
 )
 
 #set text(
-  font: ("CMU Serif", "Noto Sans CJK KR"),
+  // CMU Serif for Latin; Korean → first available CJK font. NOTE: an
+  // unresolvable name in this list breaks typst's fallback chain, so only list
+  // fonts actually installed here (Noto Sans CJK KR is not present on this Mac).
+  font: ("CMU Serif", "Apple SD Gothic Neo", "NanumGothic"),
   size: 8.5pt,
   lang: "ko",
 )
 
 #set par(
   justify: false,
-  leading: 0.55em,
-  spacing: 0.6em,
+  leading: 0.52em,
+  spacing: 0.5em,
 )
 
 // ── 인라인 코드 ──
@@ -111,6 +114,8 @@ av [image_a] [image_b] [options]
   [`-nb`],                  [테두리 숨김 상태로 시작],
   [`--profile <icc>`],      [ICC 프로파일 적용],
   [`--no-color-mgmt`],      [색상 관리 비활성화],
+  [`--lut <file.cube>`],    [3D LUT 룩 적용 (#key("'") 토글)],
+  [`--cdl <file.cdl>`],     [ASC\-CDL slope/offset/power+sat 룩],
   [`-p <N>`],               [팬 이동 단위 (픽셀)],
   [`-bc <A> <B> <D>`],      [패널 테두리 색상 (hex)],
 )
@@ -155,6 +160,8 @@ av [image_a] [image_b] [options]
   inset: (x: 3pt, y: 1.5pt),
   fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
   [#key("Ctrl+D")], [None (diff 끄기)],
+  [#key("Ctrl+0")], [FLIP 지각 오차맵 (magma)],
+  [#key("Ctrl+1")], [Signed 부호차 (파랑=A\<B / 빨강=A>B)],
   [#key("Ctrl+2")], [Alpha Blend (A·B 혼합)],
   [#key("Ctrl+3")], [Absolute diff],
   [#key("Ctrl+4")], [Relative diff],
@@ -186,6 +193,7 @@ av [image_a] [image_b] [options]
   [#key("Shift+R")], [Red 채널만],
   [#key("Shift+G")], [Green 채널만],
   [#key("Shift+B")], [Blue 채널만],
+  [#key("Shift+Y")], [Rec.709 루마(Y\u{2032}) 그레이뷰 토글],
   [#key("Shift+C")], [RGB 전체 (리셋)],
 )
 
@@ -201,6 +209,19 @@ av [image_a] [image_b] [options]
   [#key("Ctrl+X")], [픽셀값 형식 순환 (Dec → 0xHex → Hexh)],
   [#key("P")], [Pathfinder 토글],
   [#key("Ctrl+P")], [Schematic 모드],
+)
+
+*룩 · 블링크 · 검사*
+#table(
+  columns: (1fr, 2.2fr),
+  stroke: none,
+  inset: (x: 3pt, y: 1.5pt),
+  fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
+  [#key("Shift+V")],           [컬러메트리 풍선말 (xy·u\u{2032}v\u{2032}·CCT, A/B/Δ)],
+  [#key(",")],                 [블링크: A/B 자동 교대 토글],
+  [#key("<") / #key(">")],    [블링크 간격 감소 / 증가],
+  [#key("/")],                 [결함 오버레이 (NaN/Inf/음수/>1)],
+  [#key("'")],                 [LUT/CDL 룩 적용 토글],
 )
 
 #colbreak()
@@ -361,5 +382,68 @@ av [image_a] [image_b] [options]
   [Hex h],   [`80h` (Intel/ASM\-style)],
 )
 설정은 `av.ini`에 `pixel_format=0|1|2`로 영속화.
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SECTION 6: 헤드리스 CLI (CI / 스크립트)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#section("헤드리스 CLI (CI / 스크립트)")
+
+창·GL·SDL 없이 실행 후 즉시 종료 \u{2014} SSH·CI 파이프라인용. stdout은 순수 CSV, 요약은 stderr로 분리.
+
+*지표 \u{2014} #raw("--metrics")*
+```
+av --metrics A B                        # CSV 1행 (A 대비 B)
+av --pair --metrics dirA/f001.png dirB  # 시퀀스 전체(프레임당 1행)
+av --metrics A B --format json|junit    # 출력 포맷
+```
+16컬럼: `file,width,height,psnr_db,psnr_r,psnr_g,psnr_b,psnr_y,` `ssim,flip,mse,mae,max_error,msigned,psnr_cb,psnr_cr`
+(`psnr_y`=루마, `psnr_cb`/`cr`=크로마 PSNR, `msigned`=밝기 편향. 동일영상 → `inf`)
+
+*CI 게이트* (위반 시 exit `10`)
+#table(
+  columns: (1.3fr, 2fr),
+  stroke: none,
+  inset: (x: 3pt, y: 1.5pt),
+  fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
+  [`--fail-psnr <dB>`],   [PSNR \< dB → FAIL],
+  [`--warn-psnr <dB>`],   [PSNR \< dB → WARN],
+  [`--fail-ssim <v>`],    [SSIM \< v → FAIL],
+  [`--fail-flip <v>`],    [FLIP > v → FAIL],
+  [`--fail-maxerr <v>`],  [최대오차 > v → FAIL],
+)
+
+*컬러메트리 \u{2014} #raw("--probe")*
+```
+av --probe X,Y A [B]
+```
+픽셀 (X,Y)의 CIE 값 CSV: `which,X,Y,Z,x,y,uprime,` `vprime,CCT,Duv,Lstar`. B 지정 시 `A`·`B`·`delta`(ΔCCT·Δu\u{2032}v\u{2032}·ΔE76) 행. 예: 흰색 → x\u{2009}0.3127 y\u{2009}0.3290 CCT\~6504K.
+
+*균일도 / 무라 \u{2014} #raw("--uniformity")*
+```
+av --uniformity A [B]
+av --uniformity A B --fail-uniformity 90 --fail-semu 1.5
+```
+11컬럼: `Lmean,uni9_pct,uni13_pct,uni25_pct,` `nonuni_cv_pct,duv_max,semu`. ICDM 9/13/25점 균일도%(100·Lmin/Lmax, 高=우수), CV 비균일도%(低=우수), 색편차 Δu\u{2032}v\u{2032}, SEMU 무라지수(프록시). 2장/`--pair` → `A`·`B`·`B-A`(Δ) 행. 게이트 `--fail-uniformity <pct>`·`--fail-semu <v>` → exit `10`.
+
+*배치 \u{2014} #raw("--batch")*
+```
+av --batch manifest.txt          # 파일
+cat pairs.tsv | av --batch -      # stdin
+```
+임의 A,B 쌍(같은 파일명 제약 없음). 매니페스트: 줄당 `A<TAB>B[<TAB>label]`(탭 구분), `#` 주석·빈 줄 무시. `--format`·`--fail-*` 게이트 그대로 적용.
+
+*diff 내보내기 \u{2014} #raw("--diff-out")*
+```
+av --diff-out d.png --diff-mode signed [--amplify 8] [--sbs] A B
+```
+GUI 없이 diff 시각화를 PNG로 저장. `--sbs` = A\|Δ\|B 합성.
+
+*결함 검사 \u{2014} #raw("--validate")*
+```
+av --validate img.hdr            # NaN/Inf 있으면 exit 8
+```
+float/HDR 이미지의 NaN·Inf·음수·>1 픽셀을 스캔(CSV).
+
+*종료 코드*: `0` 성공 · `3` 인자 오류 · `4` 디코드 실패 · `5` 크기/포맷 불일치 · `6`/`7` diff\-out 계산/쓰기 실패 · `8` validate NaN/Inf · `10` CI 게이트 FAIL
 
 ] // end columns
