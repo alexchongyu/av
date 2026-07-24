@@ -1958,12 +1958,13 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
     int lut_on = (state.lut_enabled && state.lut_texture_id &&
                   state.diff.mode != DiffState::Mode::SSIM &&
                   state.diff.mode != DiffState::Mode::FLIP) ? 1 : 0;
-    if (lut_on) {
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_3D, static_cast<GLuint>(state.lut_texture_id));
-        glActiveTexture(GL_TEXTURE0);
-        image_shader_.set_int("u_lut", 1);
-    }
+    // u_lut must ALWAYS name a unit other than u_tex's unit 0: a sampler3D and a
+    // sampler2D sharing one texture unit is invalid GL state and draws black on
+    // macOS (Metal-backed GL 4.1) even when the LUT branch is never taken.
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_3D, lut_on ? static_cast<GLuint>(state.lut_texture_id) : 0);
+    glActiveTexture(GL_TEXTURE0);
+    image_shader_.set_int("u_lut", 1);
     image_shader_.set_int("u_lut_enabled", lut_on);
 
     quad_.draw();
