@@ -250,3 +250,37 @@ dirty-loop 은 사라지지만, **소스 mtime 이 기존 오브젝트(.o, 지�
 11.5→1.01(blob 36 대비 3%), flat 0 유지, 국소 blob은 그대로 검출. Gaussian elim 6×6로 해.
 **교훈**: "국소 편차 vs 완만한 트렌드"를 분리할 땐 박스블러보다 저차 다항식 detrending이
 경계에서 훨씬 깨끗하다.
+
+---
+
+## GL: sampler2D와 sampler3D가 같은 텍스처 유닛을 공유하면 macOS에서 검은 화면
+
+**증상**: Mac에서 av 실행 시 이미지 패널이 **완전히 검게** 렌더. 이미지 정보(크기/줌)와
+좌하단 Pathfinder 미니맵은 정상 → 로딩·CPU 경로는 멀쩡하고 메인 GL 드로우만 깨짐.
+**리눅스에서는 정상**이라 "맥만 이상하다"로 보였다.
+
+**원인**(`ui/image_panel.cpp render_single`): 3D LUT 기능 추가 때
+```cpp
+if (lut_on) { ... image_shader_.set_int("u_lut", 1); }   // LUT 쓸 때만 유닛 지정
+```
+로 작성 → LUT 미사용(기본 실행)이면 `u_lut`(sampler3D)가 기본값 **0**에 남아
+`u_tex`(sampler2D)와 **같은 텍스처 유닛 0을 공유**. 한 유닛에 서로 다른 샘플러 타입이
+묶이는 건 GL 스펙상 무효 상태 → **macOS Metal 기반 GL 4.1은 드로우를 거부(검게)**,
+Mesa/NVIDIA는 관대하게 통과. 그래서 리눅스에선 안 보이는 플랫폼 한정 버그가 됐다.
+
+**해결**: 샘플러 유니폼은 **선언된 이상 항상** 유효한(그리고 서로 겹치지 않는) 유닛을
+가리키게 할 것. `u_lut`를 조건과 무관하게 유닛 1로 지정하고, 유닛 1의 3D 텍스처를
+`lut_on`에 따라 바인드/해제:
+```cpp
+glActiveTexture(GL_TEXTURE1);
+glBindTexture(GL_TEXTURE_3D, lut_on ? lut_tex : 0);
+glActiveTexture(GL_TEXTURE0);
+image_shader_.set_int("u_lut", 1);          // 조건 밖 — 항상
+```
+**진단 팁**: Apple GL 드라이버가 `UNSUPPORTED ... unit N GLD_TEXTURE_INDEX_3D is
+unloadable and bound to sampler type` 경고를 뱉는다. 경고의 **유닛 번호**가 충돌 지점.
+수정 후 경고가 unit 0 → unit 1(미사용)로 옮겨가면 해결된 것.
+
+**교훈(프로세스)**: 이 버그는 "육안 확인 필요"로 남겨둔 GUI 기능(3D LUT)에서 나왔다.
+헤드리스로 증명 못 하는 표시 경로는 **반드시 스크린샷으로 실제 렌더를 확인**할 것.
+macOS는 `screencapture -x`로 av를 띄운 뒤 캡처해 자체 검증이 가능하다.
