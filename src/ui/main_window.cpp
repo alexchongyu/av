@@ -959,7 +959,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Comp", "Tab / Shift+Tab",               "Cycle worst blocks (severity order); all panes jump+zoom to it" },
         { "Comp", ",",                             "3-way blink: orig -> img2 -> img3 in one pane (< / > = interval)" },
         { "Comp", "; / A",                         "Next / prev image of orig's dir; img2+img3 mirror by filename" },
-        { "Comp", "Hover on a block box",          "Balloon: block PSNR/MSE + other algo's same-block PSNR, per-channel MSE, worst pixel orig/this/delta; block echoed green on other panes with their own PSNR tag" },
+        { "Comp", "Hover on a block box",          "Balloon: block PSNR/MSE + other algo's same-block PSNR, per-channel MSE, worst pixel orig/this/delta; other compare pane shows the same detail balloon with ITS OWN stats (orig pane: box only)" },
         { "Comp", "I",                             "Info window: PSNR of img2 and img3 vs orig" },
         // File
         { "File", "Shift+Ctrl+O",                  "Open image file" },

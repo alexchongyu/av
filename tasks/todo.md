@@ -10,6 +10,17 @@
 - [x] 6b. alexws(Linux) 빌드+인스톨 (/user/alex/local/bin/av, v0.22-63)
 - [x] 6c. demura(Windows) 빌드+인스톨 (bin+LOCALAPPDATA+C:\Windows, md5 8026efca 3위치 일치)
 
+## 확장 6종 (2026-07-31 오전, 사용자 컨펌 후 구현 — c485a58)
+- [x] ① Ctrl+W 승패 맵 (블록별 img2 vs img3, |Δ|>1dB, 3패널)
+- [x] ② 풍선말 상대 알고리즘 병기 + echo 패널 자체 PSNR 태그 (원본 패널은 박스만)
+- [x] ③ Tab/Shift+Tab worst 블록 순회 (병합 심각도순, 자동 센터+줌, SEL 박스)
+- [x] ④ --comp-out 헤드리스 블록 CSV/JSON — Python 정답과 자리수 일치 검증
+- [x] ⑤ Ctrl+G 블록 PSNR 히트맵 (노랑→빨강, fit 줌 스트라이드 집계)
+- [x] ⑦ ',' 3-way 블링크 (orig→img2→img3, phase 라벨, </> 간격)
+- [x] ;/a 시퀀스 3-영상 파일명 미러 (comp_mirror_bc; 원본이 시퀀스 구동)
+- [x] help 창(Comp/CLI Headless) + 치트시트 갱신 (문서 동기화 규칙 메모리 저장)
+- [ ] 3플랫폼 배포 후 자동 push (새 규칙)
+
 ## 추가 요청 (2026-07-31)
 - [x] Ctrl/Cmd+B: --comp에서 blk_w x blk_h 블록 그리드 바운더리 표시/숨김 토글
       (3패널 공통, 밝은 시안 라인, 화면상 블록 < 4px면 생략; worst rect는 그대로)

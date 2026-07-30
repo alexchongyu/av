@@ -204,7 +204,7 @@ av [image_a] [image_b] [options]
   [#key("Tab")],       [worst 블록 순회 (심각도순) — 3패널 자동 센터+줌, #key("Shift+Tab") 역방향],
   [#key(",")],         [3\-way 블링크: 원본→img2→img3 한 패널 순환 (#key("<")/#key(">") 간격)],
   [#key(";") / #key("A")], [원본 dir 다음/이전 영상 — img2·img3 같은 파일명 자동 미러],
-  [박스 위 hover],      [풍선말(블록 PSNR/MSE + 상대 알고리즘 같은 블록 PSNR 병기·채널별 MSE·최악픽셀 orig/this/Δ) + 나머지 패널 그린 echo 박스와 자체 PSNR 태그],
+  [박스 위 hover],      [풍선말(블록 PSNR/MSE + 상대 알고리즘 같은 블록 PSNR 병기·채널별 MSE·최악픽셀 orig/this/Δ). 반대쪽 비교 패널에도 그린 echo 박스 + *자기 통계*의 동일 형식 상세 풍선말 (원본 패널은 박스만)],
 )
 시작 시 stdout으로 `[comp]` PSNR·worst 블록 요약 출력 (CI/스크립트 검증용).
 ]

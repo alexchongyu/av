@@ -444,6 +444,59 @@ void compute_comp_metrics(AppState& state) {
                        &cs.mse3_grid, &cs.nbx, &cs.nby);
 }
 
+// ─── comp_scan_block ──────────────────────────────────────────────────────────
+// 단일 블록 상세 통계 (comp_scan_pair의 내부 루프와 동일 산식, 온디맨드 1블록).
+
+bool comp_scan_block(const ImageEntry& A, const ImageEntry& B,
+                     int x, int y, int w, int h, CompBlockInfo& out) {
+    out = CompBlockInfo{};
+    bool bothU8  = !A.pixels.empty()     && !B.pixels.empty();
+    bool bothF32 = A.is_hdr && B.is_hdr &&
+                   !A.pixels_f32.empty() && !B.pixels_f32.empty();
+    if (A.width != B.width || A.height != B.height || (!bothU8 && !bothF32))
+        return false;
+    if (x < 0 || y < 0 || w <= 0 || h <= 0 ||
+        x + w > A.width || y + h > A.height)
+        return false;
+
+    const int    W    = A.width;
+    const double peak = bothU8 ? 255.0 : 1.0;
+    out.x = x; out.y = y; out.w = w; out.h = h;
+    double se[3] = {0.0, 0.0, 0.0};
+    for (int yy = y; yy < y + h; ++yy) {
+        for (int xx = x; xx < x + w; ++xx) {
+            size_t p = (static_cast<size_t>(yy) * W + xx) * 4;
+            double d[3];
+            if (bothU8) {
+                d[0] = static_cast<double>(A.pixels[p+0]) - B.pixels[p+0];
+                d[1] = static_cast<double>(A.pixels[p+1]) - B.pixels[p+1];
+                d[2] = static_cast<double>(A.pixels[p+2]) - B.pixels[p+2];
+            } else {
+                d[0] = static_cast<double>(A.pixels_f32[p+0]) - B.pixels_f32[p+0];
+                d[1] = static_cast<double>(A.pixels_f32[p+1]) - B.pixels_f32[p+1];
+                d[2] = static_cast<double>(A.pixels_f32[p+2]) - B.pixels_f32[p+2];
+            }
+            double amax = std::max({std::fabs(d[0]), std::fabs(d[1]), std::fabs(d[2])});
+            if (amax > 0.0) {
+                ++out.nerr;
+                if (amax > out.worst_err) {
+                    out.worst_err = amax;
+                    out.worst_x = xx;
+                    out.worst_y = yy;
+                }
+            }
+            for (int c = 0; c < 3; ++c) se[c] += d[c] * d[c];
+        }
+    }
+    double npx = static_cast<double>(w) * h;
+    for (int c = 0; c < 3; ++c) out.mse_c[c] = se[c] / npx;
+    out.mse  = (out.mse_c[0] + out.mse_c[1] + out.mse_c[2]) / 3.0;
+    out.psnr = (out.mse > 0.0)
+             ? 20.0 * std::log10(peak) - 10.0 * std::log10(out.mse)
+             : 999.0;
+    return true;
+}
+
 // ─── comp_cycle_select ────────────────────────────────────────────────────────
 // Tab/Shift+Tab: 두 worst 리스트를 mse 내림차순으로 병합해 순회. 선택 블록은
 // sel_*에 기록되어 3패널 모두에 흰 박스로 표시되고, 뷰포트가 블록 중심으로 이동.

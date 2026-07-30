@@ -2829,34 +2829,105 @@ void ImagePanel::render_comp_overlay(AppState& state, int panel_idx,
         dl->AddRect(ImVec2(ex0, ey0), ImVec2(ex1, ey1),
                     IM_COL32(0, 255, 140, 240), 0.0f, 0, 2.5f);
 
-        // 비교 패널(원본 제외)에는 이 패널 자신의 블록 PSNR/MSE 풍선말도 표시
-        if (cs.render_slot >= 0 && grids_ok && cs.blk_w > 0 && cs.blk_h > 0) {
-            const std::vector<double>& g =
-                (cs.render_slot == 0) ? cs.mse2_grid : cs.mse3_grid;
-            int ebx = cs.echo_x / cs.blk_w, eby = cs.echo_y / cs.blk_h;
-            if (ebx >= 0 && ebx < cs.nbx && eby >= 0 && eby < cs.nby) {
-                double m = g[static_cast<size_t>(eby) * cs.nbx + ebx];
-                char buf[64];
-                if (m > 0.0)
-                    std::snprintf(buf, sizeof(buf), "PSNR %.2f dB  MSE %.2f",
-                                  20.0 * std::log10(peak) - 10.0 * std::log10(m), m);
+        // 비교 패널(원본 제외)에는 hover 풍선말과 동일 형식의 "자기 통계" 상세
+        // 풍선말을 표시 — 이 블록이 자기 worst 목록에 없어도 온디맨드 1블록 스캔.
+        if (cs.render_slot >= 0 && cs.blk_w > 0 && cs.blk_h > 0) {
+            const ImageEntry& A = state.images[0];
+            const ImageEntry& B = state.images[1];  // img3 패널 렌더 중엔 img_c가 swap됨
+            CompBlockInfo eb;
+            if (comp_scan_block(A, B, cs.echo_x, cs.echo_y,
+                                cs.echo_w, cs.echo_h, eb)) {
+                eb.bx = cs.echo_x / cs.blk_w;
+                eb.by = cs.echo_y / cs.blk_h;
+                // 자기 worst 목록에 있으면 순위 병기
+                const std::vector<CompBlockInfo>& own =
+                    (cs.render_slot == 0) ? cs.worst2 : cs.worst3;
+                int rank = 0;
+                for (size_t k = 0; k < own.size(); ++k)
+                    if (own[k].x == eb.x && own[k].y == eb.y) {
+                        rank = static_cast<int>(k) + 1;
+                        break;
+                    }
+
+                const char* pane = (cs.render_slot == 0) ? "img2(mid)" : "img3(right)";
+                char lines[9][96];
+                int  nl = 0, worst_line = -1;
+                if (rank > 0)
+                    std::snprintf(lines[nl++], 96, "%s vs orig  (worst #%d)", pane, rank);
                 else
-                    std::snprintf(buf, sizeof(buf), "PSNR inf (identical)");
-                ImVec2 ts = ImGui::CalcTextSize(buf);
-                float pad = 5.0f;
-                float bxp = ex0, byp = ey0 - ts.y - 2 * pad - 4;   // 기본: 박스 위
-                if (byp < widget_pos.y) byp = ey1 + 4;              // 좁으면 아래로
-                if (bxp + ts.x + 2 * pad > widget_pos.x + view_w)
-                    bxp = widget_pos.x + view_w - ts.x - 2 * pad;
-                if (bxp < widget_pos.x) bxp = widget_pos.x;
-                dl->AddRectFilled(ImVec2(bxp, byp),
-                                  ImVec2(bxp + ts.x + 2 * pad, byp + ts.y + 2 * pad),
-                                  IM_COL32(20, 20, 20, 210), 4.0f);
-                dl->AddRect(ImVec2(bxp, byp),
-                            ImVec2(bxp + ts.x + 2 * pad, byp + ts.y + 2 * pad),
-                            IM_COL32(0, 255, 140, 200), 4.0f);
-                dl->AddText(ImVec2(bxp + pad, byp + pad),
-                            IM_COL32(230, 255, 240, 255), buf);
+                    std::snprintf(lines[nl++], 96, "%s vs orig", pane);
+                std::snprintf(lines[nl++], 96, "grid (%d,%d)   px (%d,%d)-(%d,%d)   %dx%d",
+                              eb.bx, eb.by, eb.x, eb.y,
+                              eb.x + eb.w - 1, eb.y + eb.h - 1, eb.w, eb.h);
+                if (eb.psnr >= 999.0)
+                    std::snprintf(lines[nl++], 96, "PSNR inf (identical)");
+                else
+                    std::snprintf(lines[nl++], 96, "PSNR %.2f dB    MSE %.3f",
+                                  eb.psnr, eb.mse);
+                std::snprintf(lines[nl++], 96, "MSE R/G/B: %.3f / %.3f / %.3f",
+                              eb.mse_c[0], eb.mse_c[1], eb.mse_c[2]);
+                int npx = eb.w * eb.h;
+                std::snprintf(lines[nl++], 96, "error px: %d / %d (%.1f%%)",
+                              eb.nerr, npx, npx > 0 ? 100.0 * eb.nerr / npx : 0.0);
+                if (eb.worst_err > 0.0 &&
+                    eb.worst_x < A.width && eb.worst_y < A.height) {
+                    size_t p = (static_cast<size_t>(eb.worst_y) * A.width + eb.worst_x) * 4;
+                    if (!A.pixels.empty() && !B.pixels.empty()) {
+                        worst_line = nl;
+                        std::snprintf(lines[nl++], 96, "worst px (%d,%d)   |d|max = %d",
+                                      eb.worst_x, eb.worst_y,
+                                      static_cast<int>(eb.worst_err + 0.5));
+                        std::snprintf(lines[nl++], 96, "  orig   R:%d  G:%d  B:%d",
+                                      A.pixels[p+0], A.pixels[p+1], A.pixels[p+2]);
+                        std::snprintf(lines[nl++], 96, "  this   R:%d  G:%d  B:%d",
+                                      B.pixels[p+0], B.pixels[p+1], B.pixels[p+2]);
+                        std::snprintf(lines[nl++], 96, "  delta  R:%+d  G:%+d  B:%+d",
+                                      static_cast<int>(B.pixels[p+0]) - A.pixels[p+0],
+                                      static_cast<int>(B.pixels[p+1]) - A.pixels[p+1],
+                                      static_cast<int>(B.pixels[p+2]) - A.pixels[p+2]);
+                    } else if (!A.pixels_f32.empty() && !B.pixels_f32.empty()) {
+                        worst_line = nl;
+                        std::snprintf(lines[nl++], 96, "worst px (%d,%d)   |d|max = %.4f",
+                                      eb.worst_x, eb.worst_y, eb.worst_err);
+                        std::snprintf(lines[nl++], 96, "  orig   R:%.3f  G:%.3f  B:%.3f",
+                                      A.pixels_f32[p+0], A.pixels_f32[p+1], A.pixels_f32[p+2]);
+                        std::snprintf(lines[nl++], 96, "  this   R:%.3f  G:%.3f  B:%.3f",
+                                      B.pixels_f32[p+0], B.pixels_f32[p+1], B.pixels_f32[p+2]);
+                        std::snprintf(lines[nl++], 96, "  delta  R:%+.3f  G:%+.3f  B:%+.3f",
+                                      B.pixels_f32[p+0] - A.pixels_f32[p+0],
+                                      B.pixels_f32[p+1] - A.pixels_f32[p+1],
+                                      B.pixels_f32[p+2] - A.pixels_f32[p+2]);
+                    }
+                }
+
+                // 측정 · 배치: echo 박스 오른쪽(공간 없으면 왼쪽), 패널 내로 클램프
+                ImFont* bf = state.font_medium ? state.font_medium : ImGui::GetFont();
+                const float fh = 18.0f, pad = 6.0f, lh = fh + 2.0f;
+                float maxw = 0.0f;
+                for (int k = 0; k < nl; ++k) {
+                    ImVec2 ts = bf->CalcTextSizeA(fh, FLT_MAX, 0.0f, lines[k]);
+                    maxw = std::max(maxw, ts.x);
+                }
+                float bw  = maxw + 2 * pad;
+                float bh2 = nl * lh + 2 * pad;
+                float bxp = ex1 + 8.0f;
+                if (bxp + bw > widget_pos.x + view_w) bxp = ex0 - bw - 8.0f;
+                if (bxp < widget_pos.x) bxp = widget_pos.x + 4.0f;
+                float byp = ey0;
+                if (byp + bh2 > widget_pos.y + view_h)
+                    byp = widget_pos.y + view_h - bh2 - 4.0f;
+                if (byp < widget_pos.y) byp = widget_pos.y + 4.0f;
+                dl->AddRectFilled(ImVec2(bxp, byp), ImVec2(bxp + bw, byp + bh2),
+                                  IM_COL32(20, 20, 20, 215), 6.0f);
+                dl->AddRect(ImVec2(bxp, byp), ImVec2(bxp + bw, byp + bh2),
+                            IM_COL32(0, 255, 140, 200), 6.0f);
+                for (int k = 0; k < nl; ++k) {
+                    ImU32 tc = (k == 0)          ? IM_COL32(255, 150, 40, 255)
+                             : (k == worst_line) ? IM_COL32(255, 110, 110, 255)
+                                                 : IM_COL32(235, 235, 235, 255);
+                    dl->AddText(bf, fh, ImVec2(bxp + pad, byp + pad + k * lh),
+                                tc, lines[k]);
+                }
             }
         }
     }

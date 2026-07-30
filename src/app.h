@@ -520,6 +520,12 @@ void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
                     std::vector<double>* all_mse_out = nullptr,
                     int* nbx_out = nullptr, int* nby_out = nullptr);
 
+// 단일 블록(x,y,w,h)의 상세 통계(채널별 MSE·PSNR·오차픽셀 수·최악픽셀)를 계산.
+// echo 패널의 상세 풍선말처럼 worst 목록에 없는 임의 블록이 필요할 때 사용.
+// bx/by는 채우지 않는다(호출자가 그리드 좌표를 알면 직접 설정).
+bool comp_scan_block(const ImageEntry& A, const ImageEntry& B,
+                     int x, int y, int w, int h, CompBlockInfo& out);
+
 // Load/save persistent settings from/to av.ini.
 void load_app_ini(AppState& state);
 void save_app_ini(const AppState& state);
