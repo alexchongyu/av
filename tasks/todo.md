@@ -7,8 +7,8 @@
 - [x] 4. PSNR 최악(worst) 블록 상위 N개 컬러 사각형 테두리, `--num_blk N` (기본 16)
 - [x] 5. 블록 hover 풍선말: 블록 PSNR/MSE, 채널별 MSE, 오차픽셀 수, 최악픽셀 orig/this/Δ
 - [x] 6a. Mac 빌드+검증+인스톨 (v0.22-63-ga9b95a9)
-- [ ] 6b. alexws(Linux) 빌드+인스톨 (백그라운드 진행 중)
-- [ ] 6c. demura(Windows) 빌드+인스톨 (백그라운드 진행 중)
+- [x] 6b. alexws(Linux) 빌드+인스톨 (/user/alex/local/bin/av, v0.22-63)
+- [x] 6c. demura(Windows) 빌드+인스톨 (bin+LOCALAPPDATA+C:\Windows, md5 8026efca 3위치 일치)
 
 ## Review
 - 설계: 2-이미지 코어(std::array<ImageEntry,2>)는 불변. img3는 CompState.img_c에 분리
