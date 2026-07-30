@@ -306,7 +306,9 @@ struct CompState {
 
     // Tab/Shift+Tab: worst 블록 순회 (두 리스트 병합, mse 내림차순). 선택 블록은
     // 3패널 모두에 흰 박스로 표시되고 뷰포트가 자동 센터된다.
-    int cycle_pos = -1;              // -1 = 선택 없음
+    // [/]=img2만, Shift+[/]=img3만 순회 (cycle_scope: -1=병합, 0=img2, 1=img3).
+    int cycle_pos   = -1;            // -1 = 선택 없음
+    int cycle_scope = -1;
     int sel_slot = -1;               // 선택 블록의 패널 (0=img2, 1=img3)
     int sel_rank = 0;                // 해당 패널 내 순위 (1-base)
     int sel_x = 0, sel_y = 0, sel_w = 0, sel_h = 0;

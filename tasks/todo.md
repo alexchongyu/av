@@ -19,7 +19,8 @@
 - [x] ⑦ ',' 3-way 블링크 (orig→img2→img3, phase 라벨, </> 간격)
 - [x] ;/a 시퀀스 3-영상 파일명 미러 (comp_mirror_bc; 원본이 시퀀스 구동)
 - [x] help 창(Comp/CLI Headless) + 치트시트 갱신 (문서 동기화 규칙 메모리 저장)
-- [ ] 3플랫폼 배포 후 자동 push (새 규칙)
+- [x] echo 패널 상세 풍선말 (hover와 동일 형식, 자기 통계 — comp_scan_block 온디맨드)
+- [x] 3플랫폼 배포 (v0.22-75-g0f24dd3) 후 자동 push (26b63a9..0f24dd3, 새 규칙 첫 적용)
 
 ## 추가 요청 (2026-07-31)
 - [x] Ctrl/Cmd+B: --comp에서 blk_w x blk_h 블록 그리드 바운더리 표시/숨김 토글

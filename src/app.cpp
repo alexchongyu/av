@@ -501,15 +501,21 @@ bool comp_scan_block(const ImageEntry& A, const ImageEntry& B,
 // Tab/Shift+Tab: 두 worst 리스트를 mse 내림차순으로 병합해 순회. 선택 블록은
 // sel_*에 기록되어 3패널 모두에 흰 박스로 표시되고, 뷰포트가 블록 중심으로 이동.
 
-static void comp_cycle_select(AppState& state, int dir) {
+static void comp_cycle_select(AppState& state, int dir, int scope = -1) {
     CompState& cs = state.comp;
+    if (scope != cs.cycle_scope) {           // 순회 범위가 바뀌면 처음부터
+        cs.cycle_scope = scope;
+        cs.cycle_pos   = -1;
+    }
     struct Ref { double mse; int slot; const CompBlockInfo* b; int rank; };
     std::vector<Ref> list;
     list.reserve(cs.worst2.size() + cs.worst3.size());
-    for (size_t i = 0; i < cs.worst2.size(); ++i)
-        list.push_back({cs.worst2[i].mse, 0, &cs.worst2[i], static_cast<int>(i) + 1});
-    for (size_t i = 0; i < cs.worst3.size(); ++i)
-        list.push_back({cs.worst3[i].mse, 1, &cs.worst3[i], static_cast<int>(i) + 1});
+    if (scope != 1)
+        for (size_t i = 0; i < cs.worst2.size(); ++i)
+            list.push_back({cs.worst2[i].mse, 0, &cs.worst2[i], static_cast<int>(i) + 1});
+    if (scope != 0)
+        for (size_t i = 0; i < cs.worst3.size(); ++i)
+            list.push_back({cs.worst3[i].mse, 1, &cs.worst3[i], static_cast<int>(i) + 1});
     if (list.empty()) return;
     std::sort(list.begin(), list.end(),
               [](const Ref& a, const Ref& b) { return a.mse > b.mse; });
@@ -813,6 +819,11 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     // \    : AlphaBlend 모드 → alpha = 0.5 (Ctrl+\: threshold 0)
     //        그 외 → amplify = 1.0
     case SDL_SCANCODE_LEFTBRACKET:
+        if (state.comp.active && state.comp.computed) {
+            // --comp: [ = img2 worst 이전, Shift+[ = img3 worst 이전
+            comp_cycle_select(state, -1, shift ? 1 : 0);
+            break;
+        }
         if (state.diff.mode == DiffState::Mode::AlphaBlend) {
             float step = shift ? 0.10f : 0.01f;
             state.diff.alpha = std::max(0.0f, state.diff.alpha - step);
@@ -823,6 +834,11 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         }
         break;
     case SDL_SCANCODE_RIGHTBRACKET:
+        if (state.comp.active && state.comp.computed) {
+            // --comp: ] = img2 worst 다음, Shift+] = img3 worst 다음
+            comp_cycle_select(state, +1, shift ? 1 : 0);
+            break;
+        }
         if (state.diff.mode == DiffState::Mode::AlphaBlend) {
             float step = shift ? 0.10f : 0.01f;
             state.diff.alpha = std::min(1.0f, state.diff.alpha + step);
@@ -882,7 +898,7 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     case SDL_SCANCODE_TAB:
         if (state.comp.active && state.comp.computed &&
             (!state.comp.worst2.empty() || !state.comp.worst3.empty())) {
-            comp_cycle_select(state, shift ? -1 : +1);
+            comp_cycle_select(state, shift ? -1 : +1, -1);   // 병합 심각도순
         } else {
             state.active_panel = 1 - state.active_panel;
         }
