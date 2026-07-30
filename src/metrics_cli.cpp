@@ -982,3 +982,95 @@ int run_comp_headless(const CliOptions& cli) {
               << " (|d|>1dB)\n";
     return 0;
 }
+
+// ─── run_comp_batch_headless ─────────────────────────────────────────────────
+// --comp --comp-batch: 3개 디렉토리의 같은 이름 프레임 전체를 순회하며 프레임당
+// 전역 PSNR(img2/img3)·블록 승패를 한 줄씩 출력 (CI에서 알고리즘 추세 추적).
+// worst2/worst3 열은 각 영상의 #1 블록 "bx:by@psnr".
+
+int run_comp_batch_headless(const CliOptions& cli) {
+    fs::path dirB = fs::path(cli.image_b).parent_path();
+    fs::path dirC = fs::path(cli.image_c).parent_path();
+    int cur = -1;
+    std::vector<std::string> files = scan_image_directory(cli.image_a, cur);
+    if (files.empty()) {
+        std::cerr << "[comp-batch] no images beside " << cli.image_a << "\n";
+        return 3;
+    }
+    int metric = (cli.comp_blk_metric == "y")      ? 1
+               : (cli.comp_blk_metric == "chroma") ? 2 : 0;
+
+    std::cout << "file,psnr_img2,psnr_img3,dpsnr,win2,win3,tie,worst2,worst3,status\n";
+    int frames = 0, missing = 0;
+    double sum2 = 0.0, sum3 = 0.0;
+    int    cnt2 = 0,   cnt3 = 0;
+    long   tw2 = 0, tw3 = 0, tt = 0;
+
+    for (const auto& fpath : files) {
+        std::string name = fs::path(fpath).filename().string();
+        fs::path pb = dirB / name, pc = dirC / name;
+        ImageEntry A, B, C;
+        std::error_code ec;
+        bool ok = fs::is_regular_file(pb, ec) && fs::is_regular_file(pc, ec) &&
+                  decode_image_cpu(fpath, A) &&
+                  decode_image_cpu(pb.string(), B) &&
+                  decode_image_cpu(pc.string(), C);
+        if (!ok) {
+            std::cout << name << ",,,,,,,,,missing\n";
+            ++missing;
+            continue;
+        }
+        float p2 = -1.0f, p3 = -1.0f;
+        bool  mm2 = false, mm3 = false;
+        std::vector<CompBlockInfo> w2, w3;
+        std::vector<double> g2, g3;
+        int nbx = 0, nby = 0;
+        comp_scan_pair(A, B, cli.comp_blk_w, cli.comp_blk_h, cli.comp_num_blk,
+                       p2, mm2, w2, &g2, &nbx, &nby, metric);
+        comp_scan_pair(A, C, cli.comp_blk_w, cli.comp_blk_h, cli.comp_num_blk,
+                       p3, mm3, w3, &g3, &nbx, &nby, metric);
+        if (mm2 || mm3) {
+            std::cout << name << ",,,,,,,,,mismatch\n";
+            ++missing;
+            continue;
+        }
+        int win2 = 0, win3 = 0, tie = 0;
+        for (size_t i = 0; i < g2.size(); ++i) {
+            double m2 = g2[i], m3 = g3[i];
+            if (m2 <= 0.0 && m3 <= 0.0) continue;
+            double d = (m2 <= 0.0) ? 99.0 : (m3 <= 0.0) ? -99.0
+                     : 10.0 * std::log10(m3 / m2);
+            if      (d >  1.0) ++win2;
+            else if (d < -1.0) ++win3;
+            else               ++tie;
+        }
+        char b2[48] = "-", b3[48] = "-";
+        if (!w2.empty())
+            std::snprintf(b2, sizeof(b2), "%d:%d@%.2f", w2[0].bx, w2[0].by, w2[0].psnr);
+        if (!w3.empty())
+            std::snprintf(b3, sizeof(b3), "%d:%d@%.2f", w3[0].bx, w3[0].by, w3[0].psnr);
+        auto pstr = [](float p, char* buf, size_t n) {
+            if (p >= 999.0f) std::snprintf(buf, n, "inf");
+            else             std::snprintf(buf, n, "%.4f", p);
+        };
+        char p2s[24], p3s[24], dps[24];
+        pstr(p2, p2s, sizeof(p2s));
+        pstr(p3, p3s, sizeof(p3s));
+        if (p2 < 999.0f && p3 < 999.0f) std::snprintf(dps, sizeof(dps), "%.4f", p2 - p3);
+        else                            std::snprintf(dps, sizeof(dps), "0");
+        std::cout << name << ',' << p2s << ',' << p3s << ',' << dps << ','
+                  << win2 << ',' << win3 << ',' << tie << ','
+                  << b2 << ',' << b3 << ",ok\n";
+        ++frames;
+        if (p2 < 999.0f) { sum2 += p2; ++cnt2; }
+        if (p3 < 999.0f) { sum3 += p3; ++cnt3; }
+        tw2 += win2; tw3 += win3; tt += tie;
+    }
+
+    std::cerr << "[comp-batch] frames=" << frames << " missing=" << missing
+              << " mean_psnr img2=" << (cnt2 ? sum2 / cnt2 : 999.0)
+              << " img3=" << (cnt3 ? sum3 / cnt3 : 999.0)
+              << " | total wins img2=" << tw2 << " img3=" << tw3 << " tie=" << tt
+              << " (|d|>1dB)\n";
+    return frames > 0 ? 0 : 3;
+}

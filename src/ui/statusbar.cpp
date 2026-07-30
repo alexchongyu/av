@@ -93,6 +93,38 @@ void StatusBar::render(const AppState& state) {
         ImGui::SameLine();
     }
 
+    // --comp: PSNR 2종 + 블록 승패 요약 (항상 표시)
+    if (state.comp.active && state.comp.computed) {
+        const CompState& cs = state.comp;
+        auto pcol = [](float p) {
+            return (p > 40.0f) ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                 : (p > 30.0f) ? ImVec4(1.0f, 0.9f, 0.2f, 1.0f)
+                               : ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+        };
+        if (!cs.mismatch2 && cs.psnr2 >= 0.0f) {
+            if (cs.psnr2 >= 999.0f)
+                ImGui::TextColored(ImVec4(0.3f, 1, 0.3f, 1), "P2 inf");
+            else
+                ImGui::TextColored(pcol(cs.psnr2), "P2 %.1fdB", cs.psnr2);
+            ImGui::SameLine();
+        }
+        if (!cs.mismatch3 && cs.psnr3 >= 0.0f) {
+            if (cs.psnr3 >= 999.0f)
+                ImGui::TextColored(ImVec4(0.3f, 1, 0.3f, 1), "P3 inf");
+            else
+                ImGui::TextColored(pcol(cs.psnr3), "P3 %.1fdB", cs.psnr3);
+            ImGui::SameLine();
+        }
+        ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "W2 %d", cs.win2);
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.35f, 1.0f), "W3 %d", cs.win3);
+        ImGui::SameLine();
+        ImGui::TextDisabled("T %d", cs.tie);
+        ImGui::SameLine();
+        ImGui::TextDisabled("|");
+        ImGui::SameLine();
+    }
+
     // PSNR (auto-computed with diff mode)
     if (state.diff.mode != DiffState::Mode::None && state.diff.psnr_computed && state.diff.psnr_db > 0) {
         float p = state.diff.psnr_db;

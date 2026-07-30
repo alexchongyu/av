@@ -52,3 +52,10 @@ int run_batch_headless(const CliOptions& cli);
 // Summary (global PSNRs + win/loss counts, |d|>1dB) goes to stderr.
 // Exit: 0 ok, 3 output open fail, 4 decode fail, 5 size/format mismatch.
 int run_comp_headless(const CliOptions& cli);
+
+// ─── Headless --comp sequence batch (--comp-batch) ────────────────────────────
+// Iterate all same-named frames of the three images' directories; one CSV row
+// per frame: global PSNR of img2/img3 vs orig, dpsnr, block win/loss counts,
+// each side's #1 worst block. Honours --blk/--num_blk/--blk-metric.
+// Exit: 0 ok, 3 no frames.
+int run_comp_batch_headless(const CliOptions& cli);

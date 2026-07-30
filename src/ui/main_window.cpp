@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstdio>
 #include <utility>   // std::swap (--comp img_c 패널 렌더)
+#include <algorithm> // std::sort (--comp 블록 리스트 창)
 
 // ─── Pixel format helper for balloon ──────────────────────────────────────────
 
@@ -952,10 +953,12 @@ static void render_hotkey_help_window(AppState& state) {
         { "Comp", "av --comp <orig> <img2> <img3>", "3-image compare: orig | img2 | img3 (diff disabled)" },
         { "Comp", "--blk <WxH>",                   "Block size for worst-PSNR search  (default: 8x8)" },
         { "Comp", "--num_blk <N>",                 "Worst-block count to outline  (default: 16)" },
-        { "Comp", "Ctrl+B",                        "Toggle worst-PSNR block boxes (red=worst .. yellow)" },
-        { "Comp", "Ctrl+N",                        "Toggle full block-grid boundary lines" },
+        { "Comp", "Ctrl+B",                        "Toggle worst block boxes (red=worst..yellow; magenta 'P' = peak-pixel spike pick)" },
+        { "Comp", "G",                             "Toggle full block-grid boundary lines" },
         { "Comp", "Ctrl+W",                        "Win/loss map: blue=img2 better, orange=img3 better (|d|>1dB)" },
         { "Comp", "Ctrl+G",                        "Block-PSNR heatmap on img2/img3 (yellow->red = worse, 50dB+ clear)" },
+        { "Comp", "Ctrl+D",                        "Worst-block list window (click a row to jump all panes)" },
+        { "Comp", "S",                             "Swap img2 <-> img3 panes (stats follow)" },
         { "Comp", "Tab / Shift+Tab",               "Cycle worst blocks of BOTH images merged (severity order); all panes jump+zoom" },
         { "Comp", "[ / ]",                         "Cycle img2(mid)'s worst blocks only (prev / next)" },
         { "Comp", "Shift+[ / Shift+]",             "Cycle img3(right)'s worst blocks only (prev / next)" },
@@ -1008,6 +1011,8 @@ static void render_hotkey_help_window(AppState& state) {
         { "CLI (Headless)", "--fail-uniformity / --fail-semu", "Uniformity CI gates, exit 10" },
         { "CLI (Headless)", "--batch <file|->",     "Metrics over a TAB manifest of A,B pairs (- = stdin)" },
         { "CLI (Headless)", "--comp-out <file|->",  "Per-block CSV of --comp (mse/psnr of img2+img3, dpsnr); --format json" },
+        { "CLI (Headless)", "--blk-metric <m>",     "--comp worst ranking basis: rgb | y | chroma (75% metric + 25% peak picks)" },
+        { "CLI (Headless)", "--comp-batch",         "Per-frame comp summary CSV over the three images' directories" },
     };
 
     constexpr ImGuiTableFlags tflags =
@@ -1041,6 +1046,99 @@ static void render_hotkey_help_window(AppState& state) {
 
     ImGui::End();
     if (state.font_medium) ImGui::PopFont();
+}
+
+// ─── render_comp_list_window ─────────────────────────────────────────────────
+// --comp (Ctrl+D): worst 블록 리스트 — 병합 심각도순 테이블, 행 클릭 → 3패널 점프.
+
+static void render_comp_list_window(AppState& state) {
+    CompState& cs = state.comp;
+    if (!cs.active || !cs.show_comp_list) return;
+    if (!cs.computed) return;
+
+    struct Row { double key; int slot; const CompBlockInfo* b; int rank; };
+    auto key_of = [](const CompBlockInfo& b) {
+        return (b.rank_mse >= 0.0) ? b.rank_mse : b.mse;
+    };
+    std::vector<Row> rows;
+    rows.reserve(cs.worst2.size() + cs.worst3.size());
+    for (size_t i = 0; i < cs.worst2.size(); ++i)
+        rows.push_back({key_of(cs.worst2[i]), 0, &cs.worst2[i], static_cast<int>(i) + 1});
+    for (size_t i = 0; i < cs.worst3.size(); ++i)
+        rows.push_back({key_of(cs.worst3[i]), 1, &cs.worst3[i], static_cast<int>(i) + 1});
+    std::sort(rows.begin(), rows.end(),
+              [](const Row& a, const Row& b) { return a.key > b.key; });
+
+    // 상대 영상의 같은 블록 PSNR (grids)
+    bool grids_ok = cs.nbx > 0 && cs.nby > 0 &&
+                    cs.mse2_grid.size() == static_cast<size_t>(cs.nbx) * cs.nby &&
+                    cs.mse3_grid.size() == static_cast<size_t>(cs.nbx) * cs.nby;
+    const ImageEntry& ref0 = state.images[0];
+    const double peak = (ref0.is_hdr && !ref0.pixels_f32.empty()) ? 1.0 : 255.0;
+
+    ImGui::SetNextWindowSize(ImVec2(620, 420), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowBgAlpha(0.92f);
+    if (ImGui::Begin("Comp Worst Blocks", &cs.show_comp_list)) {
+        ImGui::TextDisabled(
+            "severity order (metric %s); click a row to jump all panes. P = peak-pixel pick",
+            cs.blk_metric == 1 ? "y" : cs.blk_metric == 2 ? "chroma" : "rgb");
+        constexpr ImGuiTableFlags tf = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                       ImGuiTableFlags_ScrollY;
+        if (ImGui::BeginTable("compblocks", 7, tf)) {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("#",         ImGuiTableColumnFlags_WidthFixed, 52.0f);
+            ImGui::TableSetupColumn("img",       ImGuiTableColumnFlags_WidthFixed, 48.0f);
+            ImGui::TableSetupColumn("grid",      ImGuiTableColumnFlags_WidthFixed, 72.0f);
+            ImGui::TableSetupColumn("PSNR(dB)",  ImGuiTableColumnFlags_WidthFixed, 78.0f);
+            ImGui::TableSetupColumn("MSE",       ImGuiTableColumnFlags_WidthFixed, 84.0f);
+            ImGui::TableSetupColumn("other PSNR",ImGuiTableColumnFlags_WidthFixed, 90.0f);
+            ImGui::TableSetupColumn("|d|max",    ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableHeadersRow();
+            for (size_t i = 0; i < rows.size(); ++i) {
+                const Row& r = rows[i];
+                const CompBlockInfo& b = *r.b;
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                char lbl[32];
+                std::snprintf(lbl, sizeof(lbl), "%zu%s##r%zu", i + 1,
+                              b.spike ? " P" : "", i);
+                bool selected = (cs.sel_slot == r.slot &&
+                                 cs.sel_x == b.x && cs.sel_y == b.y);
+                if (ImGui::Selectable(lbl, selected,
+                                      ImGuiSelectableFlags_SpanAllColumns)) {
+                    comp_focus_block(state, r.slot, r.rank, b);
+                    cs.cycle_scope = -1;
+                    cs.cycle_pos   = static_cast<int>(i);
+                }
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextColored(r.slot == 0 ? ImVec4(0.55f, 0.75f, 1.0f, 1.0f)
+                                               : ImVec4(1.0f, 0.7f, 0.35f, 1.0f),
+                                   "%s", r.slot == 0 ? "img2" : "img3");
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("(%d,%d)", b.bx, b.by);
+                ImGui::TableSetColumnIndex(3);
+                if (b.psnr >= 999.0) ImGui::Text("inf");
+                else                 ImGui::Text("%.2f", b.psnr);
+                ImGui::TableSetColumnIndex(4);
+                ImGui::Text("%.2f", b.mse);
+                ImGui::TableSetColumnIndex(5);
+                if (grids_ok) {
+                    const std::vector<double>& og =
+                        (r.slot == 0) ? cs.mse3_grid : cs.mse2_grid;
+                    double om = og[static_cast<size_t>(b.by) * cs.nbx + b.bx];
+                    if (om <= 0.0) ImGui::Text("inf");
+                    else ImGui::Text("%.2f",
+                                     20.0 * std::log10(peak) - 10.0 * std::log10(om));
+                } else {
+                    ImGui::TextDisabled("-");
+                }
+                ImGui::TableSetColumnIndex(6);
+                ImGui::Text("%.1f (%d,%d)", b.worst_err, b.worst_x, b.worst_y);
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::End();
 }
 
 // ─── render_diff_listing_window ──────────────────────────────────────────────
@@ -1830,6 +1928,7 @@ void MainWindow::render(AppState& state) {
     render_roi_stats_window(state);
     render_scatter_plot_window(state);
     render_hotkey_help_window(state);
+    render_comp_list_window(state);
     render_diff_listing_window(state);
     render_copy_mode_overlay(state);
     render_filename_toast(state);

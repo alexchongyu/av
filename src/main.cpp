@@ -204,6 +204,10 @@ int main(int argc, char* argv[]) {
     if (!cli.batch_path.empty())
         return run_batch_headless(cli);
 
+    // ── --comp-batch: headless 3-dir per-frame comp summary, then exit ────────
+    if (cli.comp_batch)
+        return run_comp_batch_headless(cli);
+
     // ── --comp-out: headless 3-image block table, no window, then exit ────────
     if (!cli.comp_out.empty())
         return run_comp_headless(cli);
@@ -459,10 +463,14 @@ int main(int argc, char* argv[]) {
             auto comp_summary = [&](const char* pane, float psnr, bool mism,
                                     const std::vector<CompBlockInfo>& worst) {
                 if (mism) { std::cout << "[comp] " << pane << " vs orig: size/format mismatch\n"; return; }
+                int spikes = 0;
+                for (const auto& wb : worst) if (wb.spike) ++spikes;
                 std::cout << "[comp] " << pane << " vs orig: PSNR "
                           << (psnr >= 999.0f ? std::string("inf")
                                              : std::to_string(psnr).substr(0, 7))
-                          << " dB, worst blocks shown: " << worst.size();
+                          << " dB, worst blocks shown: " << worst.size()
+                          << " (" << (worst.size() - spikes) << " mse + "
+                          << spikes << " peak)";
                 if (!worst.empty()) {
                     const auto& b = worst.front();
                     std::cout << " (#1 grid(" << b.bx << "," << b.by << ") psnr "
@@ -473,6 +481,7 @@ int main(int argc, char* argv[]) {
             };
             comp_summary("img2", state.comp.psnr2, state.comp.mismatch2, state.comp.worst2);
             comp_summary("img3", state.comp.psnr3, state.comp.mismatch3, state.comp.worst3);
+            std::cout.flush();   // 파이프/파일 리다이렉트에서도 즉시 보이게 (스크립트 검증용)
         }
     }
 

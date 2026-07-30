@@ -256,26 +256,32 @@ struct CompBlockInfo {
     int    nerr = 0;                     // 오차(≠0) 픽셀 수
     int    worst_x = 0, worst_y = 0;     // 최악 픽셀 (|Δ|max)
     double worst_err = 0.0;              // 최악 픽셀의 최대 채널 |Δ|
+    double rank_mse = -1.0;              // --blk-metric y|chroma의 랭킹 MSE (-1=rgb 랭킹)
+    bool   spike    = false;             // 피크 픽셀 오차(|d|max) 기준으로 선정된 블록
 };
 
 struct CompState {
     bool active  = false;      // --comp: A(원본)|B|C 3패널, diff 강제 해제
     int  blk_w   = 8, blk_h = 8;
     int  num_blk = 16;         // worst 블록 표시 개수
+    int  blk_metric = 0;       // worst 랭킹 기준: 0=rgb, 1=y(루마), 2=chroma(CbCr)
     ImageEntry img_c;          // 세 번째 영상 (오른쪽 패널; images[]와 분리 보관)
 
     // 결과 (compute_comp_metrics; 영상 교체 시 computed=false로 무효화)
     bool   computed  = false;
     float  psnr2 = -1.0f, psnr3 = -1.0f;    // A↔B, A↔C 전역 PSNR (999=identical)
     bool   mismatch2 = false, mismatch3 = false;
+    int    win2 = 0, win3 = 0, tie = 0;     // 블록 승패 집계 (|Δ|>1dB; statusbar 표시)
     std::vector<CompBlockInfo> worst2;      // A↔B worst 블록 (mse 내림차순)
     std::vector<CompBlockInfo> worst3;      // A↔C worst 블록
 
     // 렌더 중인 패널의 오버레이 선택: -1=원본(worst rect 없음), 0=worst2(B), 1=worst3(C)
     int render_slot = -1;
 
-    // Ctrl/Cmd+N: blk_w x blk_h 블록 그리드 바운더리 표시 토글 (3패널 공통)
+    // G (comp 모드): 블록 그리드 바운더리 표시 토글 (3패널 공통).
+    // 그리드 셀 크기는 grid_w/h(--grid WxH, 기본 16x16); 0이면 blk_w/h 폴백.
     bool show_grid = false;
+    int  grid_w = 16, grid_h = 16;
     // Ctrl/Cmd+B: worst PSNR 블록 사각형(+hover 풍선말) 표시 토글
     bool show_worst = true;
 
@@ -303,6 +309,9 @@ struct CompState {
     bool  blink_active    = false;
     int   blink_phase     = 0;      // 0=orig, 1=img2, 2=img3
     float blink_countdown = 0.0f;
+
+    // Ctrl/Cmd+D (comp 모드): worst 블록 리스트 창 (행 클릭 → 3패널 점프)
+    bool show_comp_list = false;
 
     // Tab/Shift+Tab: worst 블록 순회 (두 리스트 병합, mse 내림차순). 선택 블록은
     // 3패널 모두에 흰 박스로 표시되고 뷰포트가 자동 센터된다.
@@ -335,6 +344,11 @@ struct CliOptions {
     int             comp_blk_h   = 8;
     int             comp_num_blk = 16;       // --num_blk N: worst 블록 표시 개수
     std::string     comp_out;                // --comp-out <file|->: 헤드리스 블록 CSV 출력 후 종료
+    std::string     comp_blk_metric = "rgb"; // --blk-metric rgb|y|chroma: worst 랭킹 기준
+    bool            comp_batch   = false;    // --comp-batch: 3개 dir 전체 프레임 헤드리스 요약 후 종료
+    bool            comp_grid_on = false;    // --grid [WxH|N]: 시작 시 블록 그리드 표시
+    int             comp_grid_w  = 16;       // --grid 크기 (기본 16x16)
+    int             comp_grid_h  = 16;
     // CI gate thresholds (-1 = unset). psnr/ssim: FAIL if below; flip/maxerr: FAIL if above.
     float           fail_psnr    = -1.0f;
     float           warn_psnr    = -1.0f;
@@ -520,7 +534,11 @@ void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
                     float& psnr_out, bool& mismatch_out,
                     std::vector<CompBlockInfo>& worst_out,
                     std::vector<double>* all_mse_out = nullptr,
-                    int* nbx_out = nullptr, int* nby_out = nullptr);
+                    int* nbx_out = nullptr, int* nby_out = nullptr,
+                    int metric = 0 /* 0=rgb, 1=y, 2=chroma — worst 랭킹 기준 */);
+
+// 선택 블록(sel_*) 설정 + 3패널 뷰포트를 블록 중심으로 이동 (Tab 순회·리스트 창 공용)
+void comp_focus_block(AppState& state, int slot, int rank, const CompBlockInfo& b);
 
 // 단일 블록(x,y,w,h)의 상세 통계(채널별 MSE·PSNR·오차픽셀 수·최악픽셀)를 계산.
 // echo 패널의 상세 풍선말처럼 worst 목록에 없는 임의 블록이 필요할 때 사용.

@@ -89,12 +89,19 @@ static void print_help(const char* prog) {
         "                       PSNR of img2 and img3 vs orig shown in the Info window (i).\n"
         "  --blk <WxH>          --comp block size, e.g. 8x8|10x10|16x16 (default: 8x8)\n"
         "  --num_blk <N>        --comp worst-block count to outline     (default: 16)\n"
-        "                       GUI keys: Ctrl+B worst boxes | Ctrl+N block grid |\n"
-        "                       Ctrl+W win/loss map | Ctrl+G PSNR heatmap |\n"
-        "                       Tab/Shift+Tab cycle worst blocks | , 3-way blink\n"
+        "                       GUI keys: Ctrl+B worst boxes | G block grid |\n"
+        "                       Ctrl+W win/loss | Ctrl+G heatmap | Ctrl+D block list |\n"
+        "                       Tab or [/] cycle worst blocks | , 3-way blink | S swap\n"
         "  --comp-out <file|->  Headless: per-block CSV (bx,by,x,y,w,h, mse/psnr of\n"
         "                       img2 and img3, dpsnr) for CI regression, then exit.\n"
         "                       Honours --blk/--num_blk and --format json.\n"
+        "  --grid [WxH|N]       --comp: start with the block-grid boundary shown (G key\n"
+        "                       toggles). Grid cell size independent of --blk (default: 16x16).\n"
+        "  --blk-metric <m>     --comp worst ranking basis: rgb (default) | y | chroma\n"
+        "                       (worst list is 75%% metric-MSE + 25%% peak-pixel picks)\n"
+        "  --comp-batch         Headless: run --comp over ALL same-named frames of the\n"
+        "                       three images' directories; one CSV row per frame\n"
+        "                       (psnr img2/img3, dpsnr, block win/loss), then exit.\n"
         "  --amplify <val>      Diff amplification 0.1-100   (default: 1.0)\n"
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
@@ -188,6 +195,32 @@ CliOptions parse_cli(int argc, char* argv[]) {
             if (opts.comp_num_blk < 1) opts.comp_num_blk = 1;
         } else if (arg == "--comp-out") {
             opts.comp_out = next();
+        } else if (arg == "--blk-metric") {
+            opts.comp_blk_metric = next();
+            if (opts.comp_blk_metric != "rgb" && opts.comp_blk_metric != "y" &&
+                opts.comp_blk_metric != "chroma") {
+                std::cerr << "Unknown --blk-metric: " << opts.comp_blk_metric
+                          << " (rgb|y|chroma)\n";
+                std::exit(1);
+            }
+        } else if (arg == "--comp-batch") {
+            opts.comp_batch = true;
+        } else if (arg == "--grid") {
+            // --grid [WxH|N]: 시작 시 블록 그리드 ON. 값이 숫자/WxH 형식일 때만
+            // 소비한다 (숫자로 시작하는 이미지 파일명을 삼키지 않게 엄격 매칭).
+            opts.comp_grid_on = true;
+            if (i + 1 < argc) {
+                const char* v = argv[i + 1];
+                int gw = 0, gh = 0; char trail = 0;
+                if (std::sscanf(v, "%dx%d%c", &gw, &gh, &trail) == 2 ||
+                    (std::sscanf(v, "%d%c", &gw, &trail) == 1 && (gh = gw))) {
+                    if (gw >= 2 && gh >= 2 && gw <= 1024 && gh <= 1024) {
+                        opts.comp_grid_w = gw;
+                        opts.comp_grid_h = gh;
+                        ++i;
+                    }
+                }
+            }
         } else if (arg == "--fail-psnr") {
             opts.fail_psnr = std::stof(next());
         } else if (arg == "--warn-psnr") {
@@ -258,8 +291,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
 
     // --comp 검증: 3영상 필수. 3번째 영상만 주어지면 comp 자동 활성화.
     if (!opts.image_c.empty() && !opts.comp) opts.comp = true;
-    if (!opts.comp_out.empty() && !opts.comp) {
-        std::cerr << "--comp-out needs --comp with three images\n";
+    if ((!opts.comp_out.empty() || opts.comp_batch) && !opts.comp) {
+        std::cerr << "--comp-out/--comp-batch need --comp with three images\n";
         std::exit(1);
     }
     if (opts.comp) {
@@ -284,6 +317,11 @@ void apply_cli_options(AppState& state, const CliOptions& opts) {
     state.comp.blk_w      = opts.comp_blk_w;
     state.comp.blk_h      = opts.comp_blk_h;
     state.comp.num_blk    = opts.comp_num_blk;
+    state.comp.blk_metric = (opts.comp_blk_metric == "y")      ? 1
+                          : (opts.comp_blk_metric == "chroma") ? 2 : 0;
+    state.comp.show_grid  = opts.comp_grid_on;
+    state.comp.grid_w     = opts.comp_grid_w;
+    state.comp.grid_h     = opts.comp_grid_h;
     if (opts.no_border) state.show_borders = false;
     // --zoom 이 CLI에 명시된 경우에만 저장된 초기 zoom 을 덮어쓴다.
     // (미지정 시 load_app_ini 가 읽어둔 .av.ini 값 유지 → "마지막 옵션 상태" 재현)
@@ -334,7 +372,8 @@ void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
                     float& psnr_out, bool& mismatch_out,
                     std::vector<CompBlockInfo>& worst_out,
                     std::vector<double>* all_mse_out,
-                    int* nbx_out, int* nby_out) {
+                    int* nbx_out, int* nby_out,
+                    int metric) {
     worst_out.clear();
     psnr_out = -1.0f;
     if (all_mse_out) all_mse_out->clear();
@@ -367,6 +406,7 @@ void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
             blk.w  = std::min(blk_w, W - blk.x);
             blk.h  = std::min(blk_h, H - blk.y);
             double se[3] = {0.0, 0.0, 0.0};
+            double se_y = 0.0, se_ch = 0.0;   // --blk-metric y/chroma 랭킹용
             for (int y = blk.y; y < blk.y + blk.h; ++y) {
                 for (int x = blk.x; x < blk.x + blk.w; ++x) {
                     size_t p = (static_cast<size_t>(y) * W + x) * 4;
@@ -390,6 +430,17 @@ void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
                         }
                     }
                     for (int c = 0; c < 3; ++c) se[c] += d[c] * d[c];
+                    if (metric != 0) {
+                        // Rec.709: dY'와 dCb/dCr는 dRGB의 선형결합
+                        double dy = 0.2126 * d[0] + 0.7152 * d[1] + 0.0722 * d[2];
+                        if (metric == 1) {
+                            se_y += dy * dy;
+                        } else {
+                            double dcb = (d[2] - dy) / 1.8556;
+                            double dcr = (d[0] - dy) / 1.5748;
+                            se_ch += 0.5 * (dcb * dcb + dcr * dcr);
+                        }
+                    }
                 }
             }
             double npx = static_cast<double>(blk.w) * blk.h;
@@ -401,9 +452,12 @@ void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
             blk.psnr = (blk.mse > 0.0)
                      ? 20.0 * std::log10(peak) - 10.0 * std::log10(blk.mse)
                      : 999.0;
+            if (metric == 1)      blk.rank_mse = se_y  / npx;
+            else if (metric == 2) blk.rank_mse = se_ch / npx;
             if (all_mse_out)
                 (*all_mse_out)[static_cast<size_t>(by) * nbx + bx] = blk.mse;
-            if (blk.mse > 0.0) blocks.push_back(blk);   // 무오차 블록은 후보 제외
+            // 후보: RGB 오차가 있거나(랭킹 metric과 무관) 무오차면 제외
+            if (blk.mse > 0.0) blocks.push_back(blk);
         }
     }
 
@@ -419,13 +473,32 @@ void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
     }
     psnr_out = (cnt > 0) ? static_cast<float>(sum / cnt) : 999.0f;
 
-    size_t n = std::min(static_cast<size_t>(num_blk), blocks.size());
-    std::partial_sort(blocks.begin(), blocks.begin() + n, blocks.end(),
-                      [](const CompBlockInfo& a, const CompBlockInfo& b) {
-                          return a.mse > b.mse;
-                      });
-    blocks.resize(n);
-    worst_out = std::move(blocks);
+    // ── 하이브리드 worst 선정: 75%는 (metric) MSE 순위, 25%는 피크 픽셀 오차
+    //    (|d|max) 순위 — 블록 MSE는 낮아도 한 픽셀이 크게 튀는 스파이크 아티팩트
+    //    를 놓치지 않는다. 스파이크 픽은 spike=true (마젠타 박스, 'P' 라벨). ──
+    auto rank_key = [](const CompBlockInfo& b) {
+        return (b.rank_mse >= 0.0) ? b.rank_mse : b.mse;
+    };
+    std::sort(blocks.begin(), blocks.end(),
+              [&](const CompBlockInfo& a, const CompBlockInfo& b) {
+                  return rank_key(a) > rank_key(b);
+              });
+    size_t want  = std::min(static_cast<size_t>(num_blk), blocks.size());
+    size_t n_mse = std::min(want, (want * 3 + 3) / 4);
+    std::vector<CompBlockInfo> sel(blocks.begin(), blocks.begin() + n_mse);
+    if (sel.size() < want) {
+        std::vector<CompBlockInfo> rest(blocks.begin() + n_mse, blocks.end());
+        std::sort(rest.begin(), rest.end(),
+                  [](const CompBlockInfo& a, const CompBlockInfo& b) {
+                      return a.worst_err > b.worst_err;
+                  });
+        for (auto& r : rest) {
+            if (sel.size() >= want) break;
+            r.spike = true;
+            sel.push_back(r);
+        }
+    }
+    worst_out = std::move(sel);
 }
 
 void compute_comp_metrics(AppState& state) {
@@ -437,11 +510,47 @@ void compute_comp_metrics(AppState& state) {
     if (state.images[1].loaded)
         comp_scan_pair(state.images[0], state.images[1], cs.blk_w, cs.blk_h,
                        cs.num_blk, cs.psnr2, cs.mismatch2, cs.worst2,
-                       &cs.mse2_grid, &cs.nbx, &cs.nby);
+                       &cs.mse2_grid, &cs.nbx, &cs.nby, cs.blk_metric);
     if (cs.img_c.loaded)
         comp_scan_pair(state.images[0], cs.img_c, cs.blk_w, cs.blk_h,
                        cs.num_blk, cs.psnr3, cs.mismatch3, cs.worst3,
-                       &cs.mse3_grid, &cs.nbx, &cs.nby);
+                       &cs.mse3_grid, &cs.nbx, &cs.nby, cs.blk_metric);
+
+    // 블록 승패 집계 (|Δ|>1dB) — statusbar/리스트 창 표시용
+    cs.win2 = cs.win3 = cs.tie = 0;
+    if (cs.nbx > 0 && cs.nby > 0 &&
+        cs.mse2_grid.size() == static_cast<size_t>(cs.nbx) * cs.nby &&
+        cs.mse3_grid.size() == static_cast<size_t>(cs.nbx) * cs.nby) {
+        for (size_t i = 0; i < cs.mse2_grid.size(); ++i) {
+            double m2 = cs.mse2_grid[i], m3 = cs.mse3_grid[i];
+            if (m2 <= 0.0 && m3 <= 0.0) continue;
+            double d = (m2 <= 0.0) ? 99.0 : (m3 <= 0.0) ? -99.0
+                     : 10.0 * std::log10(m3 / m2);
+            if      (d >  1.0) ++cs.win2;
+            else if (d < -1.0) ++cs.win3;
+            else               ++cs.tie;
+        }
+    }
+}
+
+// ─── comp_focus_block ─────────────────────────────────────────────────────────
+// 선택 블록 설정 + 3패널 뷰포트를 블록 중심으로 (Tab 순회·리스트 창 클릭 공용)
+
+void comp_focus_block(AppState& state, int slot, int rank, const CompBlockInfo& b) {
+    CompState& cs = state.comp;
+    cs.sel_slot = slot;
+    cs.sel_rank = rank;
+    cs.sel_x = b.x; cs.sel_y = b.y;
+    cs.sel_w = b.w; cs.sel_h = b.h;
+    float cx = b.x + b.w * 0.5f;
+    float cy = b.y + b.h * 0.5f;
+    for (int i = 0; i < 2; ++i) {
+        ViewportState& v = state.views[i];
+        v.fit = false;
+        if (v.zoom < 4.0f) v.zoom = 8.0f;
+        v.pan_x = state.images[0].width  * 0.5f - cx;
+        v.pan_y = state.images[0].height * 0.5f - cy;
+    }
 }
 
 // ─── comp_scan_block ──────────────────────────────────────────────────────────
@@ -507,36 +616,26 @@ static void comp_cycle_select(AppState& state, int dir, int scope = -1) {
         cs.cycle_scope = scope;
         cs.cycle_pos   = -1;
     }
-    struct Ref { double mse; int slot; const CompBlockInfo* b; int rank; };
+    struct Ref { double key; int slot; const CompBlockInfo* b; int rank; };
+    auto key_of = [](const CompBlockInfo& b) {
+        return (b.rank_mse >= 0.0) ? b.rank_mse : b.mse;
+    };
     std::vector<Ref> list;
     list.reserve(cs.worst2.size() + cs.worst3.size());
     if (scope != 1)
         for (size_t i = 0; i < cs.worst2.size(); ++i)
-            list.push_back({cs.worst2[i].mse, 0, &cs.worst2[i], static_cast<int>(i) + 1});
+            list.push_back({key_of(cs.worst2[i]), 0, &cs.worst2[i], static_cast<int>(i) + 1});
     if (scope != 0)
         for (size_t i = 0; i < cs.worst3.size(); ++i)
-            list.push_back({cs.worst3[i].mse, 1, &cs.worst3[i], static_cast<int>(i) + 1});
+            list.push_back({key_of(cs.worst3[i]), 1, &cs.worst3[i], static_cast<int>(i) + 1});
     if (list.empty()) return;
     std::sort(list.begin(), list.end(),
-              [](const Ref& a, const Ref& b) { return a.mse > b.mse; });
+              [](const Ref& a, const Ref& b) { return a.key > b.key; });
     int n = static_cast<int>(list.size());
     cs.cycle_pos = (cs.cycle_pos < 0) ? (dir > 0 ? 0 : n - 1)
                                       : ((cs.cycle_pos + dir) % n + n) % n;
     const Ref& r = list[cs.cycle_pos];
-    cs.sel_slot = r.slot;
-    cs.sel_rank = r.rank;
-    cs.sel_x = r.b->x; cs.sel_y = r.b->y;
-    cs.sel_w = r.b->w; cs.sel_h = r.b->h;
-    // 3패널 뷰포트를 블록 중심으로 (줌이 낮으면 8배로 확대)
-    float cx = r.b->x + r.b->w * 0.5f;
-    float cy = r.b->y + r.b->h * 0.5f;
-    for (int i = 0; i < 2; ++i) {
-        ViewportState& v = state.views[i];
-        v.fit = false;
-        if (v.zoom < 4.0f) v.zoom = 8.0f;
-        v.pan_x = state.images[0].width  * 0.5f - cx;
-        v.pan_y = state.images[0].height * 0.5f - cy;
-    }
+    comp_focus_block(state, r.slot, r.rank, *r.b);
 }
 
 // ─── handle_keyboard ──────────────────────────────────────────────────────────
@@ -716,6 +815,8 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
             state.channel_mode = ChannelMode::Green;
         } else if ((ctrl || gui) && state.comp.active) {
             state.comp.show_heatmap = !state.comp.show_heatmap;   // --comp: 블록 히트맵
+        } else if (!ctrl && !gui && state.comp.active) {
+            state.comp.show_grid = !state.comp.show_grid;         // --comp: G = 블록 그리드
         } else if (!ctrl && !gui) {
             viewport_center(vA);
             if (state.sync_viewports) viewport_center(vB);
@@ -807,9 +908,14 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     // ── Diff mode ─────────────────────────────────────────────────────────────
     case SDL_SCANCODE_D:
         if (ctrl) {
-            // diff 리스팅 윈도우 토글
-            state.diff_listing.show = !state.diff_listing.show;
-            if (state.diff_listing.show) state.diff_listing.start_from = 0;
+            if (state.comp.active) {
+                // --comp: worst 블록 리스트 창 토글 (diff 리스팅은 comp에서 무의미)
+                state.comp.show_comp_list = !state.comp.show_comp_list;
+            } else {
+                // diff 리스팅 윈도우 토글
+                state.diff_listing.show = !state.diff_listing.show;
+                if (state.diff_listing.show) state.diff_listing.start_from = 0;
+            }
         }
         break;
 
@@ -877,6 +983,12 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
                 state.show_histogram  = false;
                 state.show_hline_cut  = false;
                 state.show_vline_cut  = false;
+            }
+        } else if (state.comp.active && !shift && !gui) {
+            // --comp: S = img2 <-> img3 패널 위치 토글 (슬롯 교환 → 통계 재계산)
+            if (state.images[1].loaded && state.comp.img_c.loaded) {
+                std::swap(state.images[1], state.comp.img_c);
+                state.comp.computed = false;
             }
         } else {
             state.sync_viewports = !state.sync_viewports;
@@ -1068,9 +1180,7 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 
     // ── 시퀀스 탐색 legacy 핫키 (N = 다음, Shift+N = 이전) ────────────────────
     case SDL_SCANCODE_N:
-        if ((ctrl || gui) && state.comp.active)
-            state.comp.show_grid = !state.comp.show_grid;   // --comp: 블록 그리드 토글
-        else if (!ctrl && !gui) {
+        if (!ctrl && !gui) {
             sequence_navigate(state, state.active_panel, shift ? -1 : +1);
         }
         break;

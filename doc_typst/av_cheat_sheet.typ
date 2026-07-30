@@ -122,6 +122,9 @@ av [image_a] [image_b] [options]
   [`--blk <WxH>`],          [`--comp` 블록 크기 (기본 8x8)],
   [`--num_blk <N>`],        [`--comp` worst 블록 표시 개수 (기본 16)],
   [`--comp-out <f|->`],     [헤드리스: 블록별 PSNR 테이블 CSV/JSON 출력 후 종료],
+  [`--blk-metric <m>`],     [worst 랭킹 기준 rgb\|y\|chroma (75% + 피크픽셀 25% 혼합)],
+  [`--comp-batch`],         [헤드리스: 3개 dir 전체 프레임별 comp 요약 CSV],
+  [`--grid [WxH]`],         [시작 시 블록 그리드 표시 (셀 크기 기본 16x16, #key("G") 토글)],
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -197,10 +200,12 @@ av [image_a] [image_b] [options]
   fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
   [`av --comp o a b`], [3패널 원본 \| img2 \| img3 (diff 자동 비활성)],
   [#key("I")],         [정보 창: img2·img3 각각의 원본 대비 PSNR 2줄],
-  [#key("Ctrl+B")],    [worst PSNR 블록 박스 토글 (\#1 빨강\~노랑, 기본 ON)],
-  [#key("Ctrl+N")],    [전체 블록 그리드 바운더리 토글 (기본 OFF)],
+  [#key("Ctrl+B")],    [worst 블록 박스 토글 (\#1 빨강\~노랑; 마젠타 P = 피크 픽셀 스파이크 픽)],
+  [#key("G")],         [전체 블록 그리드 바운더리 토글 (기본 OFF)],
   [#key("Ctrl+W")],    [승패 맵: 블록별 우열 색 표시 (파랑=img2·주황=img3 우세, \|Δ\|>1dB)],
   [#key("Ctrl+G")],    [블록 PSNR 히트맵 (노랑→빨강=나쁨, 50dB↑ 투명)],
+  [#key("Ctrl+D")],    [worst 블록 리스트 창 — 행 클릭 시 3패널 점프],
+  [#key("S")],         [img2 ↔ img3 패널 위치 스왑 (통계도 추종)],
   [#key("Tab")],       [worst 블록 순회 (양쪽 병합, 심각도순) — 3패널 자동 센터+줌, #key("Shift+Tab") 역방향],
   [#key("[") / #key("]")],  [img2(중간)의 worst 블록만 이전/다음],
   [#key("{") / #key("}")],  [img3(오른쪽)의 worst 블록만 이전/다음 (Shift+\[ \])],

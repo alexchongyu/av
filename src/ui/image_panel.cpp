@@ -2700,8 +2700,10 @@ void ImagePanel::render_comp_overlay(AppState& state, int panel_idx,
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
 
-    // ── Ctrl/Cmd+B: 블록 그리드 바운더리 (3패널 공통) ─────────────────────────
-    if (cs.show_grid && cs.blk_w * zoom >= 4.0f && cs.blk_h * zoom >= 4.0f) {
+    // ── G: 블록 그리드 바운더리 (3패널 공통) — 셀 크기는 --grid (기본 16x16) ──
+    int gw = (cs.grid_w > 0) ? cs.grid_w : cs.blk_w;
+    int gh = (cs.grid_h > 0) ? cs.grid_h : cs.blk_h;
+    if (cs.show_grid && gw * zoom >= 4.0f && gh * zoom >= 4.0f) {
         ImU32 grid_col = IM_COL32(120, 220, 255, 110);
         float wx0 = widget_pos.x,          wy0 = widget_pos.y;
         float wx1 = wx0 + view_w,          wy1 = wy0 + view_h;
@@ -2709,15 +2711,15 @@ void ImagePanel::render_comp_overlay(AppState& state, int panel_idx,
         float gx1 = std::min(ix2s(static_cast<float>(img_w)), wx1);
         float gy0 = std::max(iy2s(0.0f), wy0);
         float gy1 = std::min(iy2s(static_cast<float>(img_h)), wy1);
-        int nbx = (img_w + cs.blk_w - 1) / cs.blk_w;
-        int nby = (img_h + cs.blk_h - 1) / cs.blk_h;
-        for (int bx = 0; bx <= nbx; ++bx) {
-            float sx = ix2s(static_cast<float>(std::min(bx * cs.blk_w, img_w)));
+        int ngx = (img_w + gw - 1) / gw;
+        int ngy = (img_h + gh - 1) / gh;
+        for (int bx = 0; bx <= ngx; ++bx) {
+            float sx = ix2s(static_cast<float>(std::min(bx * gw, img_w)));
             if (sx >= wx0 && sx <= wx1 && gy1 > gy0)
                 dl->AddLine(ImVec2(sx, gy0), ImVec2(sx, gy1), grid_col);
         }
-        for (int by = 0; by <= nby; ++by) {
-            float sy = iy2s(static_cast<float>(std::min(by * cs.blk_h, img_h)));
+        for (int by = 0; by <= ngy; ++by) {
+            float sy = iy2s(static_cast<float>(std::min(by * gh, img_h)));
             if (sy >= wy0 && sy <= wy1 && gx1 > gx0)
                 dl->AddLine(ImVec2(gx0, sy), ImVec2(gx1, sy), grid_col);
         }
@@ -2954,16 +2956,18 @@ void ImagePanel::render_comp_overlay(AppState& state, int panel_idx,
         if (sx1 < widget_pos.x || sy1 < widget_pos.y ||
             sx0 > widget_pos.x + view_w || sy0 > widget_pos.y + view_h)
             continue;   // 패널 밖
-        // 순위 색: #1(최악)=빨강 → #N=노랑
+        // 순위 색: #1(최악)=빨강 → #N=노랑. 스파이크 픽(피크 픽셀 오차 기준 선정)은
+        // 마젠타 + 'P' 라벨로 구분한다.
         float t = (n > 1) ? static_cast<float>(i) / static_cast<float>(n - 1) : 0.0f;
-        ImU32 col = IM_COL32(255, static_cast<int>(220.0f * t), 0, 230);
+        ImU32 col = b.spike ? IM_COL32(255, 70, 255, 235)
+                            : IM_COL32(255, static_cast<int>(220.0f * t), 0, 230);
         dl->AddRect(ImVec2(sx0, sy0), ImVec2(sx1, sy1), col, 0.0f, 0, 2.0f);
         if (mouse_in_panel &&
             mouse.x >= sx0 && mouse.x < sx1 && mouse.y >= sy0 && mouse.y < sy1)
             hovered = i;
         if (sx1 - sx0 > 22.0f && sy1 - sy0 > 14.0f) {
             char lbl[16];
-            std::snprintf(lbl, sizeof(lbl), "#%d", i + 1);
+            std::snprintf(lbl, sizeof(lbl), b.spike ? "#%dP" : "#%d", i + 1);
             dl->AddText(ImVec2(sx0 + 2, sy0 + 1), col, lbl);
         }
     }
@@ -2987,6 +2991,12 @@ void ImagePanel::render_comp_overlay(AppState& state, int panel_idx,
     ImGui::Text("grid (%d,%d)   px (%d,%d)-(%d,%d)   %dx%d",
                 b.bx, b.by, b.x, b.y,
                 b.x + b.w - 1, b.y + b.h - 1, b.w, b.h);
+    if (b.spike)
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 1.0f, 1.0f),
+                           "pick: peak-pixel spike (|d|max ranking)");
+    if (b.rank_mse >= 0.0)
+        ImGui::Text("rank metric (%s) MSE: %.3f",
+                    cs.blk_metric == 1 ? "y" : "chroma", b.rank_mse);
     ImGui::Separator();
     if (b.psnr >= 999.0) ImGui::Text("PSNR: inf");
     else                 ImGui::Text("PSNR: %.2f dB    MSE: %.3f", b.psnr, b.mse);
