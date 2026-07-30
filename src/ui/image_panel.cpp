@@ -2723,8 +2723,9 @@ void ImagePanel::render_comp_overlay(const AppState& state, int panel_idx,
         }
     }
 
-    // 원본 패널(slot -1)은 그리드까지만 — worst rect/풍선말은 비교 패널 전용
-    if (cs.render_slot < 0) return;
+    // 원본 패널(slot -1)은 그리드까지만 — worst rect/풍선말은 비교 패널 전용.
+    // Ctrl/Cmd+B(show_worst)로 worst 사각형 전체를 숨길 수 있다.
+    if (cs.render_slot < 0 || !cs.show_worst) return;
     const std::vector<CompBlockInfo>& blocks =
         (cs.render_slot == 0) ? cs.worst2 : cs.worst3;
     if (blocks.empty()) return;

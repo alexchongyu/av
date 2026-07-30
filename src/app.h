@@ -274,8 +274,10 @@ struct CompState {
     // 렌더 중인 패널의 오버레이 선택: -1=원본(worst rect 없음), 0=worst2(B), 1=worst3(C)
     int render_slot = -1;
 
-    // Ctrl/Cmd+B: blk_w x blk_h 블록 그리드 바운더리 표시 토글 (3패널 공통)
+    // Ctrl/Cmd+N: blk_w x blk_h 블록 그리드 바운더리 표시 토글 (3패널 공통)
     bool show_grid = false;
+    // Ctrl/Cmd+B: worst PSNR 블록 사각형(+hover 풍선말) 표시 토글
+    bool show_worst = true;
 };
 
 struct CliOptions {

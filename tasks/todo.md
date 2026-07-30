@@ -10,6 +10,13 @@
 - [x] 6b. alexws(Linux) 빌드+인스톨 (/user/alex/local/bin/av, v0.22-63)
 - [x] 6c. demura(Windows) 빌드+인스톨 (bin+LOCALAPPDATA+C:\Windows, md5 8026efca 3위치 일치)
 
+## 추가 요청 (2026-07-31)
+- [x] Ctrl/Cmd+B: --comp에서 blk_w x blk_h 블록 그리드 바운더리 표시/숨김 토글
+      (3패널 공통, 밝은 시안 라인, 화면상 블록 < 4px면 생략; worst rect는 그대로)
+- [x] Mac 빌드+인스톨 (v0.22-66-g4046e88)
+- [x] Linux 인스톨 (v0.22-66; gcc ICE는 -j2 재시도로 해결 — runbook 함정 추가)
+- [ ] Windows: bin 빌드 완료, LOCALAPPDATA+C:\Windows(UAC) 진행 중
+
 ## Review
 - 설계: 2-이미지 코어(std::array<ImageEntry,2>)는 불변. img3는 CompState.img_c에 분리
   보관하고 렌더 순간에만 std::swap(O(1))으로 슬롯 1에 끼워 A|B|Diff 3패널 코드를 재사용.

@@ -116,6 +116,9 @@ EOF
 - **설치는 "번들 디렉토리"**: `av` 는 래퍼 스크립트이므로 `av` 파일 하나만 복사하면 안 됨. `av-bundle/` 전체를 배포.
 - **HOME=/user/alex** (비표준). 스크립트/경로에서 `~` 대신 절대경로가 안전.
 - **RemoteForward 9000 경고**: 무해. 빌드 ssh 엔 `-o ClearAllForwardings=yes`.
+- **gcc ICE(Segmentation fault)**: 8코어 풀병렬 빌드 중 `internal compiler error:
+  Segmentation fault`가 매번 다른 파일에서 랜덤 발생할 수 있다(메모리 압박, 코드 문제 아님).
+  `ninja -C build -j2` 로 병렬도를 낮추면 통과한다 (2026-07-31 실측).
 
 ---
 
