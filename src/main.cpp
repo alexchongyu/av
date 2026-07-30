@@ -450,6 +450,25 @@ int main(int argc, char* argv[]) {
             if (!load_image(cli.image_c, state.comp.img_c)) {
                 std::cerr << "Failed to load image C: " << cli.image_c << "\n";
             }
+            // 시작 시 요약을 stdout으로 출력 (스크립트/CI에서 수치 검증 가능)
+            compute_comp_metrics(state);
+            auto comp_summary = [&](const char* pane, float psnr, bool mism,
+                                    const std::vector<CompBlockInfo>& worst) {
+                if (mism) { std::cout << "[comp] " << pane << " vs orig: size/format mismatch\n"; return; }
+                std::cout << "[comp] " << pane << " vs orig: PSNR "
+                          << (psnr >= 999.0f ? std::string("inf")
+                                             : std::to_string(psnr).substr(0, 7))
+                          << " dB, worst blocks shown: " << worst.size();
+                if (!worst.empty()) {
+                    const auto& b = worst.front();
+                    std::cout << " (#1 grid(" << b.bx << "," << b.by << ") psnr "
+                              << std::to_string(b.psnr).substr(0, 7) << " mse "
+                              << std::to_string(b.mse).substr(0, 8) << ")";
+                }
+                std::cout << "\n";
+            };
+            comp_summary("img2", state.comp.psnr2, state.comp.mismatch2, state.comp.worst2);
+            comp_summary("img3", state.comp.psnr3, state.comp.mismatch3, state.comp.worst3);
         }
     }
 
