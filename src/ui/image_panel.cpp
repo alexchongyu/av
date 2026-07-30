@@ -2730,8 +2730,7 @@ void ImagePanel::render_comp_overlay(AppState& state, int panel_idx,
         float ey0 = iy2s(static_cast<float>(cs.echo_y));
         float ex1 = ix2s(static_cast<float>(cs.echo_x + cs.echo_w));
         float ey1 = iy2s(static_cast<float>(cs.echo_y + cs.echo_h));
-        dl->AddRectFilled(ImVec2(ex0, ey0), ImVec2(ex1, ey1),
-                          IM_COL32(0, 255, 140, 45));
+        // 채움 없이 테두리만 — 원본 픽셀을 가리지 않는다 (사용자 요청)
         dl->AddRect(ImVec2(ex0, ey0), ImVec2(ex1, ey1),
                     IM_COL32(0, 255, 140, 240), 0.0f, 0, 2.5f);
     }
