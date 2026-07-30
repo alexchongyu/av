@@ -20,3 +20,7 @@ av-deps.tar.gz
 # Local machine-specific Claude settings
 .claude/settings.local.json
 .DS_Store
+
+# Windows 시스템 설치 산출물 (win-install.sh가 원격에서 생성)
+install-sys.cmd
+install-sys.log
