@@ -284,3 +284,15 @@ unloadable and bound to sampler type` 경고를 뱉는다. 경고의 **유닛 �
 **교훈(프로세스)**: 이 버그는 "육안 확인 필요"로 남겨둔 GUI 기능(3D LUT)에서 나왔다.
 헤드리스로 증명 못 하는 표시 경로는 **반드시 스크린샷으로 실제 렌더를 확인**할 것.
 macOS는 `screencapture -x`로 av를 띄운 뒤 캡처해 자체 검증이 가능하다.
+
+## GUI 검증: screencapture가 막히면 stdout 요약으로 수치 검증 (2026-07-30)
+
+**증상**: `--comp` 3-패널 검증에서 `screencapture -x`가 "could not create image from
+display"로 실패 (터미널의 화면 기록 TCC 권한 소실 — 이전 세션에선 됐음. 샌드박스
+해제로도 해결 안 됨. 디스플레이는 깨어 있었음: "display sleep prevented by av").
+
+**해결 패턴**: 표시 경로 기능이라도 **핵심 수치는 시작 시 stdout 요약으로 출력**하게
+만들면 스크린샷 없이도 기계 검증이 된다. `--comp`는 `[comp] img2 vs orig: PSNR …
+worst blocks … (#1 grid(x,y) psnr … mse …)`를 출력하고, 이를 독립 Python 구현과
+자리수까지 대조해 증명했다 (전역 PSNR은 기존 `--metrics`와도 일치해야 함 — 이중 앵커).
+스크린샷은 가능하면 여전히 찍되, 유일한 검증 수단으로 만들지 말 것.
