@@ -916,8 +916,6 @@ static void render_hotkey_help_window(AppState& state) {
         { "Analysis", "Ctrl+T",                    "Toggle Scatter Plot (A vs B pixel values)" },
         // Overlay
         { "Display", "B",                           "Toggle panel borders" },
-        { "Display", "Ctrl+B",                      "Comp worst-PSNR block boxes on/off (--comp)" },
-        { "Display", "Ctrl+N",                      "Comp block-grid boundary lines (--comp)" },
         { "Display", "/",                           "Toggle bad-pixel overlay (NaN/Inf/neg/>1, float images)" },
         { "Display", "Ctrl+X",                      "Cycle pixel value format (Dec / 0xHex / Hexh)" },
         { "Overlay", "O",                          "Toggle Overlay/Blend comparison mode" },
@@ -950,6 +948,14 @@ static void render_hotkey_help_window(AppState& state) {
         { "Diff", "\\",                            "Reset primary diff param (amplify=1.0; AlphaBlend: alpha=50%)" },
         { "Diff", "Ctrl+8",                        "Toggle tolerance-based diff" },
         { "Diff", "Ctrl+\\",                       "Reset diff threshold (0)" },
+        // Comp (3-image block compare, --comp)
+        { "Comp", "av --comp <orig> <img2> <img3>", "3-image compare: orig | img2 | img3 (diff disabled)" },
+        { "Comp", "--blk <WxH>",                   "Block size for worst-PSNR search  (default: 8x8)" },
+        { "Comp", "--num_blk <N>",                 "Worst-block count to outline  (default: 16)" },
+        { "Comp", "Ctrl+B",                        "Toggle worst-PSNR block boxes (red=worst .. yellow)" },
+        { "Comp", "Ctrl+N",                        "Toggle full block-grid boundary lines" },
+        { "Comp", "Hover on a block box",          "Balloon: block PSNR/MSE, per-channel MSE, worst pixel orig/this/delta" },
+        { "Comp", "I",                             "Info window: PSNR of img2 and img3 vs orig" },
         // File
         { "File", "Shift+Ctrl+O",                  "Open image file" },
         { "File", "Shift+Ctrl+S",                  "Save dialog" },

@@ -118,6 +118,9 @@ av [image_a] [image_b] [options]
   [`--cdl <file.cdl>`],     [ASC\-CDL slope/offset/power+sat 룩],
   [`-p <N>`],               [팬 이동 단위 (픽셀)],
   [`-bc <A> <B> <D>`],      [패널 테두리 색상 (hex)],
+  [`--comp i1 i2 i3`],      [3\-영상 블록 비교: 원본 \| img2 \| img3 (diff 비활성)],
+  [`--blk <WxH>`],          [`--comp` 블록 크기 (기본 8x8)],
+  [`--num_blk <N>`],        [`--comp` worst 블록 표시 개수 (기본 16)],
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -183,6 +186,22 @@ av [image_a] [image_b] [options]
   [#key("Shift+[") / #key("Shift+]")], [Threshold \u{2213}1 (AlphaBlend: alpha \u{2213}10%)],
   [#key("\\")],                      [증폭 리셋 (AlphaBlend: alpha=50%)],
 )
+
+#block(breakable: false)[
+*3\-영상 블록 비교 (`--comp`)*
+#table(
+  columns: (1.2fr, 2.2fr),
+  stroke: none,
+  inset: (x: 3pt, y: 1.5pt),
+  fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
+  [`av --comp o a b`], [3패널 원본 \| img2 \| img3 (diff 자동 비활성)],
+  [#key("I")],         [정보 창: img2·img3 각각의 원본 대비 PSNR 2줄],
+  [#key("Ctrl+B")],    [worst PSNR 블록 박스 토글 (\#1 빨강\~노랑, 기본 ON)],
+  [#key("Ctrl+N")],    [전체 블록 그리드 바운더리 토글 (기본 OFF)],
+  [박스 위 hover],      [풍선말: 블록 PSNR/MSE·채널별 MSE·오차픽셀 수·최악픽셀 orig/this/Δ],
+)
+시작 시 stdout으로 `[comp]` PSNR·worst 블록 요약 출력 (CI/스크립트 검증용).
+]
 
 *채널 선택*
 #table(
