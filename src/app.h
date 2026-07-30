@@ -278,6 +278,14 @@ struct CompState {
     bool show_grid = false;
     // Ctrl/Cmd+B: worst PSNR 블록 사각형(+hover 풍선말) 표시 토글
     bool show_worst = true;
+
+    // hover echo: worst 블록에 마우스가 머무는 동안 다른 두 패널의 같은 위치에
+    // 형광 그린 박스를 표시. hover_*는 이번 프레임에 오버레이가 기록, echo_*는
+    // 지난 프레임 스냅샷(1프레임 지연)으로 모든 패널이 읽는다.
+    int hover_slot = -1;                            // 0=img2 패널, 1=img3 패널
+    int hover_x = 0, hover_y = 0, hover_w = 0, hover_h = 0;
+    int echo_slot = -1;
+    int echo_x = 0, echo_y = 0, echo_w = 0, echo_h = 0;
 };
 
 struct CliOptions {

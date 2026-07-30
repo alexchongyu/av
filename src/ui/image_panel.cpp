@@ -2679,11 +2679,11 @@ void ImagePanel::render_roi_overlay(const AppState& state, int panel_idx,
 // render_slot: 0=worst2(img2 패널), 1=worst3(img3 패널; 이때 images[1]에 img_c가
 // swap되어 들어와 있으므로 원본=images[0], 비교=images[1]로 균일하게 샘플한다.
 
-void ImagePanel::render_comp_overlay(const AppState& state, int panel_idx,
+void ImagePanel::render_comp_overlay(AppState& state, int panel_idx,
                                      ImVec2 widget_pos, int view_w, int view_h,
                                      int img_w, int img_h)
 {
-    const CompState& cs = state.comp;
+    CompState& cs = state.comp;
 
     const ViewportState& vp = state.views[panel_idx];
     float zoom    = vp.zoom;
@@ -2723,7 +2723,20 @@ void ImagePanel::render_comp_overlay(const AppState& state, int panel_idx,
         }
     }
 
-    // 원본 패널(slot -1)은 그리드까지만 — worst rect/풍선말은 비교 패널 전용.
+    // ── hover echo: 다른 패널에서 hover 중인 블록의 같은 위치를 형광 그린으로
+    //    표시 (마우스가 그 블록에 머무는 동안만; 1프레임 지연 스냅샷) ──────────
+    if (cs.echo_slot >= 0 && cs.echo_slot != cs.render_slot) {
+        float ex0 = ix2s(static_cast<float>(cs.echo_x));
+        float ey0 = iy2s(static_cast<float>(cs.echo_y));
+        float ex1 = ix2s(static_cast<float>(cs.echo_x + cs.echo_w));
+        float ey1 = iy2s(static_cast<float>(cs.echo_y + cs.echo_h));
+        dl->AddRectFilled(ImVec2(ex0, ey0), ImVec2(ex1, ey1),
+                          IM_COL32(0, 255, 140, 45));
+        dl->AddRect(ImVec2(ex0, ey0), ImVec2(ex1, ey1),
+                    IM_COL32(0, 255, 140, 240), 0.0f, 0, 2.5f);
+    }
+
+    // 원본 패널(slot -1)은 그리드/echo까지만 — worst rect/풍선말은 비교 패널 전용.
     // Ctrl/Cmd+B(show_worst)로 worst 사각형 전체를 숨길 수 있다.
     if (cs.render_slot < 0 || !cs.show_worst) return;
     const std::vector<CompBlockInfo>& blocks =
@@ -2763,6 +2776,11 @@ void ImagePanel::render_comp_overlay(const AppState& state, int panel_idx,
 
     // ── hover 풍선말: 블록 상세 (원본 vs 이 패널 영상) ────────────────────────
     const CompBlockInfo& b = blocks[hovered];
+
+    // hover echo 기록: 다음 프레임에 나머지 두 패널이 같은 위치에 echo 박스 표시
+    cs.hover_slot = cs.render_slot;
+    cs.hover_x = b.x; cs.hover_y = b.y;
+    cs.hover_w = b.w; cs.hover_h = b.h;
     const ImageEntry& A = state.images[0];
     const ImageEntry& B = state.images[1];
     ImGui::BeginTooltip();

@@ -954,7 +954,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Comp", "--num_blk <N>",                 "Worst-block count to outline  (default: 16)" },
         { "Comp", "Ctrl+B",                        "Toggle worst-PSNR block boxes (red=worst .. yellow)" },
         { "Comp", "Ctrl+N",                        "Toggle full block-grid boundary lines" },
-        { "Comp", "Hover on a block box",          "Balloon: block PSNR/MSE, per-channel MSE, worst pixel orig/this/delta" },
+        { "Comp", "Hover on a block box",          "Balloon: block PSNR/MSE, per-channel MSE, worst pixel orig/this/delta; same block echoed green on the other two panes while hovering" },
         { "Comp", "I",                             "Info window: PSNR of img2 and img3 vs orig" },
         // File
         { "File", "Shift+Ctrl+O",                  "Open image file" },
@@ -1571,6 +1571,16 @@ void MainWindow::render(AppState& state) {
     } else if (comp_mode) {
         // ── 3-panel: A(orig) | B(img2) | C(img3)  (--comp) ───────────────────
         if (!state.comp.computed) compute_comp_metrics(state);
+
+        // hover echo: 지난 프레임 hover 스냅샷을 이번 프레임 echo로 승격,
+        // hover는 리셋 — 이번 프레임 오버레이가 다시 감지한다 (1프레임 지연)
+        state.comp.echo_slot = state.comp.hover_slot;
+        state.comp.echo_x = state.comp.hover_x;
+        state.comp.echo_y = state.comp.hover_y;
+        state.comp.echo_w = state.comp.hover_w;
+        state.comp.echo_h = state.comp.hover_h;
+        state.comp.hover_slot = -1;
+
         float third_w = std::floor(content.x / 3.0f);
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));

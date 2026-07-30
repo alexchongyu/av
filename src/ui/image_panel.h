@@ -121,8 +121,9 @@ private:
     void render_roi_overlay(const AppState& state, int panel_idx,
                             ImVec2 widget_pos, int view_w, int view_h,
                             int img_w, int img_h);
-    // --comp: worst-PSNR 블록 사각형 + hover 상세 풍선말 (render_slot이 선택)
-    void render_comp_overlay(const AppState& state, int panel_idx,
+    // --comp: worst-PSNR 블록 사각형 + hover 상세 풍선말 (render_slot이 선택).
+    // hover 시 state.comp.hover_*에 기록 → 다음 프레임 다른 패널에 echo 박스.
+    void render_comp_overlay(AppState& state, int panel_idx,
                              ImVec2 widget_pos, int view_w, int view_h,
                              int img_w, int img_h);
     void render_overlay(AppState& state, DiffRenderer& diff_renderer);

@@ -198,7 +198,7 @@ av [image_a] [image_b] [options]
   [#key("I")],         [정보 창: img2·img3 각각의 원본 대비 PSNR 2줄],
   [#key("Ctrl+B")],    [worst PSNR 블록 박스 토글 (\#1 빨강\~노랑, 기본 ON)],
   [#key("Ctrl+N")],    [전체 블록 그리드 바운더리 토글 (기본 OFF)],
-  [박스 위 hover],      [풍선말: 블록 PSNR/MSE·채널별 MSE·오차픽셀 수·최악픽셀 orig/this/Δ],
+  [박스 위 hover],      [풍선말(블록 PSNR/MSE·채널별 MSE·오차픽셀·최악픽셀 orig/this/Δ) + 나머지 두 패널 같은 위치에 그린 echo 박스],
 )
 시작 시 stdout으로 `[comp]` PSNR·worst 블록 요약 출력 (CI/스크립트 검증용).
 ]
