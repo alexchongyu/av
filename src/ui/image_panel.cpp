@@ -270,6 +270,11 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
                            img.width, img.height);
     }
 
+    if (state.comp.active && state.comp.render_slot >= 0 && state.comp.computed) {
+        render_comp_overlay(state, panel_idx, widget_pos, pw, ph,
+                            img.width, img.height);
+    }
+
     if (vp.zoom >= 32.0f && img.loaded) {
         render_pixel_values(state, panel_idx, widget_pos, pw, ph);
     }
@@ -2003,6 +2008,11 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
                            img.width, img.height);
     }
 
+    if (state.comp.active && state.comp.render_slot >= 0 && state.comp.computed) {
+        render_comp_overlay(state, panel_idx, widget_pos, pw, ph,
+                            img.width, img.height);
+    }
+
     if (vp.zoom >= 32.0f && img.loaded) {
         render_pixel_values(state, panel_idx, widget_pos, pw, ph);
     }
@@ -2661,6 +2671,120 @@ void ImagePanel::render_roi_overlay(const AppState& state, int panel_idx,
         std::snprintf(label, sizeof(label), "%d x %d", roi.w, roi.h);
         dl->AddText(ImVec2(sx0 + 3, sy0 + 3), IM_COL32(100, 200, 255, 220), label);
     }
+}
+
+// ─── Comp worst-block overlay (--comp) ────────────────────────────────────────
+// img2/img3 패널 위에 원본 대비 PSNR 최악 블록 num_blk개를 순위 색(빨강=최악 →
+// 노랑) 테두리로 표시하고, 마우스가 블록 위에 있으면 상세 풍선말을 띄운다.
+// render_slot: 0=worst2(img2 패널), 1=worst3(img3 패널; 이때 images[1]에 img_c가
+// swap되어 들어와 있으므로 원본=images[0], 비교=images[1]로 균일하게 샘플한다.
+
+void ImagePanel::render_comp_overlay(const AppState& state, int panel_idx,
+                                     ImVec2 widget_pos, int view_w, int view_h,
+                                     int img_w, int img_h)
+{
+    const CompState& cs = state.comp;
+    const std::vector<CompBlockInfo>& blocks =
+        (cs.render_slot == 0) ? cs.worst2 : cs.worst3;
+    if (blocks.empty()) return;
+
+    const ViewportState& vp = state.views[panel_idx];
+    float zoom    = vp.zoom;
+    float half_vw = view_w * 0.5f;
+    float half_vh = view_h * 0.5f;
+    float half_iw = img_w  * 0.5f;
+    float half_ih = img_h  * 0.5f;
+    auto ix2s = [&](float ix) {
+        return widget_pos.x + (ix + vp.pan_x - half_iw) * zoom + half_vw;
+    };
+    auto iy2s = [&](float iy) {
+        return widget_pos.y + (iy + vp.pan_y - half_ih) * zoom + half_vh;
+    };
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 mouse = ImGui::GetMousePos();
+    bool mouse_in_panel =
+        mouse.x >= widget_pos.x && mouse.x < widget_pos.x + view_w &&
+        mouse.y >= widget_pos.y && mouse.y < widget_pos.y + view_h;
+    int hovered = -1;
+
+    int n = static_cast<int>(blocks.size());
+    for (int i = 0; i < n; ++i) {
+        const CompBlockInfo& b = blocks[i];
+        float sx0 = ix2s(static_cast<float>(b.x));
+        float sy0 = iy2s(static_cast<float>(b.y));
+        float sx1 = ix2s(static_cast<float>(b.x + b.w));
+        float sy1 = iy2s(static_cast<float>(b.y + b.h));
+        if (sx1 < widget_pos.x || sy1 < widget_pos.y ||
+            sx0 > widget_pos.x + view_w || sy0 > widget_pos.y + view_h)
+            continue;   // 패널 밖
+        // 순위 색: #1(최악)=빨강 → #N=노랑
+        float t = (n > 1) ? static_cast<float>(i) / static_cast<float>(n - 1) : 0.0f;
+        ImU32 col = IM_COL32(255, static_cast<int>(220.0f * t), 0, 230);
+        dl->AddRect(ImVec2(sx0, sy0), ImVec2(sx1, sy1), col, 0.0f, 0, 2.0f);
+        if (mouse_in_panel &&
+            mouse.x >= sx0 && mouse.x < sx1 && mouse.y >= sy0 && mouse.y < sy1)
+            hovered = i;
+        if (sx1 - sx0 > 22.0f && sy1 - sy0 > 14.0f) {
+            char lbl[16];
+            std::snprintf(lbl, sizeof(lbl), "#%d", i + 1);
+            dl->AddText(ImVec2(sx0 + 2, sy0 + 1), col, lbl);
+        }
+    }
+
+    if (hovered < 0) return;
+
+    // ── hover 풍선말: 블록 상세 (원본 vs 이 패널 영상) ────────────────────────
+    const CompBlockInfo& b = blocks[hovered];
+    const ImageEntry& A = state.images[0];
+    const ImageEntry& B = state.images[1];
+    ImGui::BeginTooltip();
+    if (state.font_large) ImGui::PushFont(state.font_large);
+    const char* pane = (cs.render_slot == 0) ? "img2(mid)" : "img3(right)";
+    ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.1f, 1.0f),
+                       "Block #%d  %s vs orig", hovered + 1, pane);
+    ImGui::Text("grid (%d,%d)   px (%d,%d)-(%d,%d)   %dx%d",
+                b.bx, b.by, b.x, b.y,
+                b.x + b.w - 1, b.y + b.h - 1, b.w, b.h);
+    ImGui::Separator();
+    if (b.psnr >= 999.0) ImGui::Text("PSNR: inf");
+    else                 ImGui::Text("PSNR: %.2f dB    MSE: %.3f", b.psnr, b.mse);
+    ImGui::Text("MSE R/G/B: %.3f / %.3f / %.3f", b.mse_c[0], b.mse_c[1], b.mse_c[2]);
+    int npx = b.w * b.h;
+    ImGui::Text("error pixels: %d / %d (%.1f%%)", b.nerr, npx,
+                npx > 0 ? 100.0 * b.nerr / npx : 0.0);
+    if (A.loaded && B.loaded && b.worst_err > 0.0 &&
+        b.worst_x < A.width && b.worst_y < A.height &&
+        b.worst_x < B.width && b.worst_y < B.height) {
+        size_t p = (static_cast<size_t>(b.worst_y) * A.width + b.worst_x) * 4;
+        if (!A.pixels.empty() && !B.pixels.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f),
+                "worst px (%d,%d)   |d|max = %d",
+                b.worst_x, b.worst_y, static_cast<int>(b.worst_err + 0.5));
+            ImGui::Text("  orig   R:%d  G:%d  B:%d",
+                        A.pixels[p+0], A.pixels[p+1], A.pixels[p+2]);
+            ImGui::Text("  this   R:%d  G:%d  B:%d",
+                        B.pixels[p+0], B.pixels[p+1], B.pixels[p+2]);
+            ImGui::Text("  delta  R:%+d  G:%+d  B:%+d",
+                        static_cast<int>(B.pixels[p+0]) - A.pixels[p+0],
+                        static_cast<int>(B.pixels[p+1]) - A.pixels[p+1],
+                        static_cast<int>(B.pixels[p+2]) - A.pixels[p+2]);
+        } else if (!A.pixels_f32.empty() && !B.pixels_f32.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f),
+                "worst px (%d,%d)   |d|max = %.4f",
+                b.worst_x, b.worst_y, b.worst_err);
+            ImGui::Text("  orig   R:%.3f  G:%.3f  B:%.3f",
+                        A.pixels_f32[p+0], A.pixels_f32[p+1], A.pixels_f32[p+2]);
+            ImGui::Text("  this   R:%.3f  G:%.3f  B:%.3f",
+                        B.pixels_f32[p+0], B.pixels_f32[p+1], B.pixels_f32[p+2]);
+            ImGui::Text("  delta  R:%+.3f  G:%+.3f  B:%+.3f",
+                        B.pixels_f32[p+0] - A.pixels_f32[p+0],
+                        B.pixels_f32[p+1] - A.pixels_f32[p+1],
+                        B.pixels_f32[p+2] - A.pixels_f32[p+2]);
+        }
+    }
+    if (state.font_large) ImGui::PopFont();
+    ImGui::EndTooltip();
 }
 
 // ─── Overlay/Blend render ─────────────────────────────────────────────────────

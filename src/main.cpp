@@ -445,6 +445,12 @@ int main(int argc, char* argv[]) {
                 std::cerr << "Failed to load image B: " << cli.image_b << "\n";
             }
         }
+        // --comp: 세 번째 영상은 images[]와 분리된 comp.img_c 슬롯에 로드
+        if (cli.comp && !cli.image_c.empty()) {
+            if (!load_image(cli.image_c, state.comp.img_c)) {
+                std::cerr << "Failed to load image C: " << cli.image_c << "\n";
+            }
+        }
     }
 
     // 초기 zoom(--zoom / .av.ini)은 load_image_and_populate_sequence 안에서 매 로드마다

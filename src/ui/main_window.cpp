@@ -21,6 +21,7 @@
 #include <cstring>
 #include <cmath>
 #include <cstdio>
+#include <utility>   // std::swap (--comp img_c 패널 렌더)
 
 // ─── Pixel format helper for balloon ──────────────────────────────────────────
 
@@ -578,6 +579,7 @@ static void render_stats_save_window(AppState& state) {
 static ImagePanel s_panel_left;
 static ImagePanel s_panel_right;
 static ImagePanel s_panel_diff;
+static ImagePanel s_panel_comp;   // --comp 3번째(img3) 패널
 static StatusBar  s_statusbar;
 
 // ─── SSIM computer ────────────────────────────────────────────────────────────
@@ -607,6 +609,10 @@ bool MainWindow::init() {
     }
     if (!s_panel_diff.init()) {
         std::cerr << "[MainWindow] diff panel init failed\n";
+        return false;
+    }
+    if (!s_panel_comp.init()) {
+        std::cerr << "[MainWindow] comp panel init failed\n";
         return false;
     }
     inited_ = true;
@@ -1488,6 +1494,16 @@ void MainWindow::render(AppState& state) {
 
     // ── Layout: determine panel sizes ─────────────────────────────────────────
     bool two_images   = state.images[0].loaded && state.images[1].loaded;
+
+    // --comp: 3-영상 모드에서는 diff/blink/overlay/swap을 강제 해제 (spec)
+    bool comp_mode = state.comp.active && two_images && state.comp.img_c.loaded;
+    if (state.comp.active) {
+        state.diff.mode      = DiffState::Mode::None;
+        state.swap_images    = false;
+        state.blink.active   = false;
+        state.overlay.active = false;
+    }
+
     bool diff_mode    = (state.diff.mode != DiffState::Mode::None);
     bool overlay_mode = state.overlay.active && two_images;
 
@@ -1524,6 +1540,42 @@ void MainWindow::render(AppState& state) {
         ImGui::BeginChild("##PanelOverlay", ImVec2(0.0f, panel_h), false, child_flags);
         { ImVec2 p = ImGui::GetWindowPos(); panel_rects[panel_rect_count++] = {p, ImVec2(p.x + content.x, p.y + panel_h), IM_COL32(150, 255, 150, 200)}; }
         s_panel_left.render(state, 0, diff_renderer_);
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+    } else if (comp_mode) {
+        // ── 3-panel: A(orig) | B(img2) | C(img3)  (--comp) ───────────────────
+        if (!state.comp.computed) compute_comp_metrics(state);
+        float third_w = std::floor(content.x / 3.0f);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::BeginChild("##PanelLeft", ImVec2(third_w, panel_h), false, child_flags);
+        { ImVec2 p = ImGui::GetWindowPos(); panel_rects[panel_rect_count++] = {p, ImVec2(p.x + third_w, p.y + panel_h), (ImU32)state.border_colors[0]}; }
+        state.comp.render_slot = -1;                       // 원본: 오버레이 없음
+        s_panel_left.render(state, 0, diff_renderer_, true);
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+
+        ImGui::SameLine(0.0f, 0.0f);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::BeginChild("##PanelRight", ImVec2(third_w, panel_h), false, child_flags);
+        { ImVec2 p = ImGui::GetWindowPos(); panel_rects[panel_rect_count++] = {p, ImVec2(p.x + third_w, p.y + panel_h), (ImU32)state.border_colors[1]}; }
+        state.comp.render_slot = 0;                        // img2: worst2 오버레이
+        s_panel_right.render(state, 1, diff_renderer_, true);
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+
+        ImGui::SameLine(0.0f, 0.0f);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::BeginChild("##PanelComp", ImVec2(0.0f, panel_h), false, child_flags);
+        { ImVec2 p = ImGui::GetWindowPos(); float dw = content.x - 2.0f * third_w; panel_rects[panel_rect_count++] = {p, ImVec2(p.x + dw, p.y + panel_h), (ImU32)state.border_colors[2]}; }
+        // img_c를 슬롯 1에 O(1) swap으로 잠깐 끼워 렌더 (viewport는 B와 공유 → 3패널 동기)
+        state.comp.render_slot = 1;                        // img3: worst3 오버레이
+        std::swap(state.images[1], state.comp.img_c);
+        s_panel_comp.render(state, 1, diff_renderer_, true);
+        std::swap(state.images[1], state.comp.img_c);
+        state.comp.render_slot = -1;
         ImGui::EndChild();
         ImGui::PopStyleVar();
     } else if (two_images && diff_mode) {
@@ -1618,6 +1670,16 @@ void MainWindow::render(AppState& state) {
                                 img.is_hdr ? "  [HDR]" : "");
                 }
             }
+            if (state.comp.active && state.comp.img_c.loaded) {
+                const auto& img = state.comp.img_c;
+                ImGui::TextColored(ImVec4(0.3f, 1.0f, 1.0f, 1.0f), "C(Right):");
+                ImGui::SameLine();
+                ImGui::Text("%s", img.path.empty() ? state.cli.image_c.c_str()
+                                                   : img.path.c_str());
+                ImGui::Text("   %d x %d  ch=%d%s",
+                            img.width, img.height, img.channels,
+                            img.is_hdr ? "  [HDR]" : "");
+            }
             ImGui::Separator();
             for (int i = 0; i < 2; ++i) {
                 const auto& v   = state.views[i];
@@ -1637,7 +1699,27 @@ void MainWindow::render(AppState& state) {
                 }
             }
             // ── PSNR: A(Left)=기준, B(Right)=비교 (창이 열리면 자동 계산·표시) ──────
-            if (state.images[0].loaded && state.images[1].loaded) {
+            if (state.comp.active) {
+                // --comp: 원본 대비 img2/img3 PSNR 두 줄 (색상 규칙은 기존과 동일)
+                if (!state.comp.computed) compute_comp_metrics(state);
+                ImGui::Separator();
+                auto psnr_line = [](const char* label, float p, bool mismatch) {
+                    if (mismatch) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+                                           "%s: N/A (size/format mismatch)", label);
+                    } else if (p >= 999.0f) {
+                        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f),
+                                           "%s: inf  (identical)", label);
+                    } else if (p >= 0.0f) {
+                        ImVec4 col = (p > 40.0f) ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                                   : (p > 30.0f) ? ImVec4(1.0f, 0.9f, 0.2f, 1.0f)
+                                                 : ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+                        ImGui::TextColored(col, "%s: %.2f dB", label, p);
+                    }
+                };
+                psnr_line("PSNR img2(mid)   vs orig", state.comp.psnr2, state.comp.mismatch2);
+                psnr_line("PSNR img3(right) vs orig", state.comp.psnr3, state.comp.mismatch3);
+            } else if (state.images[0].loaded && state.images[1].loaded) {
                 if (!state.info_psnr_computed) compute_info_psnr(state);  // i 누르면 기본 표시
                 ImGui::Separator();
                 if (state.info_psnr_mismatch) {
@@ -1721,12 +1803,16 @@ void MainWindow::render(AppState& state) {
             bool probe_ok = false;              // Shift+V colorimetry: non-diff sample valid
             int  probe_ix = 0, probe_iy = 0;    // sampled image-pixel coord
 
-            if (two_images && diff_mode) {
+            if (comp_mode || (two_images && diff_mode)) {
                 float third_w = std::floor(total_w / 3.0f);
                 if (px < third_w) {
                     panel_idx = 0; panel_x_start = 0.0f;          panel_w_local = third_w;
                 } else if (px < 2.0f * third_w) {
                     panel_idx = 1; panel_x_start = third_w;        panel_w_local = third_w;
+                } else if (comp_mode) {
+                    panel_idx = 2;                                 // --comp: img3 패널
+                    panel_x_start = 2.0f * third_w;
+                    panel_w_local = total_w - 2.0f * third_w;
                 } else {
                     is_diff_panel = true;
                     panel_x_start = 2.0f * third_w;
@@ -1803,12 +1889,19 @@ void MainWindow::render(AppState& state) {
                     break;
                 }
             } else {
-                int img_idx = state.swap_images ? (1 - panel_idx) : panel_idx;
-                if (img_idx < 0 || img_idx > 1) break;
-                const ImageEntry&    bimg = state.images[img_idx];
+                const ImageEntry* bimg_p = nullptr;
+                if (panel_idx == 2) {
+                    bimg_p = &state.comp.img_c;   // --comp 3번째 패널 = img_c
+                } else {
+                    int img_idx = state.swap_images ? (1 - panel_idx) : panel_idx;
+                    if (img_idx < 0 || img_idx > 1) break;
+                    bimg_p = &state.images[img_idx];
+                }
+                const ImageEntry&    bimg = *bimg_p;
                 if (!bimg.loaded) break;
 
-                const ViewportState& bvp = state.views[panel_idx];
+                // comp 3번째 패널은 슬롯 1의 viewport로 렌더됨 (B와 동기)
+                const ViewportState& bvp = state.views[panel_idx == 2 ? 1 : panel_idx];
 
                 float view_w  = panel_w_local;
                 float view_h  = static_cast<float>(panel_h);

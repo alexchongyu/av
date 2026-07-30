@@ -474,6 +474,7 @@ bool load_image_and_populate_sequence(AppState& state, int panel,
         }
         state.diff.psnr_computed = false;  // diff 캐시 무효화
         state.info_psnr_computed = false;  // info창 PSNR 무효화 (영상이 바뀜)
+        state.comp.computed      = false;  // --comp 블록 통계 무효화
         state.panel_missing_msg[panel].clear();  // 로드 성공 → 해당 패널 'missing' 해제
 
         // 시퀀스 스캔 (성공 시에만 경로 기반 목록 구축)

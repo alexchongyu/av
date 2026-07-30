@@ -32,6 +32,7 @@ void sequence_navigate(AppState& state, int panel, int dir) {
 #include <cstdlib>
 #include <cmath>
 #include <string>
+#include <algorithm>
 
 // ─── parse_cli ────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,12 @@ static void print_help(const char* prog) {
         "  --batch <file|->     Headless --metrics over a manifest of arbitrary A,B pairs\n"
         "                       (TAB-separated 'A<TAB>B[<TAB>label]', # comments; - = stdin).\n"
         "                       Honours --format and --fail-* gates. No same-name constraint.\n"
+        "  --comp               3-image compare: av --comp <orig> <img2> <img3>.\n"
+        "                       Layout orig|img2|img3, diff disabled. Worst-PSNR blocks\n"
+        "                       vs orig are outlined on img2/img3 (hover = detail balloon).\n"
+        "                       PSNR of img2 and img3 vs orig shown in the Info window (i).\n"
+        "  --blk <WxH>          --comp block size, e.g. 8x8|10x10|16x16 (default: 8x8)\n"
+        "  --num_blk <N>        --comp worst-block count to outline     (default: 16)\n"
         "  --amplify <val>      Diff amplification 0.1-100   (default: 1.0)\n"
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
@@ -155,6 +162,23 @@ CliOptions parse_cli(int argc, char* argv[]) {
             opts.fail_semu = std::stof(next());
         } else if (arg == "--batch") {
             opts.batch_path = next();
+        } else if (arg == "--comp") {
+            opts.comp = true;
+        } else if (arg == "--blk") {
+            std::string b = next();
+            int bw = 0, bh = 0;
+            if (std::sscanf(b.c_str(), "%dx%d", &bw, &bh) != 2) {
+                if (std::sscanf(b.c_str(), "%d", &bw) == 1) bh = bw;  // "8" == "8x8"
+            }
+            if (bw < 2 || bh < 2 || bw > 1024 || bh > 1024) {
+                std::cerr << "Invalid --blk: " << b << " (expected WxH, e.g. 8x8)\n";
+                std::exit(1);
+            }
+            opts.comp_blk_w = bw;
+            opts.comp_blk_h = bh;
+        } else if (arg == "--num_blk" || arg == "--num-blk") {
+            opts.comp_num_blk = std::stoi(next());
+            if (opts.comp_num_blk < 1) opts.comp_num_blk = 1;
         } else if (arg == "--fail-psnr") {
             opts.fail_psnr = std::stof(next());
         } else if (arg == "--warn-psnr") {
@@ -212,14 +236,25 @@ CliOptions parse_cli(int argc, char* argv[]) {
             std::cerr << "Unknown option: " << arg << "\n";
             std::exit(1);
         } else {
-            // Positional: imageA then imageB
+            // Positional: imageA then imageB (then imageC in --comp mode)
             if (opts.image_a.empty())      opts.image_a = arg;
             else if (opts.image_b.empty()) opts.image_b = arg;
+            else if (opts.image_c.empty()) opts.image_c = arg;
             else {
-                std::cerr << "Too many image arguments (max 2)\n";
+                std::cerr << "Too many image arguments (max 3)\n";
                 std::exit(1);
             }
         }
+    }
+
+    // --comp 검증: 3영상 필수. 3번째 영상만 주어지면 comp 자동 활성화.
+    if (!opts.image_c.empty() && !opts.comp) opts.comp = true;
+    if (opts.comp) {
+        if (opts.image_a.empty() || opts.image_b.empty() || opts.image_c.empty()) {
+            std::cerr << "--comp needs three images: av --comp <orig> <img2> <img3>\n";
+            std::exit(1);
+        }
+        opts.diff_mode = DiffState::Mode::None;   // 3-영상 모드에서는 diff 금지
     }
     return opts;
 }
@@ -232,6 +267,10 @@ void apply_cli_options(AppState& state, const CliOptions& opts) {
     state.pan_step        = opts.pan_step;
     state.border_colors   = opts.border_colors;
     state.windowed_mode   = opts.windowed;
+    state.comp.active     = opts.comp;
+    state.comp.blk_w      = opts.comp_blk_w;
+    state.comp.blk_h      = opts.comp_blk_h;
+    state.comp.num_blk    = opts.comp_num_blk;
     if (opts.no_border) state.show_borders = false;
     // --zoom 이 CLI에 명시된 경우에만 저장된 초기 zoom 을 덮어쓴다.
     // (미지정 시 load_app_ini 가 읽어둔 .av.ini 값 유지 → "마지막 옵션 상태" 재현)
@@ -270,6 +309,114 @@ void compute_info_psnr(AppState& state) {
         state.info_psnr_mismatch = false;
     }
     state.info_psnr_computed = true;
+}
+
+// ─── compute_comp_metrics ─────────────────────────────────────────────────────
+// --comp: 한 쌍(A=원본, B=비교)을 1-pass 블록 스캔해 전역 PSNR(채널별 PSNR 평균,
+// compute_info_psnr과 동일 관례)과 블록별 MSE/PSNR/최악픽셀을 구하고, mse 내림차순
+// 상위 num_blk개만 남긴다. u8쌍은 peak 255, HDR(f32)쌍은 peak 1.0.
+
+static void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
+                           int blk_w, int blk_h, int num_blk,
+                           float& psnr_out, bool& mismatch_out,
+                           std::vector<CompBlockInfo>& worst_out) {
+    worst_out.clear();
+    psnr_out = -1.0f;
+    bool bothU8  = !A.pixels.empty()     && !B.pixels.empty();
+    bool bothF32 = A.is_hdr && B.is_hdr &&
+                   !A.pixels_f32.empty() && !B.pixels_f32.empty();
+    if (A.width != B.width || A.height != B.height || (!bothU8 && !bothF32)) {
+        mismatch_out = true;
+        return;
+    }
+    mismatch_out = false;
+
+    const int    W    = A.width, H = A.height;
+    const double peak = bothU8 ? 255.0 : 1.0;
+    const int    nbx  = (W + blk_w - 1) / blk_w;
+    const int    nby  = (H + blk_h - 1) / blk_h;
+
+    std::vector<CompBlockInfo> blocks;
+    blocks.reserve(static_cast<size_t>(nbx) * nby);
+    double total_se[3] = {0.0, 0.0, 0.0};   // 전역 채널별 SE
+
+    for (int by = 0; by < nby; ++by) {
+        for (int bx = 0; bx < nbx; ++bx) {
+            CompBlockInfo blk;
+            blk.bx = bx;         blk.by = by;
+            blk.x  = bx * blk_w; blk.y  = by * blk_h;
+            blk.w  = std::min(blk_w, W - blk.x);
+            blk.h  = std::min(blk_h, H - blk.y);
+            double se[3] = {0.0, 0.0, 0.0};
+            for (int y = blk.y; y < blk.y + blk.h; ++y) {
+                for (int x = blk.x; x < blk.x + blk.w; ++x) {
+                    size_t p = (static_cast<size_t>(y) * W + x) * 4;
+                    double d[3];
+                    if (bothU8) {
+                        d[0] = static_cast<double>(A.pixels[p+0]) - B.pixels[p+0];
+                        d[1] = static_cast<double>(A.pixels[p+1]) - B.pixels[p+1];
+                        d[2] = static_cast<double>(A.pixels[p+2]) - B.pixels[p+2];
+                    } else {
+                        d[0] = static_cast<double>(A.pixels_f32[p+0]) - B.pixels_f32[p+0];
+                        d[1] = static_cast<double>(A.pixels_f32[p+1]) - B.pixels_f32[p+1];
+                        d[2] = static_cast<double>(A.pixels_f32[p+2]) - B.pixels_f32[p+2];
+                    }
+                    double amax = std::max({std::fabs(d[0]), std::fabs(d[1]), std::fabs(d[2])});
+                    if (amax > 0.0) {
+                        ++blk.nerr;
+                        if (amax > blk.worst_err) {
+                            blk.worst_err = amax;
+                            blk.worst_x = x;
+                            blk.worst_y = y;
+                        }
+                    }
+                    for (int c = 0; c < 3; ++c) se[c] += d[c] * d[c];
+                }
+            }
+            double npx = static_cast<double>(blk.w) * blk.h;
+            for (int c = 0; c < 3; ++c) {
+                blk.mse_c[c] = se[c] / npx;
+                total_se[c] += se[c];
+            }
+            blk.mse  = (blk.mse_c[0] + blk.mse_c[1] + blk.mse_c[2]) / 3.0;
+            blk.psnr = (blk.mse > 0.0)
+                     ? 20.0 * std::log10(peak) - 10.0 * std::log10(blk.mse)
+                     : 999.0;
+            if (blk.mse > 0.0) blocks.push_back(blk);   // 무오차 블록은 후보 제외
+        }
+    }
+
+    // 전역 PSNR = 유효 채널별 PSNR 평균 (compute_info_psnr과 동일 관례)
+    double npix = static_cast<double>(W) * H;
+    double sum = 0.0; int cnt = 0;
+    for (int c = 0; c < 3; ++c) {
+        double mse = total_se[c] / npix;
+        if (mse > 0.0) {
+            sum += 20.0 * std::log10(peak) - 10.0 * std::log10(mse);
+            ++cnt;
+        }
+    }
+    psnr_out = (cnt > 0) ? static_cast<float>(sum / cnt) : 999.0f;
+
+    size_t n = std::min(static_cast<size_t>(num_blk), blocks.size());
+    std::partial_sort(blocks.begin(), blocks.begin() + n, blocks.end(),
+                      [](const CompBlockInfo& a, const CompBlockInfo& b) {
+                          return a.mse > b.mse;
+                      });
+    blocks.resize(n);
+    worst_out = std::move(blocks);
+}
+
+void compute_comp_metrics(AppState& state) {
+    CompState& cs = state.comp;
+    cs.computed = true;   // 실패해도 매 프레임 재시도 방지 (영상 교체 시 다시 무효화됨)
+    if (!state.images[0].loaded) return;
+    if (state.images[1].loaded)
+        comp_scan_pair(state.images[0], state.images[1], cs.blk_w, cs.blk_h,
+                       cs.num_blk, cs.psnr2, cs.mismatch2, cs.worst2);
+    if (cs.img_c.loaded)
+        comp_scan_pair(state.images[0], cs.img_c, cs.blk_w, cs.blk_h,
+                       cs.num_blk, cs.psnr3, cs.mismatch3, cs.worst3);
 }
 
 // ─── handle_keyboard ──────────────────────────────────────────────────────────

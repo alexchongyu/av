@@ -246,9 +246,39 @@ struct OverlayState {
 };
 
 
+// ─── Comp (3-영상 블록 비교) state — --comp ──────────────────────────────────
+
+struct CompBlockInfo {
+    int    x = 0, y = 0, w = 0, h = 0;   // 블록 픽셀 사각형 (image px)
+    int    bx = 0, by = 0;               // 블록 그리드 좌표
+    double mse = 0.0, psnr = 0.0;        // 블록 MSE/PSNR (RGB 3채널 풀링, 999=identical)
+    double mse_c[3] = {0.0, 0.0, 0.0};   // 채널별 MSE
+    int    nerr = 0;                     // 오차(≠0) 픽셀 수
+    int    worst_x = 0, worst_y = 0;     // 최악 픽셀 (|Δ|max)
+    double worst_err = 0.0;              // 최악 픽셀의 최대 채널 |Δ|
+};
+
+struct CompState {
+    bool active  = false;      // --comp: A(원본)|B|C 3패널, diff 강제 해제
+    int  blk_w   = 8, blk_h = 8;
+    int  num_blk = 16;         // worst 블록 표시 개수
+    ImageEntry img_c;          // 세 번째 영상 (오른쪽 패널; images[]와 분리 보관)
+
+    // 결과 (compute_comp_metrics; 영상 교체 시 computed=false로 무효화)
+    bool   computed  = false;
+    float  psnr2 = -1.0f, psnr3 = -1.0f;    // A↔B, A↔C 전역 PSNR (999=identical)
+    bool   mismatch2 = false, mismatch3 = false;
+    std::vector<CompBlockInfo> worst2;      // A↔B worst 블록 (mse 내림차순)
+    std::vector<CompBlockInfo> worst3;      // A↔C worst 블록
+
+    // 렌더 중인 패널의 오버레이 선택: -1=원본(없음), 0=worst2(B), 1=worst3(C)
+    int render_slot = -1;
+};
+
 struct CliOptions {
     std::string     image_a;
     std::string     image_b;
+    std::string     image_c;                 // --comp 세 번째 positional (오른쪽 영상)
     DiffState::Mode diff_mode    = DiffState::Mode::None;
     float           zoom         = 0.0f;    // 0 = fit
     bool            zoom_set     = false;   // --zoom 이 CLI에 명시됨 → 저장값 덮어쓰기
@@ -261,6 +291,10 @@ struct CliOptions {
     float           fail_uniformity = -1.0f; // CI 게이트: uni25% < 값이면 exit 10
     float           fail_semu       = -1.0f; // CI 게이트: SEMU > 값이면 exit 10
     std::string     batch_path;              // --batch <file|->: 매니페스트의 임의 A,B 쌍 헤드리스 처리
+    bool            comp         = false;    // --comp: 3-영상 블록 비교 (orig|img2|img3, diff 금지)
+    int             comp_blk_w   = 8;        // --blk WxH (기본 8x8)
+    int             comp_blk_h   = 8;
+    int             comp_num_blk = 16;       // --num_blk N: worst 블록 표시 개수
     // CI gate thresholds (-1 = unset). psnr/ssim: FAIL if below; flip/maxerr: FAIL if above.
     float           fail_psnr    = -1.0f;
     float           warn_psnr    = -1.0f;
@@ -407,6 +441,9 @@ struct AppState {
     // ─── Feature: Filename toast (on image load / sequence navigate) ────
     FilenameToastState filename_toast;
 
+    // ─── Feature: --comp 3-영상 블록 비교 (A=원본 | B | C) ───────────────
+    CompState comp;
+
 };
 
 // ─── Function declarations ────────────────────────────────────────────────────
@@ -430,6 +467,10 @@ void sequence_navigate(AppState& state, int panel, int dir);
 // 두 영상이 로드돼 있어야 하며, 크기/포맷 불일치면 info_psnr_mismatch를 set.
 // Image Info 창이 열리고 두 영상이 있으면 자동 호출된다(별도 키 불필요).
 void compute_info_psnr(AppState& state);
+
+// --comp: A(원본) 대비 B(중간)·C(오른쪽)의 전역 PSNR + 블록별 MSE/PSNR을 계산해
+// state.comp에 worst num_blk개 블록(mse 내림차순)을 저장. u8/f32(HDR) 쌍 지원.
+void compute_comp_metrics(AppState& state);
 
 // Load/save persistent settings from/to av.ini.
 void load_app_ini(AppState& state);
