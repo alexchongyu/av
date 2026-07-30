@@ -850,7 +850,7 @@ static void render_hotkey_help_window(AppState& state) {
     ImGuiIO& io = ImGui::GetIO();
     float vp_w = io.DisplaySize.x;
     float vp_h = io.DisplaySize.y;
-    float win_w = std::min(vp_w * 0.52f, 660.0f);
+    float win_w = std::min(vp_w * 0.62f, 860.0f);
     // Auto-height capped at 92% of viewport; positioned near top-center
     ImGui::SetNextWindowSizeConstraints(ImVec2(win_w, 0), ImVec2(win_w, vp_h * 0.92f));
     ImGui::SetNextWindowPos(ImVec2((vp_w - win_w) * 0.5f, vp_h * 0.04f), ImGuiCond_Always);
@@ -980,8 +980,26 @@ static void render_hotkey_help_window(AppState& state) {
         { "CLI", "-bc <A> <B> <D>",                 "Border colours for A/B/Diff as 6-digit hex" },
         { "CLI", "-nb",                              "Start with panel borders hidden" },
         { "CLI", "-d, --diff",                      "Show pixel-absolute diff (shortcut)" },
+        { "CLI", "--pair",                          "Pair same-named files from A's and B's directories (sequence-linked)" },
+        { "CLI", "--lut <file.cube>",               "Apply 3D/1D .cube LUT to both panels (' toggles)" },
+        { "CLI", "--cdl <file.cdl>",                "Apply ASC-CDL slope/offset/power+sat look" },
+        { "CLI", "--software",                      "Force SDL software renderer (no OpenGL)" },
+        { "CLI", "--windowed",                      "Start in windowed mode (title bar + resizable)" },
+        { "CLI", "--comp <orig> <img2> <img3>",     "3-image block compare (see Comp section)" },
+        { "CLI", "--blk <WxH>",                     "--comp block size  (default: 8x8)" },
+        { "CLI", "--num_blk <N>",                   "--comp worst-block count  (default: 16)" },
         { "CLI", "--version",                       "Print version and exit" },
         { "CLI", "-h, --help",                      "Print this help" },
+        // CLI Headless (no window; CI/scripting)
+        { "CLI (Headless)", "--metrics",            "PSNR/SSIM/FLIP CSV for A vs B, then exit (--pair: whole sequence)" },
+        { "CLI (Headless)", "--format <fmt>",       "--metrics/--batch output: csv | json | junit" },
+        { "CLI (Headless)", "--fail-psnr <dB> ...", "CI gates, exit 10 (--fail-ssim/--fail-flip/--fail-maxerr, --warn-psnr)" },
+        { "CLI (Headless)", "--diff-out <png> [--sbs]", "Write diff PNG and exit (--sbs: A|diff|B composite)" },
+        { "CLI (Headless)", "--validate",           "Scan float/HDR for NaN/Inf/neg/>1 (exit 8 on NaN/Inf)" },
+        { "CLI (Headless)", "--probe <X,Y>",        "Colorimetry of pixel X,Y (XYZ/xy/u'v'/CCT/Duv/L*), CSV" },
+        { "CLI (Headless)", "--uniformity",         "Flat-field uniformity: ICDM 9/13/25-pt %, CV, du'v', SEMU proxy" },
+        { "CLI (Headless)", "--fail-uniformity / --fail-semu", "Uniformity CI gates, exit 10" },
+        { "CLI (Headless)", "--batch <file|->",     "Metrics over a TAB manifest of A,B pairs (- = stdin)" },
     };
 
     constexpr ImGuiTableFlags tflags =
@@ -990,8 +1008,8 @@ static void render_hotkey_help_window(AppState& state) {
         ImGuiTableFlags_SizingFixedFit;
 
     if (ImGui::BeginTable("hotkeys", 3, tflags)) {
-        ImGui::TableSetupColumn("Category",    ImGuiTableColumnFlags_WidthFixed,    90.0f);
-        ImGui::TableSetupColumn("Shortcut",    ImGuiTableColumnFlags_WidthFixed,   190.0f);
+        ImGui::TableSetupColumn("Category",    ImGuiTableColumnFlags_WidthFixed,   130.0f);
+        ImGui::TableSetupColumn("Shortcut",    ImGuiTableColumnFlags_WidthFixed,   270.0f);
         ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
 
@@ -1008,7 +1026,7 @@ static void render_hotkey_help_window(AppState& state) {
             ImGui::TableSetColumnIndex(1);
             ImGui::TextUnformatted(e.shortcut);
             ImGui::TableSetColumnIndex(2);
-            ImGui::TextUnformatted(e.description);
+            ImGui::TextWrapped("%s", e.description);   // 긴 설명은 잘리지 않게 줄바꿈
         }
         ImGui::EndTable();
     }
