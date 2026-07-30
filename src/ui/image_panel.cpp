@@ -270,7 +270,7 @@ void ImagePanel::render_single_software(AppState& state, int panel_idx) {
                            img.width, img.height);
     }
 
-    if (state.comp.active && state.comp.render_slot >= 0 && state.comp.computed) {
+    if (state.comp.active && state.comp.computed) {
         render_comp_overlay(state, panel_idx, widget_pos, pw, ph,
                             img.width, img.height);
     }
@@ -2008,7 +2008,7 @@ void ImagePanel::render_single(AppState& state, int panel_idx) {
                            img.width, img.height);
     }
 
-    if (state.comp.active && state.comp.render_slot >= 0 && state.comp.computed) {
+    if (state.comp.active && state.comp.computed) {
         render_comp_overlay(state, panel_idx, widget_pos, pw, ph,
                             img.width, img.height);
     }
@@ -2684,9 +2684,6 @@ void ImagePanel::render_comp_overlay(const AppState& state, int panel_idx,
                                      int img_w, int img_h)
 {
     const CompState& cs = state.comp;
-    const std::vector<CompBlockInfo>& blocks =
-        (cs.render_slot == 0) ? cs.worst2 : cs.worst3;
-    if (blocks.empty()) return;
 
     const ViewportState& vp = state.views[panel_idx];
     float zoom    = vp.zoom;
@@ -2702,6 +2699,35 @@ void ImagePanel::render_comp_overlay(const AppState& state, int panel_idx,
     };
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
+
+    // ── Ctrl/Cmd+B: 블록 그리드 바운더리 (3패널 공통) ─────────────────────────
+    if (cs.show_grid && cs.blk_w * zoom >= 4.0f && cs.blk_h * zoom >= 4.0f) {
+        ImU32 grid_col = IM_COL32(120, 220, 255, 110);
+        float wx0 = widget_pos.x,          wy0 = widget_pos.y;
+        float wx1 = wx0 + view_w,          wy1 = wy0 + view_h;
+        float gx0 = std::max(ix2s(0.0f), wx0);
+        float gx1 = std::min(ix2s(static_cast<float>(img_w)), wx1);
+        float gy0 = std::max(iy2s(0.0f), wy0);
+        float gy1 = std::min(iy2s(static_cast<float>(img_h)), wy1);
+        int nbx = (img_w + cs.blk_w - 1) / cs.blk_w;
+        int nby = (img_h + cs.blk_h - 1) / cs.blk_h;
+        for (int bx = 0; bx <= nbx; ++bx) {
+            float sx = ix2s(static_cast<float>(std::min(bx * cs.blk_w, img_w)));
+            if (sx >= wx0 && sx <= wx1 && gy1 > gy0)
+                dl->AddLine(ImVec2(sx, gy0), ImVec2(sx, gy1), grid_col);
+        }
+        for (int by = 0; by <= nby; ++by) {
+            float sy = iy2s(static_cast<float>(std::min(by * cs.blk_h, img_h)));
+            if (sy >= wy0 && sy <= wy1 && gx1 > gx0)
+                dl->AddLine(ImVec2(gx0, sy), ImVec2(gx1, sy), grid_col);
+        }
+    }
+
+    // 원본 패널(slot -1)은 그리드까지만 — worst rect/풍선말은 비교 패널 전용
+    if (cs.render_slot < 0) return;
+    const std::vector<CompBlockInfo>& blocks =
+        (cs.render_slot == 0) ? cs.worst2 : cs.worst3;
+    if (blocks.empty()) return;
     ImVec2 mouse = ImGui::GetMousePos();
     bool mouse_in_panel =
         mouse.x >= widget_pos.x && mouse.x < widget_pos.x + view_w &&

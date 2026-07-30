@@ -88,6 +88,7 @@ static void print_help(const char* prog) {
         "                       PSNR of img2 and img3 vs orig shown in the Info window (i).\n"
         "  --blk <WxH>          --comp block size, e.g. 8x8|10x10|16x16 (default: 8x8)\n"
         "  --num_blk <N>        --comp worst-block count to outline     (default: 16)\n"
+        "                       (GUI: Ctrl/Cmd+B toggles the block-grid boundary lines)\n"
         "  --amplify <val>      Diff amplification 0.1-100   (default: 1.0)\n"
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
@@ -787,6 +788,8 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         break;
     case SDL_SCANCODE_B:
         if (shift) state.channel_mode = ChannelMode::Blue;
+        else if ((ctrl || gui) && state.comp.active)
+            state.comp.show_grid = !state.comp.show_grid;   // --comp: 블록 그리드 토글
         else if (!ctrl && !gui) state.show_borders = !state.show_borders;
         break;
     case SDL_SCANCODE_C:
