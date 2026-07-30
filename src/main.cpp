@@ -204,6 +204,10 @@ int main(int argc, char* argv[]) {
     if (!cli.batch_path.empty())
         return run_batch_headless(cli);
 
+    // ── --comp-out: headless 3-image block table, no window, then exit ────────
+    if (!cli.comp_out.empty())
+        return run_comp_headless(cli);
+
     // ── --metrics: headless PSNR/SSIM/MSE/MAE, no window/GL/SDL, then exit ─────
     if (cli.metrics)
         return run_metrics_headless(cli, pair_dir_b);

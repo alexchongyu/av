@@ -83,3 +83,7 @@ bool load_image_and_populate_sequence(AppState& state,
 // --pair 모드: A의 파일명을 state.pair_dir_b 에서 찾아 패널 B(1)에 미러 로드.
 // 같은 이름이 없으면 B를 비우고 state.panel_missing_msg[1] 을 basename으로 설정.
 void pair_mirror_b(AppState& state, const std::string& a_path);
+
+// --comp 모드: 원본(a_path)의 파일명을 img2/img3의 디렉토리에서 찾아 각각
+// 패널 1과 comp.img_c로 미러 로드. ';'/'a' 시퀀스 탐색 시 3영상 동기용.
+void comp_mirror_bc(AppState& state, const std::string& a_path);

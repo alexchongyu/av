@@ -888,3 +888,97 @@ int run_batch_headless(const CliOptions& cli) {
     if (rows.empty()) { std::cerr << "[batch] manifest had no A,B pairs\n"; return 3; }
     return finish_rows(cli, rows, gate, "batch");
 }
+
+// ─── run_comp_headless ───────────────────────────────────────────────────────
+// --comp --comp-out: 3영상 블록 비교 테이블 (CPU 전용, 창 없음). 행 = 전체 블록.
+// dpsnr = psnr_img2 - psnr_img3 (+ = img2 우세). 요약/승패 집계는 stderr.
+
+int run_comp_headless(const CliOptions& cli) {
+    ImageEntry A, B, C;
+    if (!decode_image_cpu(cli.image_a, A)) { std::cerr << "[comp] cannot decode: " << cli.image_a << "\n"; return 4; }
+    if (!decode_image_cpu(cli.image_b, B)) { std::cerr << "[comp] cannot decode: " << cli.image_b << "\n"; return 4; }
+    if (!decode_image_cpu(cli.image_c, C)) { std::cerr << "[comp] cannot decode: " << cli.image_c << "\n"; return 4; }
+
+    float p2 = -1.0f, p3 = -1.0f;
+    bool  mm2 = false, mm3 = false;
+    std::vector<CompBlockInfo> w2, w3;
+    std::vector<double> g2, g3;
+    int nbx = 0, nby = 0;
+    comp_scan_pair(A, B, cli.comp_blk_w, cli.comp_blk_h, cli.comp_num_blk,
+                   p2, mm2, w2, &g2, &nbx, &nby);
+    comp_scan_pair(A, C, cli.comp_blk_w, cli.comp_blk_h, cli.comp_num_blk,
+                   p3, mm3, w3, &g3, &nbx, &nby);
+    if (mm2 || mm3) {
+        std::cerr << "[comp] size/format mismatch vs orig (img2:" << (mm2 ? "BAD" : "ok")
+                  << " img3:" << (mm3 ? "BAD" : "ok") << ")\n";
+        return 5;
+    }
+
+    const double peak = (!A.pixels.empty() && !B.pixels.empty()) ? 255.0 : 1.0;
+    auto psnr_of = [&](double m) { return 20.0 * std::log10(peak) - 10.0 * std::log10(m); };
+
+    std::ofstream f;
+    std::ostream* out = &std::cout;
+    if (cli.comp_out != "-") {
+        f.open(cli.comp_out);
+        if (!f) { std::cerr << "[comp] cannot open output: " << cli.comp_out << "\n"; return 3; }
+        out = &f;
+    }
+    bool json = (cli.out_format == "json");
+    if (cli.out_format == "junit")
+        std::cerr << "[comp] --format junit not supported for --comp-out; emitting csv\n";
+
+    int win2 = 0, win3 = 0, tie = 0, nonzero = 0;
+    if (json) (*out) << "[\n";
+    else      (*out) << "bx,by,x,y,w,h,mse_img2,psnr_img2,mse_img3,psnr_img3,dpsnr\n";
+    bool first = true;
+    for (int by = 0; by < nby; ++by) {
+        for (int bx = 0; bx < nbx; ++bx) {
+            size_t i = static_cast<size_t>(by) * nbx + bx;
+            double m2 = g2[i], m3 = g3[i];
+            int x = bx * cli.comp_blk_w, y = by * cli.comp_blk_h;
+            int w = std::min(cli.comp_blk_w, A.width  - x);
+            int h = std::min(cli.comp_blk_h, A.height - y);
+            if (m2 > 0.0 || m3 > 0.0) {
+                ++nonzero;
+                double d = (m2 <= 0.0) ? 99.0 : (m3 <= 0.0) ? -99.0
+                         : 10.0 * std::log10(m3 / m2);
+                if      (d >  1.0) ++win2;
+                else if (d < -1.0) ++win3;
+                else               ++tie;
+            }
+            char p2s[32], p3s[32], ds[32];
+            if (m2 > 0.0) std::snprintf(p2s, sizeof(p2s), "%.4f", psnr_of(m2));
+            else          std::snprintf(p2s, sizeof(p2s), "inf");
+            if (m3 > 0.0) std::snprintf(p3s, sizeof(p3s), "%.4f", psnr_of(m3));
+            else          std::snprintf(p3s, sizeof(p3s), "inf");
+            if (m2 > 0.0 && m3 > 0.0)
+                std::snprintf(ds, sizeof(ds), "%.4f", psnr_of(m2) - psnr_of(m3));
+            else if (m2 <= 0.0 && m3 <= 0.0)
+                std::snprintf(ds, sizeof(ds), "0");
+            else
+                std::snprintf(ds, sizeof(ds), "%s", m2 <= 0.0 ? "inf" : "-inf");
+            if (json) {
+                (*out) << (first ? "" : ",\n")
+                       << "  {\"bx\":" << bx << ",\"by\":" << by
+                       << ",\"x\":" << x << ",\"y\":" << y
+                       << ",\"w\":" << w << ",\"h\":" << h
+                       << ",\"mse_img2\":" << m2 << ",\"psnr_img2\":\"" << p2s << "\""
+                       << ",\"mse_img3\":" << m3 << ",\"psnr_img3\":\"" << p3s << "\""
+                       << ",\"dpsnr\":\"" << ds << "\"}";
+                first = false;
+            } else {
+                (*out) << bx << ',' << by << ',' << x << ',' << y << ','
+                       << w << ',' << h << ','
+                       << m2 << ',' << p2s << ',' << m3 << ',' << p3s << ',' << ds << "\n";
+            }
+        }
+    }
+    if (json) (*out) << "\n]\n";
+
+    std::cerr << "[comp] blocks=" << (nbx * nby) << " nonzero=" << nonzero
+              << " img2_psnr=" << p2 << " img3_psnr=" << p3
+              << " | wins img2=" << win2 << " img3=" << win3 << " tie=" << tie
+              << " (|d|>1dB)\n";
+    return 0;
+}

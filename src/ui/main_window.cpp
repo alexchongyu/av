@@ -954,7 +954,12 @@ static void render_hotkey_help_window(AppState& state) {
         { "Comp", "--num_blk <N>",                 "Worst-block count to outline  (default: 16)" },
         { "Comp", "Ctrl+B",                        "Toggle worst-PSNR block boxes (red=worst .. yellow)" },
         { "Comp", "Ctrl+N",                        "Toggle full block-grid boundary lines" },
-        { "Comp", "Hover on a block box",          "Balloon: block PSNR/MSE, per-channel MSE, worst pixel orig/this/delta; same block echoed green on the other two panes while hovering" },
+        { "Comp", "Ctrl+W",                        "Win/loss map: blue=img2 better, orange=img3 better (|d|>1dB)" },
+        { "Comp", "Ctrl+G",                        "Block-PSNR heatmap on img2/img3 (yellow->red = worse, 50dB+ clear)" },
+        { "Comp", "Tab / Shift+Tab",               "Cycle worst blocks (severity order); all panes jump+zoom to it" },
+        { "Comp", ",",                             "3-way blink: orig -> img2 -> img3 in one pane (< / > = interval)" },
+        { "Comp", "; / A",                         "Next / prev image of orig's dir; img2+img3 mirror by filename" },
+        { "Comp", "Hover on a block box",          "Balloon: block PSNR/MSE + other algo's same-block PSNR, per-channel MSE, worst pixel orig/this/delta; block echoed green on other panes with their own PSNR tag" },
         { "Comp", "I",                             "Info window: PSNR of img2 and img3 vs orig" },
         // File
         { "File", "Shift+Ctrl+O",                  "Open image file" },
@@ -1000,6 +1005,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "CLI (Headless)", "--uniformity",         "Flat-field uniformity: ICDM 9/13/25-pt %, CV, du'v', SEMU proxy" },
         { "CLI (Headless)", "--fail-uniformity / --fail-semu", "Uniformity CI gates, exit 10" },
         { "CLI (Headless)", "--batch <file|->",     "Metrics over a TAB manifest of A,B pairs (- = stdin)" },
+        { "CLI (Headless)", "--comp-out <file|->",  "Per-block CSV of --comp (mse/psnr of img2+img3, dpsnr); --format json" },
     };
 
     constexpr ImGuiTableFlags tflags =
@@ -1300,6 +1306,9 @@ void MainWindow::render(AppState& state) {
             // --pair: A(0) 로드 성공 시 같은 파일명을 dirB에서 B로 미러
             if (ok && state.pair_mode && target == 0)
                 pair_mirror_b(state, state.open_state.opened_path);
+            // --comp: 원본(0) 로드 성공 시 같은 파일명을 img2/img3 dir에서 미러
+            if (ok && state.comp.active && target == 0)
+                comp_mirror_bc(state, state.open_state.opened_path);
         }
         state.open_state.opened_path.clear();
         state.open_state.open_pending = false;
@@ -1568,6 +1577,40 @@ void MainWindow::render(AppState& state) {
         s_panel_left.render(state, 0, diff_renderer_);
         ImGui::EndChild();
         ImGui::PopStyleVar();
+    } else if (comp_mode && state.comp.blink_active) {
+        // ── 1-panel: --comp 3-way 블링크 (orig → img2 → img3 순환) ───────────
+        if (!state.comp.computed) compute_comp_metrics(state);
+        state.comp.blink_countdown -= ImGui::GetIO().DeltaTime;
+        if (state.comp.blink_countdown <= 0.0f) {
+            state.comp.blink_phase     = (state.comp.blink_phase + 1) % 3;
+            state.comp.blink_countdown = state.blink.interval;
+        }
+        int ph = state.comp.blink_phase;
+        int bc = (ph == 0) ? 0 : (ph == 1) ? 1 : 2;   // 보더 색: A/B/Diff 슬롯 재사용
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::BeginChild("##PanelCompBlink", ImVec2(0.0f, panel_h), false, child_flags);
+        { ImVec2 p = ImGui::GetWindowPos(); panel_rects[panel_rect_count++] = {p, ImVec2(p.x + content.x, p.y + panel_h), (ImU32)state.border_colors[bc]}; }
+        if (ph == 2) {
+            state.comp.render_slot = 1;
+            std::swap(state.images[1], state.comp.img_c);
+            s_panel_comp.render(state, 1, diff_renderer_, true);
+            std::swap(state.images[1], state.comp.img_c);
+        } else {
+            state.comp.render_slot = (ph == 0) ? -1 : 0;
+            s_panel_left.render(state, ph, diff_renderer_, true);
+        }
+        state.comp.render_slot = -1;
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+        // 현재 phase 라벨 (좌상단, 보더 색과 동일)
+        {
+            const char* pname = (ph == 0) ? "orig" : (ph == 1) ? "img2" : "img3";
+            ImDrawList* fdl = ImGui::GetForegroundDrawList();
+            ImVec2 tp(panels_origin.x + 10.0f, panels_origin.y + 8.0f);
+            fdl->AddText(nullptr, 24.0f, ImVec2(tp.x + 1, tp.y + 1),
+                         IM_COL32(0, 0, 0, 220), pname);
+            fdl->AddText(nullptr, 24.0f, tp, (ImU32)state.border_colors[bc], pname);
+        }
     } else if (comp_mode) {
         // ── 3-panel: A(orig) | B(img2) | C(img3)  (--comp) ───────────────────
         if (!state.comp.computed) compute_comp_metrics(state);
@@ -1839,7 +1882,11 @@ void MainWindow::render(AppState& state) {
             bool probe_ok = false;              // Shift+V colorimetry: non-diff sample valid
             int  probe_ix = 0, probe_iy = 0;    // sampled image-pixel coord
 
-            if (comp_mode || (two_images && diff_mode)) {
+            if (comp_mode && state.comp.blink_active) {
+                // --comp 3-way 블링크: 전체 폭 단일 패널, phase의 영상을 샘플
+                int ph = state.comp.blink_phase;
+                panel_idx = (ph == 2) ? 2 : ph;
+            } else if (comp_mode || (two_images && diff_mode)) {
                 float third_w = std::floor(total_w / 3.0f);
                 if (px < third_w) {
                     panel_idx = 0; panel_x_start = 0.0f;          panel_w_local = third_w;

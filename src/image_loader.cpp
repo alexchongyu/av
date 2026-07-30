@@ -519,6 +519,44 @@ void pair_mirror_b(AppState& state, const std::string& a_path) {
     }
 }
 
+void comp_mirror_bc(AppState& state, const std::string& a_path) {
+    namespace fs = std::filesystem;
+    if (a_path.empty()) return;
+    fs::path name = fs::path(a_path).filename();
+
+    // img2: 현재 로드된 경로(없으면 CLI 인자)의 디렉토리에서 같은 이름
+    std::string b_ref = !state.images[1].path.empty() ? state.images[1].path
+                                                      : state.cli.image_b;
+    if (!b_ref.empty()) {
+        fs::path sib = fs::path(b_ref).parent_path() / name;
+        std::error_code ec;
+        if (fs::is_regular_file(sib, ec)) {
+            load_image_and_populate_sequence(state, 1, sib.string());
+        } else {
+            if (state.images[1].loaded) free_image(state.images[1]);
+            state.panel_missing_msg[1] = name.string();
+        }
+    }
+
+    // img3: comp.img_c 슬롯에 직접 미러 (패널 슬롯이 아니므로 공용 로더 미사용)
+    std::string c_ref = !state.comp.img_c.path.empty() ? state.comp.img_c.path
+                                                       : state.cli.image_c;
+    if (!c_ref.empty()) {
+        fs::path sib = fs::path(c_ref).parent_path() / name;
+        std::error_code ec;
+        if (fs::is_regular_file(sib, ec)) {
+            ImageEntry fresh;
+            if (load_image(sib.string(), fresh)) {
+                free_image(state.comp.img_c);
+                state.comp.img_c = std::move(fresh);
+            }
+        } else if (state.comp.img_c.loaded) {
+            free_image(state.comp.img_c);
+        }
+    }
+    state.comp.computed = false;   // 블록 통계 재계산 트리거
+}
+
 // ─── Rotation helpers ─────────────────────────────────────────────────────────
 
 void rotate_image_cw(ImageEntry& entry) {

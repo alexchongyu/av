@@ -45,3 +45,10 @@ int run_uniformity_headless(const CliOptions& cli, const std::string& pair_dir_b
 // lines skipped; "-" reads the manifest from stdin. Honours --format and the
 // --fail-* gates. Exit: 0 ok, 3 bad/empty/unreadable manifest, 10 CI gate fail.
 int run_batch_headless(const CliOptions& cli);
+
+// ─── Headless --comp block table (--comp-out <file|->) ────────────────────────
+// 3-image block compare: per-block CSV rows (bx,by,x,y,w,h, mse/psnr of img2 and
+// img3 vs orig, dpsnr=psnr2-psnr3). Honours --blk/--num_blk and --format json.
+// Summary (global PSNRs + win/loss counts, |d|>1dB) goes to stderr.
+// Exit: 0 ok, 3 output open fail, 4 decode fail, 5 size/format mismatch.
+int run_comp_headless(const CliOptions& cli);

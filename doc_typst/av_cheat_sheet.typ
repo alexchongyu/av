@@ -121,6 +121,7 @@ av [image_a] [image_b] [options]
   [`--comp i1 i2 i3`],      [3\-영상 블록 비교: 원본 \| img2 \| img3 (diff 비활성)],
   [`--blk <WxH>`],          [`--comp` 블록 크기 (기본 8x8)],
   [`--num_blk <N>`],        [`--comp` worst 블록 표시 개수 (기본 16)],
+  [`--comp-out <f|->`],     [헤드리스: 블록별 PSNR 테이블 CSV/JSON 출력 후 종료],
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -198,7 +199,12 @@ av [image_a] [image_b] [options]
   [#key("I")],         [정보 창: img2·img3 각각의 원본 대비 PSNR 2줄],
   [#key("Ctrl+B")],    [worst PSNR 블록 박스 토글 (\#1 빨강\~노랑, 기본 ON)],
   [#key("Ctrl+N")],    [전체 블록 그리드 바운더리 토글 (기본 OFF)],
-  [박스 위 hover],      [풍선말(블록 PSNR/MSE·채널별 MSE·오차픽셀·최악픽셀 orig/this/Δ) + 나머지 두 패널 같은 위치에 그린 echo 박스],
+  [#key("Ctrl+W")],    [승패 맵: 블록별 우열 색 표시 (파랑=img2·주황=img3 우세, \|Δ\|>1dB)],
+  [#key("Ctrl+G")],    [블록 PSNR 히트맵 (노랑→빨강=나쁨, 50dB↑ 투명)],
+  [#key("Tab")],       [worst 블록 순회 (심각도순) — 3패널 자동 센터+줌, #key("Shift+Tab") 역방향],
+  [#key(",")],         [3\-way 블링크: 원본→img2→img3 한 패널 순환 (#key("<")/#key(">") 간격)],
+  [#key(";") / #key("A")], [원본 dir 다음/이전 영상 — img2·img3 같은 파일명 자동 미러],
+  [박스 위 hover],      [풍선말(블록 PSNR/MSE + 상대 알고리즘 같은 블록 PSNR 병기·채널별 MSE·최악픽셀 orig/this/Δ) + 나머지 패널 그린 echo 박스와 자체 PSNR 태그],
 )
 시작 시 stdout으로 `[comp]` PSNR·worst 블록 요약 출력 (CI/스크립트 검증용).
 ]

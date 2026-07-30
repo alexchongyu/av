@@ -2723,6 +2723,101 @@ void ImagePanel::render_comp_overlay(AppState& state, int panel_idx,
         }
     }
 
+    // ── 공용 준비: 그리드 유효성 · peak · 보이는 블록 범위 ────────────────────
+    bool grids_ok = cs.nbx > 0 && cs.nby > 0 &&
+                    cs.mse2_grid.size() == static_cast<size_t>(cs.nbx) * cs.nby &&
+                    cs.mse3_grid.size() == static_cast<size_t>(cs.nbx) * cs.nby;
+    const ImageEntry& ref0 = state.images[0];
+    const double peak = (ref0.is_hdr && !ref0.pixels_f32.empty()) ? 1.0 : 255.0;
+    auto s2ix = [&](float sx) {
+        return (sx - widget_pos.x - half_vw) / zoom - vp.pan_x + half_iw;
+    };
+    auto s2iy = [&](float sy) {
+        return (sy - widget_pos.y - half_vh) / zoom - vp.pan_y + half_ih;
+    };
+    int vbx0 = 0, vbx1 = -1, vby0 = 0, vby1 = -1;
+    if (grids_ok) {
+        vbx0 = std::max(0, static_cast<int>(std::floor(s2ix(widget_pos.x) / cs.blk_w)));
+        vbx1 = std::min(cs.nbx - 1,
+                        static_cast<int>(std::floor(s2ix(widget_pos.x + view_w) / cs.blk_w)));
+        vby0 = std::max(0, static_cast<int>(std::floor(s2iy(widget_pos.y) / cs.blk_h)));
+        vby1 = std::min(cs.nby - 1,
+                        static_cast<int>(std::floor(s2iy(widget_pos.y + view_h) / cs.blk_h)));
+    }
+
+    // ── Ctrl/Cmd+G: 블록 PSNR 히트맵 (비교 패널 전용) — 노랑→빨강, 50dB↑ 투명.
+    //    블록이 3px 미만이면 스트라이드로 묶어 셀 내 최악값을 그린다(fit 줌 대응). ──
+    if (cs.show_heatmap && grids_ok && cs.render_slot >= 0 && vbx1 >= vbx0) {
+        const std::vector<double>& g = (cs.render_slot == 0) ? cs.mse2_grid : cs.mse3_grid;
+        float bpx = cs.blk_w * zoom, bpy = cs.blk_h * zoom;
+        int stx = std::max(1, static_cast<int>(std::ceil(3.0f / std::max(bpx, 0.001f))));
+        int sty = std::max(1, static_cast<int>(std::ceil(3.0f / std::max(bpy, 0.001f))));
+        for (int by = vby0; by <= vby1; by += sty) {
+            for (int bx = vbx0; bx <= vbx1; bx += stx) {
+                double m = 0.0;
+                for (int dy = 0; dy < sty && by + dy <= vby1; ++dy)
+                    for (int dx = 0; dx < stx && bx + dx <= vbx1; ++dx)
+                        m = std::max(m, g[static_cast<size_t>(by + dy) * cs.nbx + (bx + dx)]);
+                if (m <= 0.0) continue;
+                double bpsnr = 20.0 * std::log10(peak) - 10.0 * std::log10(m);
+                float t = static_cast<float>((50.0 - bpsnr) / 30.0);
+                if (t <= 0.0f) continue;
+                if (t > 1.0f) t = 1.0f;
+                float x0 = ix2s(static_cast<float>(bx * cs.blk_w));
+                float y0 = iy2s(static_cast<float>(by * cs.blk_h));
+                float x1 = ix2s(static_cast<float>(std::min((bx + stx) * cs.blk_w, img_w)));
+                float y1 = iy2s(static_cast<float>(std::min((by + sty) * cs.blk_h, img_h)));
+                dl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, y1),
+                                  IM_COL32(255, static_cast<int>(230 * (1.0f - t)), 0,
+                                           static_cast<int>(35 + 130 * t)));
+            }
+        }
+    }
+
+    // ── Ctrl/Cmd+W: 승패 맵 — 블록별 img2 vs img3 우열 (|Δ|>1dB, 3패널 공통) ──
+    if (cs.show_winloss && grids_ok && vbx1 >= vbx0 &&
+        cs.blk_w * zoom >= 3.0f && cs.blk_h * zoom >= 3.0f) {
+        for (int by = vby0; by <= vby1; ++by) {
+            for (int bx = vbx0; bx <= vbx1; ++bx) {
+                size_t i = static_cast<size_t>(by) * cs.nbx + bx;
+                double m2 = cs.mse2_grid[i], m3 = cs.mse3_grid[i];
+                if (m2 <= 0.0 && m3 <= 0.0) continue;
+                double d = (m2 <= 0.0) ? 99.0 : (m3 <= 0.0) ? -99.0
+                         : 10.0 * std::log10(m3 / m2);   // + → img2 우세
+                if (std::fabs(d) < 1.0) continue;         // 동급 블록은 표시 안 함
+                float t = static_cast<float>(std::min(std::fabs(d) / 6.0, 1.0));
+                int a = static_cast<int>(90 + 150 * t);
+                ImU32 col = (d > 0) ? IM_COL32(70, 160, 255, a)    // 파랑 = img2 우세
+                                    : IM_COL32(255, 150, 40, a);   // 주황 = img3 우세
+                dl->AddRect(ImVec2(ix2s(static_cast<float>(bx * cs.blk_w)),
+                                   iy2s(static_cast<float>(by * cs.blk_h))),
+                            ImVec2(ix2s(static_cast<float>(std::min(bx * cs.blk_w + cs.blk_w, img_w))),
+                                   iy2s(static_cast<float>(std::min(by * cs.blk_h + cs.blk_h, img_h)))),
+                            col, 0.0f, 0, 2.0f);
+            }
+        }
+        if (cs.render_slot < 0)
+            dl->AddText(ImVec2(widget_pos.x + 6, widget_pos.y + 6),
+                        IM_COL32(230, 230, 230, 220),
+                        "win/loss: blue=img2 better, orange=img3 better (|d|>1dB)");
+    }
+
+    // ── Tab 선택 블록: 3패널 공통 흰 박스 + 순위 라벨 ────────────────────────
+    if (cs.sel_slot >= 0) {
+        float x0 = ix2s(static_cast<float>(cs.sel_x));
+        float y0 = iy2s(static_cast<float>(cs.sel_y));
+        float x1 = ix2s(static_cast<float>(cs.sel_x + cs.sel_w));
+        float y1 = iy2s(static_cast<float>(cs.sel_y + cs.sel_h));
+        dl->AddRect(ImVec2(x0 + 1, y0 + 1), ImVec2(x1 + 1, y1 + 1),
+                    IM_COL32(0, 0, 0, 200), 0.0f, 0, 3.0f);        // 그림자
+        dl->AddRect(ImVec2(x0, y0), ImVec2(x1, y1),
+                    IM_COL32(255, 255, 255, 255), 0.0f, 0, 2.0f);
+        char sl[32];
+        std::snprintf(sl, sizeof(sl), "SEL #%d %s", cs.sel_rank,
+                      cs.sel_slot == 0 ? "img2" : "img3");
+        dl->AddText(ImVec2(x0 + 3, y1 + 3), IM_COL32(255, 255, 255, 230), sl);
+    }
+
     // ── hover echo: 다른 패널에서 hover 중인 블록의 같은 위치를 형광 그린으로
     //    표시 (마우스가 그 블록에 머무는 동안만; 1프레임 지연 스냅샷) ──────────
     if (cs.echo_slot >= 0 && cs.echo_slot != cs.render_slot) {
@@ -2733,6 +2828,37 @@ void ImagePanel::render_comp_overlay(AppState& state, int panel_idx,
         // 채움 없이 테두리만 — 원본 픽셀을 가리지 않는다 (사용자 요청)
         dl->AddRect(ImVec2(ex0, ey0), ImVec2(ex1, ey1),
                     IM_COL32(0, 255, 140, 240), 0.0f, 0, 2.5f);
+
+        // 비교 패널(원본 제외)에는 이 패널 자신의 블록 PSNR/MSE 풍선말도 표시
+        if (cs.render_slot >= 0 && grids_ok && cs.blk_w > 0 && cs.blk_h > 0) {
+            const std::vector<double>& g =
+                (cs.render_slot == 0) ? cs.mse2_grid : cs.mse3_grid;
+            int ebx = cs.echo_x / cs.blk_w, eby = cs.echo_y / cs.blk_h;
+            if (ebx >= 0 && ebx < cs.nbx && eby >= 0 && eby < cs.nby) {
+                double m = g[static_cast<size_t>(eby) * cs.nbx + ebx];
+                char buf[64];
+                if (m > 0.0)
+                    std::snprintf(buf, sizeof(buf), "PSNR %.2f dB  MSE %.2f",
+                                  20.0 * std::log10(peak) - 10.0 * std::log10(m), m);
+                else
+                    std::snprintf(buf, sizeof(buf), "PSNR inf (identical)");
+                ImVec2 ts = ImGui::CalcTextSize(buf);
+                float pad = 5.0f;
+                float bxp = ex0, byp = ey0 - ts.y - 2 * pad - 4;   // 기본: 박스 위
+                if (byp < widget_pos.y) byp = ey1 + 4;              // 좁으면 아래로
+                if (bxp + ts.x + 2 * pad > widget_pos.x + view_w)
+                    bxp = widget_pos.x + view_w - ts.x - 2 * pad;
+                if (bxp < widget_pos.x) bxp = widget_pos.x;
+                dl->AddRectFilled(ImVec2(bxp, byp),
+                                  ImVec2(bxp + ts.x + 2 * pad, byp + ts.y + 2 * pad),
+                                  IM_COL32(20, 20, 20, 210), 4.0f);
+                dl->AddRect(ImVec2(bxp, byp),
+                            ImVec2(bxp + ts.x + 2 * pad, byp + ts.y + 2 * pad),
+                            IM_COL32(0, 255, 140, 200), 4.0f);
+                dl->AddText(ImVec2(bxp + pad, byp + pad),
+                            IM_COL32(230, 255, 240, 255), buf);
+            }
+        }
     }
 
     // 원본 패널(slot -1)은 그리드/echo까지만 — worst rect/풍선말은 비교 패널 전용.
@@ -2793,6 +2919,24 @@ void ImagePanel::render_comp_overlay(AppState& state, int panel_idx,
     ImGui::Separator();
     if (b.psnr >= 999.0) ImGui::Text("PSNR: inf");
     else                 ImGui::Text("PSNR: %.2f dB    MSE: %.3f", b.psnr, b.mse);
+    // 상대 알고리즘의 같은 블록 성적 병기 (주황=상대 우세, 녹색=이 패널 우세)
+    if (grids_ok) {
+        const std::vector<double>& og =
+            (cs.render_slot == 0) ? cs.mse3_grid : cs.mse2_grid;
+        const char* oname = (cs.render_slot == 0) ? "img3(right)" : "img2(mid)";
+        double om = og[static_cast<size_t>(b.by) * cs.nbx + b.bx];
+        if (om <= 0.0) {
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                               "%s same block: PSNR inf (identical)", oname);
+        } else {
+            double opsnr = 20.0 * std::log10(peak) - 10.0 * std::log10(om);
+            double dd = opsnr - b.psnr;
+            ImVec4 col = (dd > 0) ? ImVec4(1.0f, 0.75f, 0.3f, 1.0f)
+                                  : ImVec4(0.5f, 1.0f, 0.6f, 1.0f);
+            ImGui::TextColored(col, "%s same block: PSNR %.2f dB (d %+.2f)",
+                               oname, opsnr, dd);
+        }
+    }
     ImGui::Text("MSE R/G/B: %.3f / %.3f / %.3f", b.mse_c[0], b.mse_c[1], b.mse_c[2]);
     int npx = b.w * b.h;
     ImGui::Text("error pixels: %d / %d (%.1f%%)", b.nerr, npx,

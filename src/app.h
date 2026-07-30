@@ -286,6 +286,30 @@ struct CompState {
     int hover_x = 0, hover_y = 0, hover_w = 0, hover_h = 0;
     int echo_slot = -1;
     int echo_x = 0, echo_y = 0, echo_w = 0, echo_h = 0;
+
+    // 전체 블록 MSE 그리드 (nbx*nby, row-major; 승패 맵·풍선말 상대 병기·CSV용)
+    int nbx = 0, nby = 0;
+    std::vector<double> mse2_grid;   // A↔B(img2)  블록별 MSE
+    std::vector<double> mse3_grid;   // A↔C(img3)  블록별 MSE
+
+    // Ctrl/Cmd+W: 승패 맵 — 블록별 img2 vs img3 우열(ΔPSNR>1dB)을 색으로 표시
+    bool show_winloss = false;
+
+    // Ctrl/Cmd+G: 블록 PSNR 히트맵 — 비교 패널 위에 노랑→빨강 램프 (50dB↑ 투명)
+    bool show_heatmap = false;
+
+    // ',' (comp 모드): 3-way 블링크 — 원본→img2→img3 한 패널 순환.
+    // 간격은 기존 BlinkState.interval을 공유 ('<'/'>'로 조절).
+    bool  blink_active    = false;
+    int   blink_phase     = 0;      // 0=orig, 1=img2, 2=img3
+    float blink_countdown = 0.0f;
+
+    // Tab/Shift+Tab: worst 블록 순회 (두 리스트 병합, mse 내림차순). 선택 블록은
+    // 3패널 모두에 흰 박스로 표시되고 뷰포트가 자동 센터된다.
+    int cycle_pos = -1;              // -1 = 선택 없음
+    int sel_slot = -1;               // 선택 블록의 패널 (0=img2, 1=img3)
+    int sel_rank = 0;                // 해당 패널 내 순위 (1-base)
+    int sel_x = 0, sel_y = 0, sel_w = 0, sel_h = 0;
 };
 
 struct CliOptions {
@@ -308,6 +332,7 @@ struct CliOptions {
     int             comp_blk_w   = 8;        // --blk WxH (기본 8x8)
     int             comp_blk_h   = 8;
     int             comp_num_blk = 16;       // --num_blk N: worst 블록 표시 개수
+    std::string     comp_out;                // --comp-out <file|->: 헤드리스 블록 CSV 출력 후 종료
     // CI gate thresholds (-1 = unset). psnr/ssim: FAIL if below; flip/maxerr: FAIL if above.
     float           fail_psnr    = -1.0f;
     float           warn_psnr    = -1.0f;
@@ -484,6 +509,16 @@ void compute_info_psnr(AppState& state);
 // --comp: A(원본) 대비 B(중간)·C(오른쪽)의 전역 PSNR + 블록별 MSE/PSNR을 계산해
 // state.comp에 worst num_blk개 블록(mse 내림차순)을 저장. u8/f32(HDR) 쌍 지원.
 void compute_comp_metrics(AppState& state);
+
+// 한 쌍(A=원본, B=비교)의 1-pass 블록 스캔. worst num_blk개 + 전역 PSNR을 계산하고,
+// all_mse_out이 주어지면 전체 블록 MSE 그리드(nbx*nby, row-major)도 채운다.
+// GUI(compute_comp_metrics)와 헤드리스(--comp-out)가 공유한다.
+void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
+                    int blk_w, int blk_h, int num_blk,
+                    float& psnr_out, bool& mismatch_out,
+                    std::vector<CompBlockInfo>& worst_out,
+                    std::vector<double>* all_mse_out = nullptr,
+                    int* nbx_out = nullptr, int* nby_out = nullptr);
 
 // Load/save persistent settings from/to av.ini.
 void load_app_ini(AppState& state);

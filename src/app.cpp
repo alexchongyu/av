@@ -13,7 +13,8 @@
 // 공용 시퀀스 탐색 함수. 키/마우스/슬라이드쇼 모두 이 함수를 통해 진행.
 // 실제 로드는 main_window.cpp 의 open_state pending 처리 블록에서 수행.
 void sequence_navigate(AppState& state, int panel, int dir) {
-    if (state.pair_mode) panel = 0;   // --pair: 항상 A(왼쪽)가 시퀀스를 구동, B는 이름으로 미러
+    // --pair/--comp: 항상 원본(왼쪽)이 시퀀스를 구동, 나머지는 파일명으로 미러
+    if (state.pair_mode || state.comp.active) panel = 0;
     if (panel < 0 || panel > 1) return;
     auto& seq = state.sequences[panel];
     if (seq.files.empty() || seq.current_index < 0) return;
@@ -88,8 +89,12 @@ static void print_help(const char* prog) {
         "                       PSNR of img2 and img3 vs orig shown in the Info window (i).\n"
         "  --blk <WxH>          --comp block size, e.g. 8x8|10x10|16x16 (default: 8x8)\n"
         "  --num_blk <N>        --comp worst-block count to outline     (default: 16)\n"
-        "                       (GUI: Ctrl/Cmd+B toggles the worst-block boxes,\n"
-        "                        Ctrl/Cmd+N toggles the full block-grid boundary lines)\n"
+        "                       GUI keys: Ctrl+B worst boxes | Ctrl+N block grid |\n"
+        "                       Ctrl+W win/loss map | Ctrl+G PSNR heatmap |\n"
+        "                       Tab/Shift+Tab cycle worst blocks | , 3-way blink\n"
+        "  --comp-out <file|->  Headless: per-block CSV (bx,by,x,y,w,h, mse/psnr of\n"
+        "                       img2 and img3, dpsnr) for CI regression, then exit.\n"
+        "                       Honours --blk/--num_blk and --format json.\n"
         "  --amplify <val>      Diff amplification 0.1-100   (default: 1.0)\n"
         "  --fullscreen         Start in fullscreen\n"
         "  --geometry <WxH>     Initial window size           (default: 1280x720)\n"
@@ -181,6 +186,8 @@ CliOptions parse_cli(int argc, char* argv[]) {
         } else if (arg == "--num_blk" || arg == "--num-blk") {
             opts.comp_num_blk = std::stoi(next());
             if (opts.comp_num_blk < 1) opts.comp_num_blk = 1;
+        } else if (arg == "--comp-out") {
+            opts.comp_out = next();
         } else if (arg == "--fail-psnr") {
             opts.fail_psnr = std::stof(next());
         } else if (arg == "--warn-psnr") {
@@ -251,6 +258,10 @@ CliOptions parse_cli(int argc, char* argv[]) {
 
     // --comp 검증: 3영상 필수. 3번째 영상만 주어지면 comp 자동 활성화.
     if (!opts.image_c.empty() && !opts.comp) opts.comp = true;
+    if (!opts.comp_out.empty() && !opts.comp) {
+        std::cerr << "--comp-out needs --comp with three images\n";
+        std::exit(1);
+    }
     if (opts.comp) {
         if (opts.image_a.empty() || opts.image_b.empty() || opts.image_c.empty()) {
             std::cerr << "--comp needs three images: av --comp <orig> <img2> <img3>\n";
@@ -318,12 +329,15 @@ void compute_info_psnr(AppState& state) {
 // compute_info_psnr과 동일 관례)과 블록별 MSE/PSNR/최악픽셀을 구하고, mse 내림차순
 // 상위 num_blk개만 남긴다. u8쌍은 peak 255, HDR(f32)쌍은 peak 1.0.
 
-static void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
-                           int blk_w, int blk_h, int num_blk,
-                           float& psnr_out, bool& mismatch_out,
-                           std::vector<CompBlockInfo>& worst_out) {
+void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
+                    int blk_w, int blk_h, int num_blk,
+                    float& psnr_out, bool& mismatch_out,
+                    std::vector<CompBlockInfo>& worst_out,
+                    std::vector<double>* all_mse_out,
+                    int* nbx_out, int* nby_out) {
     worst_out.clear();
     psnr_out = -1.0f;
+    if (all_mse_out) all_mse_out->clear();
     bool bothU8  = !A.pixels.empty()     && !B.pixels.empty();
     bool bothF32 = A.is_hdr && B.is_hdr &&
                    !A.pixels_f32.empty() && !B.pixels_f32.empty();
@@ -337,6 +351,9 @@ static void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
     const double peak = bothU8 ? 255.0 : 1.0;
     const int    nbx  = (W + blk_w - 1) / blk_w;
     const int    nby  = (H + blk_h - 1) / blk_h;
+    if (nbx_out) *nbx_out = nbx;
+    if (nby_out) *nby_out = nby;
+    if (all_mse_out) all_mse_out->assign(static_cast<size_t>(nbx) * nby, 0.0);
 
     std::vector<CompBlockInfo> blocks;
     blocks.reserve(static_cast<size_t>(nbx) * nby);
@@ -384,6 +401,8 @@ static void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
             blk.psnr = (blk.mse > 0.0)
                      ? 20.0 * std::log10(peak) - 10.0 * std::log10(blk.mse)
                      : 999.0;
+            if (all_mse_out)
+                (*all_mse_out)[static_cast<size_t>(by) * nbx + bx] = blk.mse;
             if (blk.mse > 0.0) blocks.push_back(blk);   // 무오차 블록은 후보 제외
         }
     }
@@ -412,13 +431,53 @@ static void comp_scan_pair(const ImageEntry& A, const ImageEntry& B,
 void compute_comp_metrics(AppState& state) {
     CompState& cs = state.comp;
     cs.computed = true;   // 실패해도 매 프레임 재시도 방지 (영상 교체 시 다시 무효화됨)
+    cs.cycle_pos = -1;    // 순회/선택 상태는 재계산 시 초기화
+    cs.sel_slot  = -1;
     if (!state.images[0].loaded) return;
     if (state.images[1].loaded)
         comp_scan_pair(state.images[0], state.images[1], cs.blk_w, cs.blk_h,
-                       cs.num_blk, cs.psnr2, cs.mismatch2, cs.worst2);
+                       cs.num_blk, cs.psnr2, cs.mismatch2, cs.worst2,
+                       &cs.mse2_grid, &cs.nbx, &cs.nby);
     if (cs.img_c.loaded)
         comp_scan_pair(state.images[0], cs.img_c, cs.blk_w, cs.blk_h,
-                       cs.num_blk, cs.psnr3, cs.mismatch3, cs.worst3);
+                       cs.num_blk, cs.psnr3, cs.mismatch3, cs.worst3,
+                       &cs.mse3_grid, &cs.nbx, &cs.nby);
+}
+
+// ─── comp_cycle_select ────────────────────────────────────────────────────────
+// Tab/Shift+Tab: 두 worst 리스트를 mse 내림차순으로 병합해 순회. 선택 블록은
+// sel_*에 기록되어 3패널 모두에 흰 박스로 표시되고, 뷰포트가 블록 중심으로 이동.
+
+static void comp_cycle_select(AppState& state, int dir) {
+    CompState& cs = state.comp;
+    struct Ref { double mse; int slot; const CompBlockInfo* b; int rank; };
+    std::vector<Ref> list;
+    list.reserve(cs.worst2.size() + cs.worst3.size());
+    for (size_t i = 0; i < cs.worst2.size(); ++i)
+        list.push_back({cs.worst2[i].mse, 0, &cs.worst2[i], static_cast<int>(i) + 1});
+    for (size_t i = 0; i < cs.worst3.size(); ++i)
+        list.push_back({cs.worst3[i].mse, 1, &cs.worst3[i], static_cast<int>(i) + 1});
+    if (list.empty()) return;
+    std::sort(list.begin(), list.end(),
+              [](const Ref& a, const Ref& b) { return a.mse > b.mse; });
+    int n = static_cast<int>(list.size());
+    cs.cycle_pos = (cs.cycle_pos < 0) ? (dir > 0 ? 0 : n - 1)
+                                      : ((cs.cycle_pos + dir) % n + n) % n;
+    const Ref& r = list[cs.cycle_pos];
+    cs.sel_slot = r.slot;
+    cs.sel_rank = r.rank;
+    cs.sel_x = r.b->x; cs.sel_y = r.b->y;
+    cs.sel_w = r.b->w; cs.sel_h = r.b->h;
+    // 3패널 뷰포트를 블록 중심으로 (줌이 낮으면 8배로 확대)
+    float cx = r.b->x + r.b->w * 0.5f;
+    float cy = r.b->y + r.b->h * 0.5f;
+    for (int i = 0; i < 2; ++i) {
+        ViewportState& v = state.views[i];
+        v.fit = false;
+        if (v.zoom < 4.0f) v.zoom = 8.0f;
+        v.pan_x = state.images[0].width  * 0.5f - cx;
+        v.pan_y = state.images[0].height * 0.5f - cy;
+    }
 }
 
 // ─── handle_keyboard ──────────────────────────────────────────────────────────
@@ -596,7 +655,9 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     case SDL_SCANCODE_G:
         if (shift) {
             state.channel_mode = ChannelMode::Green;
-        } else {
+        } else if ((ctrl || gui) && state.comp.active) {
+            state.comp.show_heatmap = !state.comp.show_heatmap;   // --comp: 블록 히트맵
+        } else if (!ctrl && !gui) {
             viewport_center(vA);
             if (state.sync_viewports) viewport_center(vB);
         }
@@ -764,9 +825,14 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         }
         break;
 
-    // ── Panel focus ───────────────────────────────────────────────────────────
+    // ── Panel focus / --comp worst 블록 순회 ─────────────────────────────────
     case SDL_SCANCODE_TAB:
-        state.active_panel = 1 - state.active_panel;
+        if (state.comp.active && state.comp.computed &&
+            (!state.comp.worst2.empty() || !state.comp.worst3.empty())) {
+            comp_cycle_select(state, shift ? -1 : +1);
+        } else {
+            state.active_panel = 1 - state.active_panel;
+        }
         break;
 
     // ── Channel display / Image rotation ──────────────────────────────────
@@ -862,8 +928,12 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         }
         break;
 
-    // ── Windowed mode 토글 (W) ──────────────────────────────────────────────────
+    // ── Windowed mode 토글 (W) / --comp 승패 맵 (Ctrl+W) ─────────────────────
     case SDL_SCANCODE_W:
+        if ((ctrl || gui) && state.comp.active) {
+            state.comp.show_winloss = !state.comp.show_winloss;
+            break;
+        }
         if (!ctrl && !shift && !gui) {
             state.windowed_mode = !state.windowed_mode;
             if (state.window) {
@@ -939,12 +1009,22 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     // ── 블링크 비교기 (, 토글 / < = Shift+, 간격 감소) ────────────────────────
     case SDL_SCANCODE_COMMA:
         if (shift) {
-            if (state.blink.active) {
+            if (state.blink.active || state.comp.blink_active) {
                 state.blink.interval  = std::max(0.1f, state.blink.interval - 0.1f);
                 state.blink.countdown = std::min(state.blink.countdown, state.blink.interval);
+                state.comp.blink_countdown =
+                    std::min(state.comp.blink_countdown, state.blink.interval);
             }
         } else if (!ctrl && !gui) {
-            if (state.images[0].loaded && state.images[1].loaded) {
+            if (state.comp.active) {
+                // --comp: 3-way 블링크 (orig → img2 → img3 한 패널 순환)
+                if (state.images[0].loaded && state.images[1].loaded &&
+                    state.comp.img_c.loaded) {
+                    state.comp.blink_active    = !state.comp.blink_active;
+                    state.comp.blink_phase     = 0;
+                    state.comp.blink_countdown = state.blink.interval;
+                }
+            } else if (state.images[0].loaded && state.images[1].loaded) {
                 state.blink.active = !state.blink.active;
                 if (state.blink.active) {
                     // Lockstep alignment: A/B share one viewport; force sync while blinking.
@@ -963,9 +1043,11 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
 
     // ── 블링크 간격 증가 (> = Shift+.) ────────────────────────────────────────
     case SDL_SCANCODE_PERIOD:
-        if (shift && state.blink.active) {
+        if (shift && (state.blink.active || state.comp.blink_active)) {
             state.blink.interval  = std::min(2.0f, state.blink.interval + 0.1f);
             state.blink.countdown = std::min(state.blink.countdown, state.blink.interval);
+            state.comp.blink_countdown =
+                std::min(state.comp.blink_countdown, state.blink.interval);
         }
         break;
 
