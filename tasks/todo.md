@@ -13,9 +13,13 @@
 ## 추가 요청 (2026-07-31)
 - [x] Ctrl/Cmd+B: --comp에서 blk_w x blk_h 블록 그리드 바운더리 표시/숨김 토글
       (3패널 공통, 밝은 시안 라인, 화면상 블록 < 4px면 생략; worst rect는 그대로)
-- [x] Mac 빌드+인스톨 (v0.22-66-g4046e88)
-- [x] Linux 인스톨 (v0.22-66; gcc ICE는 -j2 재시도로 해결 — runbook 함정 추가)
-- [ ] Windows: bin 빌드 완료, LOCALAPPDATA+C:\Windows(UAC) 진행 중
+- [x] Ctrl/Cmd+B → worst 블록 사각형 토글로 정정, 그리드는 Ctrl/Cmd+N으로 이동(보존)
+      — 사용자 수정 반영, lessons.md에 "기존 요소 토글이 기본 해석" 교훈 기록
+- [x] Mac 인스톨 (v0.22-67-g3522707)
+- [x] Linux 인스톨 (v0.22-67; gcc ICE→-j2, NFS busy rsync→--delete 없이 재동기)
+- [x] Windows bin+LOCALAPPDATA (md5 d4eea26f 일치, v0.22-67)
+- [ ] Windows C:\Windows\av.exe — UAC 승인 대기 (현재 v0.22-63; WSL interop 불안정으로
+      팝업 발사 보류. 사용자 조치: 관리자 cmd에서 install-sys.cmd 실행 또는 재발사 요청)
 
 ## Review
 - 설계: 2-이미지 코어(std::array<ImageEntry,2>)는 불변. img3는 CompState.img_c에 분리
