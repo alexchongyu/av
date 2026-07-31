@@ -366,7 +366,7 @@ av [image_a] [image_b] [options]
   inset: (x: 3pt, y: 2pt),
   fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
   [#key("Ctrl+M")],         [Magnifier 토글 (av.ini 영속화)],
-  [커서 호버],               [16×16 영역을 32배 확대 툴팁],
+  [커서 호버],               [16×16 영역 확대 \u{2014} *보이는 모든 패널에 동시 표시* (A\|B, diff 시 +Δ, `--comp` 는 orig\|img2\|img3). 각 확대경 좌상단에 패널 이름표],
   [줌 ≥ 32×],               [자동 숨김 (픽셀이 충분히 큼)],
   [#key("Ctrl") 홀드],      [마우스를 이미지 경계로 제한],
 )

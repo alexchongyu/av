@@ -898,7 +898,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Display", "Ctrl+R",                     "Rotate image CCW 90 degrees" },
         { "Display", "Shift+Space",                "Swap A/B images" },
         { "Display", "M",                          "Toggle crosshair overlay" },
-        { "Display", "Ctrl+M",                     "Toggle magnifier (non-diff mode)" },
+        { "Display", "Ctrl+M",                     "Toggle magnifier - drawn on ALL visible panes at once (A|B, +Diff, or comp orig|img2|img3) for the same pixel" },
         { "Display", "P",                          "Pathfinder: image minimap" },
         { "Display", "Ctrl+P",                     "Pathfinder: schematic mode" },
         // Channel
@@ -1366,6 +1366,14 @@ static void render_diff_listing_window(AppState& state) {
 
 void MainWindow::render(AppState& state) {
     if (!inited_) return;
+
+    // ── Magnifier 소스 픽셀 스냅샷 ────────────────────────────────────────────
+    // 확대경은 보이는 모든 패널에 동시에 뜬다. hover 패널이 이번 프레임에 소스를
+    // 기록하고, 그보다 먼저 그려진 패널은 직전 프레임 값을 쓴다.
+    state.mag_prev_valid = state.mag_src_valid;
+    state.mag_prev_x     = state.mag_src_x;
+    state.mag_prev_y     = state.mag_src_y;
+    state.mag_src_valid  = false;
 
     // ── Dynamic window title ─────────────────────────────────────────────────
     if (state.window) {

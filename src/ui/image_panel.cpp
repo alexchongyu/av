@@ -1525,51 +1525,68 @@ void ImagePanel::render_magnifier(const AppState& state, int panel_idx,
     // Ctrl+M 토글로 모든 모드에서 제어
     // 32x 이상 줌에서는 개별 픽셀이 충분히 크므로 자동 숨김
     const ViewportState& vp = state.views[panel_idx];
-    bool show_mag = img_hovered && vp.zoom < 32.0f && state.magnifier_active;
-    if (!show_mag) return;
+    if (!state.magnifier_active || vp.zoom >= 32.0f) return;
 
     ImGuiIO& io = ImGui::GetIO();
+    (void)io;
     ImVec2 mouse = ImGui::GetMousePos();
-    if (mouse.x < widget_pos.x || mouse.x > widget_pos.x + view_w ||
-        mouse.y < widget_pos.y || mouse.y > widget_pos.y + view_h)
-        return;
-    float half_vw = view_w * 0.5f;
-    float half_vh = view_h * 0.5f;
-    float half_iw = img_w * 0.5f;
-    float half_ih = img_h * 0.5f;
 
-    // Screen → image coordinate
-    float screen_x = mouse.x - widget_pos.x;
-    float screen_y = mouse.y - widget_pos.y;
-    float img_fx = (screen_x - half_vw) / vp.zoom - vp.pan_x + half_iw;
-    float img_fy = (screen_y - half_vh) / vp.zoom - vp.pan_y + half_ih;
+    // ── 소스 픽셀 결정 ───────────────────────────────────────────────────────
+    // 확대경은 보이는 모든 패널에 동시에 뜬다: 마우스가 올라간 패널이 소스 픽셀을
+    // 정하고, 나머지 패널은 같은 이미지 좌표를 자기 픽셀로 확대해 나란히 보여준다.
+    bool mouse_in = img_hovered &&
+                    mouse.x >= widget_pos.x && mouse.x <= widget_pos.x + view_w &&
+                    mouse.y >= widget_pos.y && mouse.y <= widget_pos.y + view_h;
 
-    int center_x = static_cast<int>(std::floor(img_fx));
-    int center_y = static_cast<int>(std::floor(img_fy));
+    int center_x = 0, center_y = 0;
+    if (mouse_in) {
+        float half_vw = view_w * 0.5f;
+        float half_vh = view_h * 0.5f;
+        float half_iw = img_w * 0.5f;
+        float half_ih = img_h * 0.5f;
 
-    if (state.mouse_constrained) {
-        // 제한 모드: 가장자리 1px 밖은 마지막 유효 픽셀로 클램핑
-        center_x = std::clamp(center_x, 0, img_w - 1);
-        center_y = std::clamp(center_y, 0, img_h - 1);
-    } else if (center_x < 0 || center_x >= img_w || center_y < 0 || center_y >= img_h) {
-        return;
+        // Screen → image coordinate
+        float screen_x = mouse.x - widget_pos.x;
+        float screen_y = mouse.y - widget_pos.y;
+        float img_fx = (screen_x - half_vw) / vp.zoom - vp.pan_x + half_iw;
+        float img_fy = (screen_y - half_vh) / vp.zoom - vp.pan_y + half_ih;
+
+        center_x = static_cast<int>(std::floor(img_fx));
+        center_y = static_cast<int>(std::floor(img_fy));
+
+        if (state.mouse_constrained) {
+            // 제한 모드: 가장자리 1px 밖은 마지막 유효 픽셀로 클램핑
+            center_x = std::clamp(center_x, 0, img_w - 1);
+            center_y = std::clamp(center_y, 0, img_h - 1);
+        } else if (center_x < 0 || center_x >= img_w || center_y < 0 || center_y >= img_h) {
+            return;
+        }
+        // 이번 프레임 소스로 기록 (아직 안 그려진 패널은 지연 없이 이 값을 쓴다)
+        state.mag_src_valid = true;
+        state.mag_src_x = center_x;
+        state.mag_src_y = center_y;
+    } else if (state.mag_src_valid) {
+        center_x = state.mag_src_x;  center_y = state.mag_src_y;   // 같은 프레임
+    } else if (state.mag_prev_valid) {
+        center_x = state.mag_prev_x; center_y = state.mag_prev_y;  // 직전 프레임
+    } else {
+        return;                                                    // 어느 패널도 hover 아님
     }
 
-    const int radius = 8;          // ±8 = 16×16 영역
-    const int cell_size = 32;      // 각 픽셀을 32×32로 확대 (32배 줌)
+    const int radius = 8;              // ±8 = 16×16 영역
     const int grid_size = radius * 2;  // 16
-    const float tooltip_size = static_cast<float>(grid_size * cell_size);  // 512
+    // 패널 폭·높이에 맞춰 축소 (2~3패널이 동시에 떠도 서로 겹치지 않게)
+    float mag_size = std::min(512.0f, std::min((float)view_w - 16.0f, (float)view_h - 46.0f));
+    if (mag_size < 112.0f) return;     // 패널이 너무 좁으면 생략
+    const float cell_size = mag_size / (float)grid_size;
+    const float tooltip_size = mag_size;
 
-    // 툴팁 위치: 마우스 오른쪽 아래, 화면 밖으로 나가면 조정
-    float tx = mouse.x + 20.0f;
-    float ty = mouse.y + 20.0f;
-    ImVec2 display_size = io.DisplaySize;
-    if (tx + tooltip_size + 4 > display_size.x)
-        tx = mouse.x - tooltip_size - 20.0f;
-    if (ty + tooltip_size + 4 > display_size.y)
-        ty = mouse.y - tooltip_size - 20.0f;
-    if (tx < 0) tx = 0;
-    if (ty < 0) ty = 0;
+    // 위치: 각 패널의 가로 중앙. 세로는 마우스 반대쪽 절반에 두어 커서를 가리지 않는다
+    // (모든 패널이 같은 판정을 쓰므로 나란히 정렬된다).
+    float tx = widget_pos.x + ((float)view_w - mag_size) * 0.5f;
+    bool mouse_upper = (mouse.y < widget_pos.y + view_h * 0.5f);
+    float ty = mouse_upper ? (widget_pos.y + (float)view_h - mag_size - 32.0f)
+                           : (widget_pos.y + 14.0f);
 
     ImDrawList* dl = ImGui::GetForegroundDrawList();
 
@@ -1704,6 +1721,25 @@ void ImagePanel::render_magnifier(const AppState& state, int panel_idx,
     float cy = ty + radius * cell_size;
     dl->AddRect(ImVec2(cx, cy), ImVec2(cx + cell_size, cy + cell_size),
                 IM_COL32(255, 255, 0, 255), 0.0f, 0, 2.0f);
+
+    // 패널 이름표 — 여러 패널에 동시에 뜨므로 어느 영상인지 구분해 준다
+    const char* pane_name;
+    ImU32 pane_col;
+    if (is_diff_panel) {
+        pane_name = "Diff";                       pane_col = IM_COL32(0, 255, 255, 245);
+    } else if (state.comp.active) {
+        if (state.comp.render_slot < 0)      { pane_name = "orig"; pane_col = IM_COL32(200, 210, 225, 245); }
+        else if (state.comp.render_slot == 1){ pane_name = "img3"; pane_col = IM_COL32(255, 170, 90, 245); }
+        else                                 { pane_name = "img2"; pane_col = IM_COL32(120, 180, 255, 245); }
+    } else {
+        pane_name = (actual_idx == 0) ? "A" : "B";
+        pane_col  = (actual_idx == 0) ? IM_COL32(255, 130, 255, 245) : IM_COL32(255, 230, 110, 245);
+    }
+    ImVec2 pn_sz = ImGui::CalcTextSize(pane_name);
+    dl->AddRectFilled(ImVec2(tx + 2, ty + 2),
+                      ImVec2(tx + pn_sz.x + 10, ty + pn_sz.y + 6),
+                      IM_COL32(0, 0, 0, 200), 3.0f);
+    dl->AddText(ImVec2(tx + 6, ty + 4), pane_col, pane_name);
 
     // 좌표 라벨
     char label[48];

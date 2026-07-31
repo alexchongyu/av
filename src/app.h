@@ -448,6 +448,14 @@ struct AppState {
     // ─── Feature: Magnifier (Ctrl+M toggle, non-diff mode) ────────────────
     bool magnifier_active = true;
     bool mouse_constrained = false;  // SDL mouse rect constraint active
+    // 확대경은 "마우스가 있는 패널"이 아니라 화면에 보이는 모든 패널에 동시에 뜬다.
+    // hover 패널이 이번 프레임에 소스 픽셀을 기록하고, 이미 그려진 다른 패널은 직전
+    // 프레임 스냅샷을 쓴다(1프레임 = comp hover echo와 동일 관례). const 렌더 경로에서
+    // 기록하므로 mutable.
+    mutable bool mag_src_valid = false;   // 이번 프레임 hover 패널이 기록
+    mutable int  mag_src_x = 0, mag_src_y = 0;
+    bool mag_prev_valid = false;          // 프레임 시작 시 스냅샷
+    int  mag_prev_x = 0, mag_prev_y = 0;
 
     // ─── Feature: Pixel Format (Dec / 0xHex / Hexh) ────────────────────────
     PixelFormat pixel_format = PixelFormat::Decimal;
