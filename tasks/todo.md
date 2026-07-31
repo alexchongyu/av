@@ -22,6 +22,17 @@
 - [x] echo 패널 상세 풍선말 (hover와 동일 형식, 자기 통계 — comp_scan_block 온디맨드)
 - [x] 3플랫폼 배포 (v0.22-75-g0f24dd3) 후 자동 push (26b63a9..0f24dd3, 새 규칙 첫 적용)
 
+## 확장 2차 (2026-07-31 오전, 전부 사용자 컨펌 — v0.22-78-g3675a0c)
+- [x] [/] img2 · Shift+[/] img3 패널별 worst 순회 (Tab=병합 유지)
+- [x] Ctrl+D worst 블록 리스트 창 (행 클릭 → 3패널 점프)
+- [x] Statusbar comp 요약 (P2/P3/W2/W3/T 상시)
+- [x] --blk-metric rgb|y|chroma (검증: metric별 #1 역전) + 풍선말 rank metric 표기
+- [x] 스파이크 하이브리드 선정 75%+25% (마젠타 P 박스; 검증 12+4)
+- [x] --comp-batch 프레임별 요약 CSV (검증: 스왑 미러 정확)
+- [x] S=img2↔img3 스왑, G=그리드(Ctrl+N에서 이동), --grid [WxH|N] 기본 16x16
+- [x] win-install.sh: C:\Windows 무UAC 배포 기본화 (av_sys_install 태스크)
+- [x] 3플랫폼 v0.22-78 배포 + 자동 push
+
 ## 추가 요청 (2026-07-31)
 - [x] Ctrl/Cmd+B: --comp에서 blk_w x blk_h 블록 그리드 바운더리 표시/숨김 토글
       (3패널 공통, 밝은 시안 라인, 화면상 블록 < 4px면 생략; worst rect는 그대로)
