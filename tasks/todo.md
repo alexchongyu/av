@@ -55,3 +55,26 @@
 - 커밋: 733136d(기능) + a9b95a9(startup 요약). 푸시는 지시 대기.
 - 한계: --software 렌더 경로에도 오버레이 후킹은 넣었으나 육안 확인은 GL 경로만.
   3번째 패널 hover 시 Shift+V 콜러메트리 풍선말은 A/B 값을 표시(C 아님) — 추후 개선 후보.
+
+## 2026-07-31 세션 잔여 작업 (다음 세션 최우선)
+
+- [ ] **demura(Windows) 빌드 디렉토리 복구 후 재배포** — `build/ZERO_CHECK.vcxproj not found`,
+      `SDL_build_config.h not found`로 `win-build-wsl.sh` 실패. `C:\Windows\av.exe`가
+      md5 `2c3d3e5b…` = v0.22-80-g096f41f에 정체. 소스는 최신 sync 완료.
+      복구: `rm -rf build && bash script/win-build-wsl.sh && bash script/win-install.sh`
+      (오프라인이면 `_deps` 보존하고 CMakeCache만 삭제 후 재구성)
+- [ ] **치트시트 오류 수정** (매뉴얼 집필 중 소스 대조로 발견)
+  - [ ] `0` 키는 fit이 아니라 **1:1(100%) + 센터** (`zoom = 2^key_num`). 핫키 창
+        entries[]의 `{"Zoom","0","Fit to window"}` 와 View 메뉴 단축키 힌트도 부정확
+  - [ ] `1`~`8`은 `2×`~`256×` (치트시트의 "1×~256×" 표기 오류)
+  - [ ] ini 경로는 `av.ini`가 아니라 **`~/.av.ini`**
+  - [ ] JPEG **EXIF 방향 자동 적용은 미구현** (stb_image에 해당 코드 없음)
+  - [ ] `Ctrl+D`는 diff 끄기가 아니라 **diff 픽셀 리스트 창 토글**
+  - [ ] 지원 확장자 실체는 8종, `.pnm` 확장자는 목록에 없음
+- [ ] Magnifier 후속: SSIM/FLIP GL 패널은 fake ImageEntry(pixels 비어 있음)라
+      확대경이 검게 뜬다. `!is_diff_panel && img.pixels.empty()`면 생략하는 가드 추가 검토
+- [ ] overlay/blend·curtain 및 SW heatmap 경로는 확대경 호출 자체가 없음 (기존 동작)
+
+### 완료 (2026-07-31)
+- [x] Magnifier 전 패널 동시 표시 (`b439fee`) — Mac·Linux 설치 완료, push 완료
+- [x] AV User's Manual 263쪽 typst+PDF (`6670fc3`) — 11장 + cetz 그림 13개
