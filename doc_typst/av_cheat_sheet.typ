@@ -206,7 +206,7 @@ av [image_a] [image_b] [options]
   [#key("Ctrl+G")],    [블록 PSNR 히트맵 (노랑→빨강=나쁨, 50dB↑ 투명)],
   [#key("Ctrl+D")],    [worst 블록 리스트 창 — 행 클릭 시 3패널 점프],
   [#key("S")],         [img2 ↔ img3 패널 위치 스왑 (통계도 추종)],
-  [#key("Tab")],       [worst 블록 순회 (양쪽 병합, 심각도순) — 3패널 자동 센터+줌, #key("Shift+Tab") 역방향],
+  [#key("Tab")],       [worst 블록 순회 — *마우스가 있는 패널*의 블록만 (원본/밖=양쪽 병합, 심각도순). 3패널 자동 센터+줌, #key("Shift+Tab") 역방향],
   [#key("[") / #key("]")],  [img2(중간)의 worst 블록만 이전/다음],
   [#key("{") / #key("}")],  [img3(오른쪽)의 worst 블록만 이전/다음 (Shift+\[ \])],
   [#key(",")],         [3\-way 블링크: 원본→img2→img3 한 패널 순환 (#key("<")/#key(">") 간격)],

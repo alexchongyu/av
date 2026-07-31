@@ -313,11 +313,13 @@ struct CompState {
     // Ctrl/Cmd+D (comp 모드): worst 블록 리스트 창 (행 클릭 → 3패널 점프)
     bool show_comp_list = false;
 
-    // Tab/Shift+Tab: worst 블록 순회 (두 리스트 병합, mse 내림차순). 선택 블록은
+    // Tab/Shift+Tab: worst 블록 순회. 마우스가 img2/img3 패널 위에 있으면 그
+    // 패널의 블록만, 원본 패널·패널 밖이면 병합(mse 내림차순) 순회. 선택 블록은
     // 3패널 모두에 흰 박스로 표시되고 뷰포트가 자동 센터된다.
-    // [/]=img2만, Shift+[/]=img3만 순회 (cycle_scope: -1=병합, 0=img2, 1=img3).
+    // [/]=img2만, Shift+[/]=img3만 명시 순회 (cycle_scope: -1=병합, 0=img2, 1=img3).
     int cycle_pos   = -1;            // -1 = 선택 없음
     int cycle_scope = -1;
+    int mouse_pane  = -1;            // 이번 프레임 마우스가 위치한 패널 (main_window가 갱신)
     int sel_slot = -1;               // 선택 블록의 패널 (0=img2, 1=img3)
     int sel_rank = 0;                // 해당 패널 내 순위 (1-base)
     int sel_x = 0, sel_y = 0, sel_w = 0, sel_h = 0;

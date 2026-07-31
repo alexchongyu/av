@@ -1010,7 +1010,8 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
     case SDL_SCANCODE_TAB:
         if (state.comp.active && state.comp.computed &&
             (!state.comp.worst2.empty() || !state.comp.worst3.empty())) {
-            comp_cycle_select(state, shift ? -1 : +1, -1);   // 병합 심각도순
+            // 마우스가 img2/img3 패널 위면 그 패널만, 아니면 병합 심각도순
+            comp_cycle_select(state, shift ? -1 : +1, state.comp.mouse_pane);
         } else {
             state.active_panel = 1 - state.active_panel;
         }

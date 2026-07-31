@@ -959,7 +959,7 @@ static void render_hotkey_help_window(AppState& state) {
         { "Comp", "Ctrl+G",                        "Block-PSNR heatmap on img2/img3 (yellow->red = worse, 50dB+ clear)" },
         { "Comp", "Ctrl+D",                        "Worst-block list window (click a row to jump all panes)" },
         { "Comp", "S",                             "Swap img2 <-> img3 panes (stats follow)" },
-        { "Comp", "Tab / Shift+Tab",               "Cycle worst blocks of BOTH images merged (severity order); all panes jump+zoom" },
+        { "Comp", "Tab / Shift+Tab",               "Cycle worst blocks of the pane under the mouse (img2 or img3); elsewhere: both merged, severity order" },
         { "Comp", "[ / ]",                         "Cycle img2(mid)'s worst blocks only (prev / next)" },
         { "Comp", "Shift+[ / Shift+]",             "Cycle img3(right)'s worst blocks only (prev / next)" },
         { "Comp", ",",                             "3-way blink: orig -> img2 -> img3 in one pane (< / > = interval)" },
@@ -1637,6 +1637,7 @@ void MainWindow::render(AppState& state) {
         state.swap_images    = false;
         state.blink.active   = false;
         state.overlay.active = false;
+        state.comp.mouse_pane = -1;   // 3-패널 레이아웃 브랜치가 매 프레임 갱신
     }
 
     bool diff_mode    = (state.diff.mode != DiffState::Mode::None);
@@ -1757,6 +1758,19 @@ void MainWindow::render(AppState& state) {
         state.comp.render_slot = -1;
         ImGui::EndChild();
         ImGui::PopStyleVar();
+
+        // Tab 순회 범위: 마우스가 위치한 패널 (-1=원본/밖, 0=img2, 1=img3)
+        {
+            ImVec2 m  = ImGui::GetMousePos();
+            float  mx = m.x - panels_origin.x;
+            float  my = m.y - panels_origin.y;
+            int mp = -1;
+            if (my >= 0.0f && my < panel_h && mx >= 0.0f && mx < content.x) {
+                if      (mx >= 2.0f * third_w) mp = 1;
+                else if (mx >= third_w)        mp = 0;
+            }
+            state.comp.mouse_pane = mp;
+        }
     } else if (two_images && diff_mode) {
         // ── 3-panel: A | B | Diff ────────────────────────────────────────────
         float third_w = std::floor(content.x / 3.0f);
