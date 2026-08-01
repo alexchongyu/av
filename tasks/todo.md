@@ -58,23 +58,27 @@
 
 ## 2026-07-31 세션 잔여 작업 (다음 세션 최우선)
 
-- [ ] **demura(Windows) 빌드 디렉토리 복구 후 재배포** — `build/ZERO_CHECK.vcxproj not found`,
-      `SDL_build_config.h not found`로 `win-build-wsl.sh` 실패. `C:\Windows\av.exe`가
-      md5 `2c3d3e5b…` = v0.22-80-g096f41f에 정체. 소스는 최신 sync 완료.
-      복구: `rm -rf build && bash script/win-build-wsl.sh && bash script/win-install.sh`
-      (오프라인이면 `_deps` 보존하고 CMakeCache만 삭제 후 재구성)
+- [x] **demura(Windows) 재배포 완료** — 실은 세션 종료 직전 빌드가 성공해 있었고
+      (`/tmp/wbuild.log` = `EXIT=0`) install 단계만 안 돌았던 것. 이후 정상 재빌드까지 확인.
+      → 3곳 md5 `afcf8ffc…` = v0.22-84-ga3e335c
 - [ ] **치트시트 오류 수정** (매뉴얼 집필 중 소스 대조로 발견)
-  - [ ] `0` 키는 fit이 아니라 **1:1(100%) + 센터** (`zoom = 2^key_num`). 핫키 창
-        entries[]의 `{"Zoom","0","Fit to window"}` 와 View 메뉴 단축키 힌트도 부정확
-  - [ ] `1`~`8`은 `2×`~`256×` (치트시트의 "1×~256×" 표기 오류)
-  - [ ] ini 경로는 `av.ini`가 아니라 **`~/.av.ini`**
-  - [ ] JPEG **EXIF 방향 자동 적용은 미구현** (stb_image에 해당 코드 없음)
-  - [ ] `Ctrl+D`는 diff 끄기가 아니라 **diff 픽셀 리스트 창 토글**
-  - [ ] 지원 확장자 실체는 8종, `.pnm` 확장자는 목록에 없음
-- [ ] Magnifier 후속: SSIM/FLIP GL 패널은 fake ImageEntry(pixels 비어 있음)라
+  - [x] `0`/`Space` 중복 해소 — 사용자 결정으로 **코드 변경**: `Space` = fit,
+        `0` = 1:1(100%). 핫키 창·View 메뉴 힌트·치트시트·매뉴얼 모두 동기화
+  - [x] `1`~`8`은 `2×`~`256×` (치트시트의 "1×~256×" 표기 오류)
+  - [x] ini 경로는 `av.ini`가 아니라 **`~/.av.ini`**
+  - [x] JPEG **EXIF 방향 자동 적용은 미구현** (stb_image에 해당 코드 없음)
+  - [x] `Ctrl+D`는 diff 끄기가 아니라 **diff 픽셀 리스트 창 토글**
+  - [x] 지원 확장자 실체는 8종, `.pnm` 확장자는 목록에 없음
+- [x] Magnifier 후속: SSIM/FLIP GL 패널은 fake ImageEntry(pixels 비어 있음)라
       확대경이 검게 뜬다. `!is_diff_panel && img.pixels.empty()`면 생략하는 가드 추가 검토
 - [ ] overlay/blend·curtain 및 SW heatmap 경로는 확대경 호출 자체가 없음 (기존 동작)
 
 ### 완료 (2026-07-31)
 - [x] Magnifier 전 패널 동시 표시 (`b439fee`) — Mac·Linux 설치 완료, push 완료
 - [x] AV User's Manual 263쪽 typst+PDF (`6670fc3`) — 11장 + cetz 그림 13개
+
+### 완료 (2026-08-01)
+- [x] Windows 재배포 — 3플랫폼 모두 `v0.22-84-ga3e335c`
+- [x] `Space` = fit-to-window 로 변경 (`0` = 1:1 유지) + 문서 4곳 동기화
+- [x] 치트시트 오류 6건 수정 (Ctrl+D · JPEG EXIF · ~/.av.ini · 1~8 배율 · PNM 확장자 · 0/Space)
+- [x] Magnifier: SSIM/FLIP 가짜 엔트리 패널은 확대경 생략 (검은 사각형 방지)
