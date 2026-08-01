@@ -995,14 +995,15 @@ void handle_keyboard(AppState& state, int scancode, bool ctrl, bool shift, bool 
         }
         break;
 
-    // ── A/B swap / 1:1 zoom ───────────────────────────────────────────────────
+    // ── A/B swap / fit to window ──────────────────────────────────────────────
+    // Space = 창에 맞춤(fit). 1:1(100%)은 0 키가 담당한다 (2^0 = 1).
     case SDL_SCANCODE_SPACE:
         if (shift && state.images[0].loaded && state.images[1].loaded) {
             state.swap_images = !state.swap_images;
         } else {
-            viewport_set_zoom(vA, 1.0f);
+            vA.fit = true;
             viewport_center(vA);
-            if (state.sync_viewports) { viewport_set_zoom(vB, 1.0f); viewport_center(vB); }
+            if (state.sync_viewports) { vB.fit = true; viewport_center(vB); }
         }
         break;
 

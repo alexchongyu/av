@@ -141,10 +141,10 @@ av [image_a] [image_b] [options]
   [#key("+") / #key("-")],        [줌 인 / 줌 아웃],
   [#key("Z") / #key("Shift+Z")], [줌 인 / 줌 아웃 (대체)],
   [#key("X")],                   [줌 아웃 (#key("Z")/#key("X") 쌍)],
-  [#key("0")],                    [Fit to window],
-  [#key("1")\~#key("8")],        [2#super[n] 배율 (1×\~256×)],
+  [#key("0")],                    [1:1 (100%) + 중앙 정렬],
+  [#key("1")\~#key("8")],        [2#super[n] 배율 (#key("1")=2× \~ #key("8")=256×)],
   [#key("F")],                    [Fit 토글],
-  [#key("Space")],                [1:1 (100%) 토글],
+  [#key("Space")],                [*Fit to window* + 중앙 정렬],
 )
 
 *이동*
@@ -166,7 +166,7 @@ av [image_a] [image_b] [options]
   stroke: none,
   inset: (x: 3pt, y: 1.5pt),
   fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
-  [#key("Ctrl+D")], [None (diff 끄기)],
+  [#key("Ctrl+D")], [Diff 픽셀 리스트 창 토글 (`--comp` 에서는 worst 블록 리스트)],
   [#key("Ctrl+0")], [FLIP 지각 오차맵 (magma)],
   [#key("Ctrl+1")], [Signed 부호차 (파랑=A\<B / 빨강=A>B)],
   [#key("Ctrl+2")], [Alpha Blend (A·B 혼합)],
@@ -329,7 +329,7 @@ av [image_a] [image_b] [options]
   inset: (x: 3pt, y: 1.5pt),
   fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
   [#key("W")],             [윈도우 모드 토글 (타이틀바)],
-  [#key("B")],             [패널 테두리 토글 (`av.ini` 영속화)],
+  [#key("B")],             [패널 테두리 토글 (`~/.av.ini` 영속화)],
   [#key("S")],             [줌/팬 동기화 토글],
   [#key("Tab")],           [패널 전환],
   [#key("Shift+Space")],   [A/B 이미지 스왑],
@@ -365,7 +365,7 @@ av [image_a] [image_b] [options]
   stroke: none,
   inset: (x: 3pt, y: 2pt),
   fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
-  [#key("Ctrl+M")],         [Magnifier 토글 (av.ini 영속화)],
+  [#key("Ctrl+M")],         [Magnifier 토글 (`~/.av.ini` 영속화)],
   [커서 호버],               [16×16 영역 확대 \u{2014} *보이는 모든 패널에 동시 표시* (A\|B, diff 시 +Δ, `--comp` 는 orig\|img2\|img3). 각 확대경 좌상단에 패널 이름표],
   [줌 ≥ 32×],               [자동 숨김 (픽셀이 충분히 큼)],
   [#key("Ctrl") 홀드],      [마우스를 이미지 경계로 제한],
@@ -382,11 +382,11 @@ av [image_a] [image_b] [options]
   inset: (x: 3pt, y: 2pt),
   fill: (_, y) => if calc.odd(y) { luma(248) } else { white },
   [*PNG*],         [8/16\-bit, 알파 지원],
-  [*JPEG*],        [표준 손실 압축, EXIF 방향 자동 적용],
+  [*JPEG*],        [표준 손실 압축 (EXIF 방향 자동 적용 없음 \u{2014} #key("R") 로 수동 회전)],
   [*BMP*],         [비트맵 (Windows)],
   [*TGA*],         [Targa, 알파 채널 지원],
   [*HDR*],         [Radiance RGBE (float)],
-  [*PNM P5/P6*],   [PGM/PPM Binary (자체 파서, 16\-bit 원본값 보존)],
+  [*PNM P5/P6*],   [PGM/PPM Binary (자체 파서, 16\-bit 원본값 보존). 확장자는 `.pgm`\/`.ppm` 만 인식],
   [*PNM P2/P3*],   [PGM/PPM ASCII (자체 파서, 원본값 보존)],
 )
 
@@ -413,7 +413,7 @@ av [image_a] [image_b] [options]
   [Hex 0x],  [`0x80` (C\-style)],
   [Hex h],   [`80h` (Intel/ASM\-style)],
 )
-설정은 `av.ini`에 `pixel_format=0|1|2`로 영속화.
+설정은 `~/.av.ini` 에 `pixel_format=0|1|2` 로 영속화.
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SECTION 6: 헤드리스 CLI (CI / 스크립트)

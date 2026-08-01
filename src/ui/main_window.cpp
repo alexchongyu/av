@@ -649,12 +649,12 @@ void MainWindow::render_menubar(AppState& state) {
 
     // ── View ──────────────────────────────────────────────────────────────────
     if (ImGui::BeginMenu("View")) {
-        if (ImGui::MenuItem("Fit to Window", "0")) {
+        if (ImGui::MenuItem("Fit to Window", "Space / F")) {
             auto& a = state.images[0]; auto& b = state.images[1];
             if (a.loaded) state.views[0].fit = true;
             if (b.loaded) state.views[1].fit = true;
         }
-        if (ImGui::MenuItem("1:1 Pixel", "1")) {
+        if (ImGui::MenuItem("1:1 Pixel", "0")) {
             state.views[0].zoom = 1.0f;
             state.views[1].zoom = 1.0f;
             viewport_center(state.views[0]);
@@ -881,10 +881,10 @@ static void render_hotkey_help_window(AppState& state) {
         { "Zoom", "- / Numpad-",                   "Zoom out (/2)" },
         { "Zoom", "Z",                             "Zoom in" },
         { "Zoom", "Shift+Z",                       "Zoom out" },
-        { "Zoom", "0",                             "Fit to window" },
-        { "Zoom", "1~8",                           "Zoom level 2^n (1=2x, 2=4x, ... 8=256x)" },
+        { "Zoom", "0",                             "1:1 zoom (100%) + center" },
+        { "Zoom", "1~8",                           "Zoom level 2^n (1=2x, 2=4x, ... 8=256x); 9 is unused" },
         { "Zoom", "F",                             "Toggle fit-to-window" },
-        { "Zoom", "Space",                         "1:1 zoom + center" },
+        { "Zoom", "Space",                         "Fit to window + center" },
         { "Zoom", "Mouse Wheel",                   "Zoom in/out" },
         { "Zoom", "Mouse Right Drag",              "Zoom to selection" },
         // Display

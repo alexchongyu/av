@@ -1527,6 +1527,14 @@ void ImagePanel::render_magnifier(const AppState& state, int panel_idx,
     const ViewportState& vp = state.views[panel_idx];
     if (!state.magnifier_active || vp.zoom >= 32.0f) return;
 
+    // SSIM/FLIP 히트맵 패널은 텍스처만 든 가짜 ImageEntry로 그려지므로 CPU 픽셀이
+    // 없다. 그대로 두면 확대경이 새까만 사각형으로 뜬다 → 그 패널만 건너뛴다.
+    if (!is_diff_panel) {
+        int src_idx = state.swap_images ? (1 - panel_idx) : panel_idx;
+        const ImageEntry& src = state.images[src_idx];
+        if (!src.loaded || src.pixels.empty()) return;
+    }
+
     ImGuiIO& io = ImGui::GetIO();
     (void)io;
     ImVec2 mouse = ImGui::GetMousePos();
